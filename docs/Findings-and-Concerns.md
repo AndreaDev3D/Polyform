@@ -1,0 +1,304 @@
+# Findings and Concerns — Engineering Risk Register
+
+**Project:** Polyform v0.1
+**Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
+
+This is the honest ledger of where v0.1 cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the v0.1 feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes.
+
+Severity scale: **High** — can lose user data or block core workflows; **Med** — visible quality/performance defects in normal use; **Low** — edge-case or cosmetic, acceptable for v0.1 with disclosure.
+
+| # | Finding | Severity |
+| :-- | :-- | :-- |
+| [F-01](#f-01) | Canvas2D performance ceiling | Med (High at scale) |
+| [F-02](#f-02) | Text fidelity gaps without HarfBuzz | Med |
+| [F-03](#f-03) | Boolean precision on curves | Med |
+| [F-04](#f-04) | Stroke-align approximation artifacts | Low |
+| [F-05](#f-05) | sql.js memory-resident DB + persistence/corruption | High |
+| [F-06](#f-06) | Electron packaging pitfalls (asar + WASM) | High (at release time) |
+| [F-07](#f-07) | Autosave vs data-loss windows | Med |
+| [F-08](#f-08) | Undo journal growth and compaction | Med |
+| [F-09](#f-09) | .poly portability caveats (fonts not embedded) | Med |
+| [F-10](#f-10) | Future auto-update security | High (deferred, groundwork now) |
+| [F-11](#f-11) | Memory for large images | Med |
+
+---
+
+<a id="f-01"></a>
+## F-01. Canvas2D performance ceiling — and when WebGPU stops being optional
+
+**Severity: Med** today; **High** once documents grow past v0.1-typical sizes.
+
+### The problem
+
+Canvas2D (ADR-003) is GPU-composited, but the *issuing* of draw commands is single-threaded JavaScript, and Skia's Canvas2D path re-rasterizes on state changes. Costs stack in three places:
+
+1. **Per-draw-call JS overhead.** Each shape is a sequence of context calls (`save`, `transform`, `beginPath`, path verbs, `fill`, `restore`). At ~5,000+ visible nodes per frame this alone approaches the 16 ms budget, independent of pixel work.
+2. **Fill-rate and effect cost.** `filter: blur(...)` (layer blur) and `shadowBlur` (drop shadow) trigger expensive intermediate-surface rasterization. A handful of large blurred layers on a 4K display can halve frame rate on integrated GPUs.
+3. **No incremental repaint.** The v0.1 loop repaints the full viewport when the scene version bumps (ADR-010). Viewport culling via the rbush R-tree keeps *off-screen* work at zero, but everything on screen redraws.
+
+### What holds it up in practice
+
+Viewport culling + spatial index means performance tracks *visible* complexity, not document size. Typical v0.1 documents (hundreds to low-thousands of visible nodes, few large blur effects) hold 60 fps comfortably.
+
+### When WebGPU becomes mandatory
+
+Concrete triggers, in expected order of arrival:
+
+* Sustained frame time > 16 ms with the profiler showing draw-call issue time (not engine logic) dominating — expected around 5–10k visible nodes.
+* Multiple full-screen blur/shadow effects on 4K displays (design-system hero screens are the realistic case).
+* Features Canvas2D cannot express: inner shadow, background blur, the full blend-mode set, HarfBuzz-shaped subpixel glyph runs (F-02).
+
+### Mitigation
+
+* **Now:** viewport culling (shipped); pixel grid only above zoom threshold (shipped); keep `IRenderer` the sole context toucher so backend swap stays clean (ADR-003).
+* **Cheap next steps before WebGPU:** dirty-rect repaint regions; offscreen-canvas caching of effect-heavy subtrees keyed by node version; render-during-interaction degradation (drop shadows/blurs while dragging, restore on release).
+* **Structural fix:** WebGPU backend behind `IRenderer` (planned, not yet). Begin the spike when any trigger above reproduces on a real user document.
+
+---
+
+<a id="f-02"></a>
+## F-02. Text fidelity gaps without HarfBuzz
+
+**Severity: Med** — correctness is fine for UI-design text in Latin scripts; fidelity and internationalization are not.
+
+### The problem
+
+v0.1 shapes and measures text with Canvas2D (`measureText` + `fillText`), which delegates to Chromium's text stack but exposes **no shaping control**:
+
+* **Ligatures / OpenType features:** no way to toggle `liga`, `ss01`, tabular figures, etc. Chromium applies its defaults; the user cannot override, and defaults may differ from what Figma showed them for the same font.
+* **Kerning:** applied by Chromium per-run, but Polyform's letter-spacing implementation interacts with it crudely (spacing is applied uniformly, which breaks kern pairs at nonzero tracking).
+* **RTL and bidi:** `fillText` handles simple RTL runs, but Polyform's caret placement, selection geometry, and line-breaking in the edit overlay assume LTR visual order. Mixed-direction text will select and edit incorrectly.
+* **Emoji and complex scripts:** color emoji render (Chromium handles fallback), but cluster-aware caret movement is approximated; Indic/Arabic contextual forms render correctly only because Chromium shapes them — Polyform's per-character measurement of those runs is wrong, so cursor positions inside shaped clusters drift.
+* **Cross-version stability:** shaping output can shift between Chromium (Electron) upgrades, subtly re-flowing documents. Layout is not pinned to a shaping engine version.
+
+### Mitigation
+
+* **Now:** be honest in docs and UI — no OpenType feature UI is exposed (nothing pretends to work); auto-resize and alignment use whole-run `measureText`, which is reliable for the supported cases; keep all text measurement behind the engine's text-metrics API so the shaping engine is swappable.
+* **Planned fix:** HarfBuzz (WASM) shaping producing positioned-glyph runs consumed by `IRenderer`, giving deterministic, version-pinned, feature-controllable shaping — scheduled alongside the WebGPU glyph pipeline (spec §5). Variable fonts and OpenType feature UI ride on this.
+* **Do-not-do:** do not build caret/bidi logic on top of Canvas2D metrics beyond current scope; that work would be thrown away when HarfBuzz lands.
+
+---
+
+<a id="f-03"></a>
+## F-03. Boolean precision on curves
+
+**Severity: Med** — output is correct in topology, approximate in geometry.
+
+### The problem
+
+Boolean groups flatten beziers to polylines before clipping (ADR-007). Consequences:
+
+* **Faceting:** curved edges in boolean output are many short line segments. Invisible at typical zoom; visible at high zoom and in scaled-up exports.
+* **Point-count inflation:** SVG export of boolean results emits the flattened polygons — file sizes balloon and downstream editors show dense vertex chains instead of clean curves.
+* **Tolerance coupling:** flattening tolerance is chosen for display fidelity; PNG export at 4x can expose facets that were subpixel at 1x.
+* **Numeric edge cases:** near-tangent curves may flatten into slivers that survive as degenerate polygons in the result.
+
+The non-destructive structure (children preserved, result computed on evaluation) contains the blast radius: no user geometry is destroyed, and a better evaluator retroactively improves every existing document.
+
+### Mitigation
+
+* **Now:** zoom/scale-aware flattening tolerance (tighter when the evaluation feeds a high-resolution export); post-clip collinear-point simplification to cut point counts; documented as a known approximation.
+* **Planned fix:** exact bezier CSG in the Rust core (kurbo-style curve intersection or Skia PathOps via WASM) as one of the first phase-2 modules — ADR-007's revisit criteria.
+* **Watch:** user reports of visible faceting in exports are the promotion trigger to High.
+
+---
+
+<a id="f-04"></a>
+## F-04. Stroke-align approximation artifacts
+
+**Severity: Low** — cosmetic, bounded, and disclosed.
+
+### The problem
+
+Canvas2D only strokes center-aligned. Polyform approximates **inside** by clipping a double-width stroke to the shape's fill region, and **outside** by clipping it to the region's complement. Known artifacts:
+
+* **Corner joins:** miters/rounds are computed for the double-width center stroke *then* clipped, so sharp corners can differ subtly from a true inside/outside offset (slightly clipped miters, asymmetric round joins).
+* **Dashed strokes:** dash pattern lengths are measured along the center path; on inside/outside alignment the visual dash rhythm at tight curves deviates from a true offset path.
+* **Open paths:** inside/outside alignment on open paths (lines, unclosed pen paths) is geometrically ill-defined; Polyform falls back to center, which is the correct product answer but a silent one.
+* **Effects interaction:** drop shadow is derived from the shape geometry, not the clipped stroke silhouette, so shadows of outside-aligned strokes hug the shape slightly too closely.
+
+### Mitigation
+
+* **Now:** the approximation is pixel-accurate for the dominant cases (rectangles, ellipses, closed shapes at moderate stroke weights); inspector labels the behavior honestly (docs mark align as "approx").
+* **Planned fix:** true offset-path stroking arrives with the exact-geometry work in the Rust core (same machinery as F-03) or with a WebGPU stroker; no interim JS offset-path implementation is planned — the corner cases (self-intersecting offsets) are the hard part and would be rebuilt anyway.
+
+---
+
+<a id="f-05"></a>
+## F-05. sql.js memory-resident database — persistence and corruption strategy
+
+**Severity: High** — this is a data-durability surface; treated accordingly.
+
+### The problem
+
+sql.js (ADR-005) holds `history.sqlite` entirely in WASM memory. Three distinct risks:
+
+1. **Persistence granularity.** The on-disk file only advances when Polyform exports the DB image. Crash between exports loses journal entries written since the last export (bounded by F-07's autosave cadence).
+2. **Torn writes.** Naively overwriting `history.sqlite` in place means a crash mid-write leaves a half-old/half-new byte soup that SQLite cannot open — silently destroying *all* history, not just recent entries.
+3. **Memory footprint.** The full journal occupies renderer memory for the life of the document (compounds with F-08 growth and F-11 image memory).
+
+### Mitigation (shipped)
+
+* **Atomic tmp+rename writes, always.** Every persistence path (scene.bin, manifest.json, history.sqlite) writes to a temp file in the same directory, flushes, then renames over the target. Rename-in-same-directory is atomic on NTFS, APFS, and ext4 — the on-disk file is always either the complete old version or the complete new version, never a tear.
+* **Open-time validation.** On load, the SQLite header magic and a lightweight integrity probe run before the journal is trusted; a corrupt journal is quarantined (renamed `history.sqlite.corrupt-<timestamp>`) and a fresh journal is started — **the scene itself is never held hostage by history**, because `scene.bin` is the document of record and history is additive.
+* **Export coupling:** the DB image is exported on the same cadence as autosave (30 s) and on explicit Save/Save As/close, so journal and scene can't drift far apart.
+
+### Residual risk and roadmap
+
+* Journal entries inside the last autosave window are lost on hard crash (accepted; see F-07).
+* If memory residency becomes a real ceiling (F-08 metrics), options in order: aggressive compaction, journal segmentation (cold segments on disk only), then a native/Rust SQLite driver — ADR-005's revisit.
+
+---
+
+<a id="f-06"></a>
+## F-06. Electron packaging pitfalls — asar and `sql-wasm.wasm`
+
+**Severity: High at release time** — the classic failure is an app that works in dev and dies on first launch when installed.
+
+### The problem
+
+Electron packs app sources into an `asar` archive. Two landmines for Polyform specifically:
+
+1. **`sql-wasm.wasm` inside asar.** sql.js loads its WASM binary via a file fetch at runtime. Paths inside asar are virtual — WASM streaming/instantiation from an asar-internal path fails or silently falls back depending on loader behavior. The binary must be **asar-unpacked** (`asarUnpack`/`extraResources`) and located via a runtime-resolved path (`app.getAppPath()` + unpacked-dir rewrite), not a dev-relative URL.
+2. **Dev/prod path drift.** electron-vite dev serves the renderer from a dev server; production serves from `file://`-adjacent packaged paths. Anything that resolves the WASM binary, default assets, or the sqlite journal with a path computed at build time will differ between the two. CSP and `file://` fetch rules also differ.
+
+Adjacent pitfalls tracked with them: native menu/accelerator registration differing across platforms; Windows installer paths with spaces breaking naive path concatenation; per-platform userData locations for recents/settings.
+
+### Mitigation
+
+* **Now:** `sql-wasm.wasm` declared in asar-unpack config with a single `resolveWasmPath()` helper used everywhere (one place to fix, one place to test); packaging smoke test in CI — build the installer artifact, launch it headlessly, create/save/reopen a document, and assert history survives (this one test catches the entire class).
+* **Rule:** every runtime-loaded binary asset added later (HarfBuzz WASM, CanvasKit, future Rust core `.wasm`) goes through the same resolver and the same smoke test. The failure mode recurs with every new WASM module if this isn't habitual.
+* **CI groundwork (shipping now):** GitHub Actions builds installers for all three platforms on every tag, so packaging breakage is caught per-commit-to-release, not at release day.
+
+---
+
+<a id="f-07"></a>
+## F-07. Autosave vs data-loss windows
+
+**Severity: Med** — bounded loss, but users judge design tools harshly on this.
+
+### The problem
+
+Autosave runs every **30 seconds** (plus on explicit save and window close). The loss windows:
+
+* **Hard crash / power loss:** up to 30 s of scene edits and journal entries vanish. For fast-working designers that can be a nontrivial burst of work.
+* **Save-in-progress crash:** covered by F-05's atomic tmp+rename — no torn files, worst case is the previous complete state.
+* **Scene/journal skew:** scene.bin and history.sqlite are exported on the same cadence but not in a single atomic transaction across both files. A crash between the two renames can leave a scene newer than its journal tail (harmless — undo just starts from the loaded state) or a journal referencing patches ahead of the scene (detected at load via the scene version stamp recorded with each journal entry; trailing orphan entries are dropped).
+
+Also worth naming: autosave writes the *document*, silently — there is no separate "unsaved changes" recovery file, so "I didn't mean to do that and the app crashed after autosave" is not recoverable beyond undo (which, mitigatingly, *does* survive restart by design).
+
+### Mitigation
+
+* **Now:** 30 s cadence + save-on-close + atomic writes + load-time skew reconciliation (above); dirty-flag tracking off the patch stream (ADR-010) means autosave is a no-op when idle — no gratuitous disk churn or thumbnail invalidation.
+* **Cheap improvements queued:** event-driven autosave debounce (save N seconds after the *last* mutation rather than fixed-interval, shrinking the practical window during active editing); journal-first ordering (export journal before scene) so the recoverable direction of skew is the one that always occurs.
+* **Position:** session-spanning undo is the real safety net — even "lost" intent inside the window is usually one restart + Ctrl+Z away from irrelevant, and that property should be protected above all in future changes.
+
+---
+
+<a id="f-08"></a>
+## F-08. Undo journal growth and compaction strategy
+
+**Severity: Med** — unbounded today; growth rate is the price of ADR-008's durability wins.
+
+### The problem
+
+Patch-based entries (ADR-008) store before *and* after values, and deletions store entire serialized subtrees. Unlimited, session-spanning history means `history.sqlite` grows monotonically for the life of the document. Hotspots:
+
+* **High-frequency gestures:** an uncoalesced drag would write a patch per mousemove.
+* **Delete-heavy workflows:** deleting a large frame writes its whole subtree into the journal.
+* **Image-adjacent churn:** patches reference asset hashes (small), but repeated paste/delete of big subtrees still bulks the log.
+* Growth hits twice: disk (`.poly` size, F-09 portability) and memory (sql.js residency, F-05).
+
+### Mitigation
+
+* **Now (shipped):** gesture coalescing — a drag/resize/rotate/nudge-run commits **one** journal entry (original before, final after) at gesture end, not per-event. This alone removes the dominant growth term.
+* **Compaction strategy (design settled, implementation staged):**
+  1. **Segment + checkpoint:** periodically record a scene checkpoint marker; entries older than the last N checkpoints become a "cold" segment.
+  2. **Cold-segment squashing:** coalesce runs of patches touching the same node/property within a cold segment (keep first-before + last-after), preserving undo *reachability* while shedding intermediate states.
+  3. **Bounded tail (user-visible policy):** optional cap ("keep full history for last N sessions, squashed beyond"), surfaced in settings once the version-history browsing UI (planned) exists — squashing granularity is a UX decision once history is browsable.
+* **Instrumentation first:** journal size and entry counts are logged to telemetry-free local diagnostics; compaction phases 2–3 ship when real documents show the need, not speculatively.
+
+---
+
+<a id="f-09"></a>
+## F-09. `.poly` portability caveats — fonts are not embedded
+
+**Severity: Med** — the bundle promises portability; text is the asterisk.
+
+### The problem
+
+The `.poly` bundle is fully self-contained for shapes, history, and **images** (content-addressed in `assets/`) — but text nodes reference fonts **by family/style name**, resolved against the *opening* machine's installed fonts via `queryLocalFonts` (ADR-006). Move a document to a machine missing the font and:
+
+* Text renders in a fallback face; metrics change; auto-resize re-measures — **layout shifts**, silently, and hug-content auto-layout frames reflow around it.
+* There is no missing-font manifest today: the user isn't told what's missing or where it was used.
+* Cross-platform is the common trigger (macOS system fonts opened on Windows), not exotic type foundries.
+
+Secondary caveats, same family: absolute paths are never stored (good — the bundle is location-independent), but the bundle is a *directory*, which some channels (email, some upload forms) handle worse than a single file; users may also copy the directory mid-write, though atomic renames (F-05) keep any snapshot internally consistent.
+
+### Mitigation
+
+* **Now:** document the limitation prominently (this file, README, product docs); font references store family + style + resolved full name, which is the data a missing-font dialog needs.
+* **Queued (cheap, high value):** missing-font detection at open — diff document font references against `queryLocalFonts` results and show a "Missing fonts: X, Y (used on N layers)" notice instead of silent fallback. This is the single best ROI item in this register.
+* **Planned:** font embedding into `assets/` (fonts are just content-addressed bytes; the pipeline already exists) — gated on honoring OpenType `fsType` embedding-permission flags, which requires reading font tables (ADR-006's revisit). Until then, "portable except fonts" is the honest contract.
+* **Considered/deferred:** zip-packing the bundle into a single `.poly` file — deferred because directory bundles keep assets diffable and dedupe-friendly for git-adjacent workflows.
+
+---
+
+<a id="f-10"></a>
+## F-10. Future auto-update security — code signing and artifact integrity
+
+**Severity: High when auto-update ships; groundwork obligations exist now.**
+
+### The problem
+
+Auto-update from GitHub Releases is planned (CI groundwork ships in v0.1). An auto-updater is a remote-code-execution channel by design; done carelessly it is the single largest security hole a desktop app can have:
+
+* **Unsigned artifacts:** without code signing, users get scary OS warnings (SmartScreen, Gatekeeper) *and* have no way to distinguish a real release from a tampered one.
+* **Update-feed trust:** an updater that trusts "whatever the latest GitHub Release says" is only as strong as the GitHub account/token security of every maintainer with release rights.
+* **CI supply chain:** artifacts built in GitHub Actions inherit the integrity of the workflow — a compromised action dependency or a `pull_request_target` misconfiguration can poison releases at the source.
+* **Downgrade attacks:** an updater that accepts any signed version can be fed an old, vulnerable-but-signed build.
+
+### Mitigation
+
+* **Now (while auto-update does not exist):** CI builds are reproducible-leaning (locked dependency versions, pinned action SHAs — not floating tags); SHA-256 checksums published alongside every release artifact; release creation restricted to protected tags.
+* **Blocking requirements before the auto-updater ships (treat as a launch checklist):**
+  1. **Windows:** Authenticode signing (OV minimum; EV or Azure Trusted Signing to clear SmartScreen reputation faster). **macOS:** Developer ID signing + notarization — non-negotiable, unsigned updates will not even run on modern macOS.
+  2. Updater verifies **signature, not just checksum**, of downloaded artifacts before staging (electron-updater does this correctly *only when* packages are signed — signing is therefore the security floor, not a polish item).
+  3. Signing keys live in CI secrets/HSM-backed signing service, never in the repo or on maintainer laptops.
+  4. Version monotonicity enforced (reject downgrades) and update metadata fetched over TLS with certificate validation left ON (a depressingly common Electron footgun is disabling it "temporarily").
+* **Cost note for planning:** OV certificates and Apple Developer Program are recurring paid costs for an open-source project — the funding question should be settled before, not after, the updater is announced.
+
+---
+
+<a id="f-11"></a>
+## F-11. Memory for large images
+
+**Severity: Med** — the failure mode is renderer OOM or GPU-memory thrash on image-heavy documents.
+
+### The problem
+
+Image fills (ADR-009) decode to bitmaps for rendering. Costs:
+
+* A decoded image costs `width × height × 4` bytes regardless of file size on disk: a 12 MP photo is ~48 MB decoded; a 45 MB `.poly` full of photos can want gigabytes of decode memory if everything is held decoded simultaneously.
+* Content-addressed **storage** dedupes perfectly (ten uses, one file — ADR-009), and decode caching by hash means ten uses also share **one** decoded bitmap — but *distinct* large images accumulate.
+* Canvas2D drawing of large images at small on-screen sizes still uploads the full bitmap to the GPU texture path; zoomed-out overview pages full of screenshots are the worst case.
+* sql.js residency (F-05) and journal growth (F-08) share the same renderer-process memory budget; these compound.
+
+### Mitigation
+
+* **Now (shipped):** decode-once-per-hash cache keyed by asset hash; viewport culling means off-screen images aren't drawn (though currently they may remain decoded once loaded).
+* **Queued, in order of ROI:**
+  1. **LRU eviction** on the decode cache with a byte budget (re-decode on demand — decode is fast relative to OOM).
+  2. **Downsampled display proxies:** decode to a mip-appropriate size for the current zoom via `createImageBitmap(resizeWidth/Height)`; full-resolution decode only for high zoom and export paths.
+  3. **Import-time guardrail:** warn (not block) on placing images above a size threshold, with a one-click "downsample copy into assets" offer — original bytes preserved by content addressing if declined.
+* **Watch:** renderer memory on documents with 20+ distinct multi-megapixel images is the metric; if proxies (step 2) don't hold it, image decode moves off-thread (worker + `ImageBitmap` transfer) ahead of schedule.
+
+---
+
+## Reading this register
+
+Three themes run through every entry:
+
+1. **Approximations are disclosed and containable.** F-02/F-03/F-04 (text, booleans, strokes) are quality approximations whose *replacements* are already architecturally placed (HarfBuzz behind text metrics, exact CSG behind non-destructive evaluation, true stroking behind `IRenderer`). None require file-format or UI breakage to fix.
+2. **Durability gets the strictest treatment.** F-05/F-06/F-07/F-08 are the data-integrity cluster; the shipped invariants (atomic tmp+rename everywhere, journal quarantine over document hostage, gesture coalescing, packaging smoke test) are the non-negotiables of v0.1.
+3. **Deferred features have present-tense obligations.** F-10 (auto-update) doesn't exist yet, but pinned CI actions and published checksums are obligations *now*; F-09's missing-font notice is cheap now and much cheaper than support tickets later.

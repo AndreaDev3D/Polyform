@@ -1,0 +1,94 @@
+@import 'tailwindcss';
+
+:root {
+  --pf-bg-0: #171717;
+  --pf-bg-1: #1e1e1e;
+  --pf-bg-2: #262626;
+  --pf-bg-3: #2f2f2f;
+  --pf-border: #383838;
+  --pf-text: #e6e6e6;
+  --pf-text-dim: #9a9a9a;
+  --pf-accent: #4f9eff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--pf-bg-1);
+  color: var(--pf-text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3d3d3d;
+  border-radius: 5px;
+  border: 2px solid var(--pf-bg-1);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pf-input {
+  @apply bg-[#2a2a2a] border border-transparent rounded px-1.5 py-1 text-xs text-[var(--pf-text)] w-full outline-none;
+}
+.pf-input:hover {
+  border-color: var(--pf-border);
+}
+.pf-input:focus {
+  border-color: var(--pf-accent);
+}
+
+.pf-btn {
+  @apply inline-flex items-center justify-center rounded px-2 py-1 text-xs cursor-default;
+  color: var(--pf-text);
+}
+.pf-btn:hover {
+  background: var(--pf-bg-3);
+}
+
+.pf-icon-btn {
+  @apply inline-flex items-center justify-center rounded cursor-default;
+  width: 28px;
+  height: 28px;
+  color: var(--pf-text-dim);
+}
+.pf-icon-btn:hover {
+  background: var(--pf-bg-3);
+  color: var(--pf-text);
+}
+.pf-icon-btn.active {
+  background: var(--pf-accent);
+  color: #fff;
+}
+
+.pf-section {
+  border-bottom: 1px solid var(--pf-border);
+  padding: 8px 12px;
+}
+.pf-section-title {
+  @apply flex items-center justify-between;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--pf-text);
+  margin-bottom: 6px;
+}

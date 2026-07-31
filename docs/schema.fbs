@@ -1,0 +1,159 @@
+// Polyform scene graph — FlatBuffers target schema (see ADR-004).
+// scene.bin currently ships as a MessagePack envelope ('PFRM' + format byte);
+// this schema is the source of truth for the planned FlatBuffers migration
+// once flatc codegen is wired into the build.
+
+namespace Polyform.Schema;
+
+enum NodeType : byte {
+  Frame,
+  Group,
+  Boolean,
+  Rectangle,
+  Ellipse,
+  Line,
+  Polygon,
+  Star,
+  VectorPath,
+  Text
+}
+
+enum BooleanOp : byte { Union, Subtract, Intersect, Exclude }
+enum StrokeAlign : byte { Center, Inside, Outside }
+enum PaintType : byte { Solid, GradientLinear, GradientRadial, Image }
+enum ImageScaleMode : byte { Fill, Fit, Tile, Stretch }
+enum LayoutMode : byte { None, Horizontal, Vertical }
+enum AxisSizing : byte { Fixed, Hug }
+enum CounterAlign : byte { Min, Center, Max }
+enum TextAlignH : byte { Left, Center, Right }
+enum TextAlignV : byte { Top, Center, Bottom }
+enum TextAutoResize : byte { WidthAndHeight, Height, None }
+enum EffectType : byte { DropShadow, LayerBlur }
+enum WindingRule : byte { NonZero, EvenOdd }
+
+struct Vec2 {
+  x: float;
+  y: float;
+}
+
+struct Color {
+  r: float;
+  g: float;
+  b: float;
+  a: float;
+}
+
+table GradientStop {
+  position: float;
+  color: Color;
+}
+
+table Paint {
+  type: PaintType;
+  visible: bool = true;
+  opacity: float = 1.0;
+  color: Color;               // Solid
+  stops: [GradientStop];      // Gradients
+  start: Vec2;                // Gradient handles (normalized)
+  end: Vec2;
+  asset_hash: string;         // Image (SHA-256 in assets/)
+  scale_mode: ImageScaleMode; // Image
+}
+
+table Effect {
+  type: EffectType;
+  visible: bool = true;
+  color: Color;   // DropShadow
+  offset: Vec2;   // DropShadow
+  blur: float;    // DropShadow blur / LayerBlur radius
+}
+
+table VectorVertex {
+  id: uint32;
+  x: float;
+  y: float;
+}
+
+table VectorEdge {
+  id: uint32;
+  v0: uint32;
+  v1: uint32;
+  has_cp0: bool = false;
+  cp0: Vec2;
+  has_cp1: bool = false;
+  cp1: Vec2;
+}
+
+table VectorNetwork {
+  vertices: [VectorVertex];
+  edges: [VectorEdge];
+}
+
+table AutoLayout {
+  mode: LayoutMode = None;
+  gap: float;
+  padding_top: float;
+  padding_right: float;
+  padding_bottom: float;
+  padding_left: float;
+  counter_align: CounterAlign = Min;
+  primary_sizing: AxisSizing = Fixed;
+  counter_sizing: AxisSizing = Fixed;
+}
+
+table CornerRadius {
+  tl: float;
+  tr: float;
+  br: float;
+  bl: float;
+}
+
+table Node {
+  id: string (key);
+  node_type: NodeType;
+  name: string;
+  visible: bool = true;
+  locked: bool = false;
+  opacity: float = 1.0;
+  blend_mode: string;
+  x: float;
+  y: float;
+  width: float;
+  height: float;
+  rotation: float;
+  fills: [Paint];
+  strokes: [Paint];
+  stroke_weight: float = 1.0;
+  stroke_align: StrokeAlign = Inside;
+  stroke_dash: [float];
+  effects: [Effect];
+  children: [string];         // child node ids, bottom -> top
+
+  // Type-specific fields
+  corner_radius: CornerRadius;      // Frame / Rectangle
+  clips_content: bool = true;       // Frame
+  layout: AutoLayout;               // Frame
+  boolean_op: BooleanOp;            // Boolean
+  point_count: uint16;              // Polygon / Star
+  inner_ratio: float;               // Star
+  network: VectorNetwork;           // VectorPath
+  winding_rule: WindingRule;        // VectorPath
+  characters: string;               // Text
+  font_family: string;              // Text
+  font_weight: uint16;              // Text
+  italic: bool = false;             // Text
+  font_size: float;                 // Text
+  line_height: float;               // Text (multiplier)
+  letter_spacing: float;            // Text (px)
+  text_align_h: TextAlignH;         // Text
+  text_align_v: TextAlignV;         // Text
+  auto_resize: TextAutoResize;      // Text
+}
+
+table SceneGraph {
+  schema_version: uint32;
+  nodes: [Node];
+  root_ids: [string];
+}
+
+root_type SceneGraph;
