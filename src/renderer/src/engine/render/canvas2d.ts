@@ -215,20 +215,37 @@ function strokePath(
   }
 }
 
-function applyEffectsBeforeDraw(ctx: CanvasRenderingContext2D, node: SceneNode, zoom: number): void {
+/**
+ * Canvas shadow params live in DEVICE space (unaffected by the CTM), so they
+ * scale by dpr*zoom — never by the CTM's `a` component, which shrinks under
+ * rotation. Shadows are only applied to nodes that paint their own geometry;
+ * containers without fills/strokes would otherwise leak the shadow onto every
+ * descendant.
+ */
+function applyEffectsBeforeDraw(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  deviceScale: number,
+  allowShadow: boolean,
+): void {
   for (const fx of node.effects) {
     if (!fx.visible) continue
-    if (fx.type === 'DROP_SHADOW') {
+    if (fx.type === 'DROP_SHADOW' && allowShadow) {
       ctx.shadowColor = rgbaToCss(fx.color)
-      // shadow params are in device space — scale by current zoom * dpr.
-      const scale = ctx.getTransform().a
-      ctx.shadowOffsetX = fx.offset.x * scale
-      ctx.shadowOffsetY = fx.offset.y * scale
-      ctx.shadowBlur = fx.blur * scale
+      ctx.shadowOffsetX = fx.offset.x * deviceScale
+      ctx.shadowOffsetY = fx.offset.y * deviceScale
+      ctx.shadowBlur = fx.blur * deviceScale
     } else if (fx.type === 'LAYER_BLUR' && fx.radius > 0) {
-      ctx.filter = `blur(${fx.radius * zoom}px)`
+      ctx.filter = `blur(${fx.radius * deviceScale}px)`
     }
   }
+}
+
+function clearShadow(ctx: CanvasRenderingContext2D): void {
+  ctx.shadowColor = 'transparent'
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = 0
+  ctx.shadowBlur = 0
 }
 
 function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type: 'TEXT' }>): void {
@@ -272,14 +289,19 @@ function drawNode(
   ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f)
   ctx.globalAlpha *= node.opacity
   if (node.blendMode !== 'NORMAL') ctx.globalCompositeOperation = BLEND_MAP[node.blendMode]
-  applyEffectsBeforeDraw(ctx, node, opts.camera.zoom)
+  const paintsSelf =
+    node.type !== 'GROUP' && (node.fills.some((f) => f.visible) || node.strokes.some((s) => s.visible))
+  applyEffectsBeforeDraw(ctx, node, opts.camera.zoom * opts.dpr, paintsSelf)
 
   switch (node.type) {
     case 'FRAME': {
       const path = subPathsToPath2D(nodeOutline(node))
       fillPath(ctx, node, path, 'nonzero', opts.assets)
+      clearShadow(ctx)
+      ctx.save()
       if (node.clipsContent) ctx.clip(path)
       for (const cid of node.children) drawNode(ctx, scene, cid, opts, viewBox)
+      ctx.restore()
       strokePath(ctx, node, path, true)
       break
     }

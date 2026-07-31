@@ -69,6 +69,22 @@ export class OpRecorder {
     this.ops.push({ kind: 'move', id, from: { parentId: fromParent, index: fromIndex }, to: { parentId: toParent, index: toIndex } })
   }
 
+  /**
+   * Re-capture the node state inside recorded `add` ops. Needed when a node
+   * is mutated after being added but before the recorder commits (shape
+   * drawing) — otherwise redo would recreate the stale creation snapshot.
+   */
+  refreshAddSnapshots(): void {
+    for (const op of this.ops) {
+      if (op.kind !== 'add') continue
+      const live = this.scene.getNode(op.node.id)
+      if (!live) continue
+      const snapshot = cloneNode(live)
+      if (isContainer(snapshot)) snapshot.children = []
+      op.node = snapshot
+    }
+  }
+
   commit(label: string): void {
     documentStore.commit(this.ops, label, true)
   }
@@ -117,10 +133,9 @@ export function copySelection(): void {
   clipboard = extractBundle(documentStore.scene, ids)
 }
 
-export function paste(): void {
-  if (!clipboard) return
+function insertBundleCopy(source: NodeBundle, label: string): void {
   const scene = documentStore.scene
-  const bundle = reIdBundle(clipboard, newId)
+  const bundle = reIdBundle(source, newId)
   for (const rid of bundle.rootIds) {
     const node = bundle.nodes[rid]
     node.x += 10
@@ -131,13 +146,20 @@ export function paste(): void {
   const parentValid = parent && scene.hasNode(parent) ? parent : null
   const index = scene.childListOf(parentValid).length
   rec.addBundle(bundle, parentValid, index)
-  rec.commit('Paste')
+  rec.commit(label)
   setSelection(bundle.rootIds)
 }
 
+export function paste(): void {
+  if (!clipboard) return
+  insertBundleCopy(clipboard, 'Paste')
+}
+
+/** Duplicate never touches the user's clipboard. */
 export function duplicateSelection(): void {
-  copySelection()
-  paste()
+  const ids = byZ(topSelection())
+  if (ids.length === 0) return
+  insertBundleCopy(extractBundle(documentStore.scene, ids), 'Duplicate')
 }
 
 export function deleteSelection(): void {
@@ -291,20 +313,30 @@ export function reorderSelection(mode: 'forward' | 'backward' | 'front' | 'back'
   const scene = documentStore.scene
   const ids = byZ(topSelection())
   if (ids.length === 0) return
+  const selected = new Set(ids)
   const rec = new OpRecorder()
-  const ordered = mode === 'forward' || mode === 'front' ? [...ids].reverse() : ids
+  // Iteration order preserves the selection's internal stacking:
+  //   forward/back  -> top-most first;  backward/front -> bottom-most first.
+  // forward/backward also skip past neighbours that are themselves selected
+  // so a contiguous selected run moves as a block instead of swapping.
+  const ordered = mode === 'forward' || mode === 'back' ? [...ids].reverse() : ids
   for (const id of ordered) {
     const parent = scene.parentOf(id)
     const list = scene.childListOf(parent)
     const idx = list.indexOf(id)
     let target = idx
-    if (mode === 'forward') target = Math.min(list.length - 1, idx + 1)
-    else if (mode === 'backward') target = Math.max(0, idx - 1)
-    else if (mode === 'front') target = list.length - 1
-    else target = 0
+    if (mode === 'forward') {
+      if (idx < list.length - 1 && !selected.has(list[idx + 1])) target = idx + 1
+    } else if (mode === 'backward') {
+      if (idx > 0 && !selected.has(list[idx - 1])) target = idx - 1
+    } else if (mode === 'front') {
+      target = list.length - 1
+    } else {
+      target = 0
+    }
     if (target !== idx) rec.move(id, parent, target)
   }
-  rec.commit('Reorder Layers')
+  if (rec.ops.length > 0) rec.commit('Reorder Layers')
 }
 
 // ---------------------------------------------------------------------------
@@ -488,12 +520,25 @@ function applyViewport(viewport: { zoom: number; pan_x: number; pan_y: number } 
   }
 }
 
+/**
+ * Never switch projects over unsaved work: the journal is already persisted
+ * as edits happen, so an implicit save keeps scene.bin consistent with it
+ * (local-first apps save, they don't prompt).
+ */
+async function saveIfDirty(): Promise<void> {
+  if (documentStore.projectInfo && documentStore.dirty) {
+    await saveFlow()
+  }
+}
+
 export async function newProjectFlow(): Promise<void> {
+  await saveIfDirty()
   const viewport = await documentStore.newProject()
   if (viewport) applyViewport(viewport)
 }
 
 export async function openProjectFlow(path?: string): Promise<void> {
+  await saveIfDirty()
   const viewport = await documentStore.openProject(path)
   if (viewport) applyViewport(viewport)
 }
@@ -503,8 +548,8 @@ function currentViewportState() {
   return { zoom: camera.zoom, pan_x: camera.x, pan_y: camera.y }
 }
 
-export async function saveFlow(): Promise<boolean> {
-  return documentStore.save(currentViewportState())
+export async function saveFlow(includeThumbnail = true): Promise<boolean> {
+  return documentStore.save(currentViewportState(), includeThumbnail)
 }
 
 export async function saveAsFlow(): Promise<boolean> {

@@ -86,6 +86,8 @@ class DocumentStore {
     if (this.dirty !== d) {
       this.dirty = d
       window.polyform.setDirty(d)
+      // The dirty dot in the toolbar reads this flag — repaint subscribers.
+      this.emit()
     }
   }
 
@@ -142,14 +144,30 @@ class DocumentStore {
     return result.info.manifest.viewport_state
   }
 
-  async save(viewport: ViewportState): Promise<boolean> {
+  private savePromise: Promise<boolean> | null = null
+
+  /** Saves are serialized: overlapping requests await the in-flight save. */
+  async save(viewport: ViewportState, includeThumbnail = true): Promise<boolean> {
     if (!this.projectInfo) return false
+    if (this.savePromise) return this.savePromise
+    const p = this.doSave(viewport, includeThumbnail)
+    this.savePromise = p
+    try {
+      return await p
+    } finally {
+      this.savePromise = null
+    }
+  }
+
+  private async doSave(viewport: ViewportState, includeThumbnail: boolean): Promise<boolean> {
     const sceneBytes = encodeScene(this.scene.doc)
     let thumbnailPng: Uint8Array | undefined
-    try {
-      thumbnailPng = (await renderThumbnail(this.scene, this.index, assetCache)) ?? undefined
-    } catch {
-      thumbnailPng = undefined
+    if (includeThumbnail) {
+      try {
+        thumbnailPng = (await renderThumbnail(this.scene, this.index, assetCache)) ?? undefined
+      } catch {
+        thumbnailPng = undefined
+      }
     }
     const ok = await window.polyform.projectSave({ sceneBytes, viewport, thumbnailPng })
     if (ok) this.markDirty(false)

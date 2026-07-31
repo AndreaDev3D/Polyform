@@ -25,8 +25,11 @@ function defaultViewport(): ViewportState {
   return { zoom: 1, pan_x: 0, pan_y: 0 }
 }
 
+let tmpCounter = 0
+
 async function writeFileAtomic(filePath: string, data: Buffer | string): Promise<void> {
-  const tmp = `${filePath}.tmp`
+  // Unique temp name: concurrent writers must never share a staging file.
+  const tmp = `${filePath}.${process.pid}.${++tmpCounter}.tmp`
   await fs.writeFile(tmp, data)
   try {
     await fs.rename(tmp, filePath)

@@ -47,7 +47,10 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
       submenu: [
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => send('view.zoomIn') },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => send('view.zoomOut') },
-        { label: 'Zoom to Fit', accelerator: 'Shift+1', click: () => send('view.zoomFit') },
+        // registerAccelerator: false — a bare printable-key accelerator would
+        // steal '!' from text fields; the renderer handles Shift+1 with a
+        // proper focus guard and the menu still displays the hint.
+        { label: 'Zoom to Fit', accelerator: 'Shift+1', registerAccelerator: false, click: () => send('view.zoomFit') },
         { label: 'Zoom to 100%', accelerator: 'CmdOrCtrl+0', click: () => send('view.zoomActual') },
         { type: 'separator' },
         { label: 'Toggle Grid', accelerator: "CmdOrCtrl+'", click: () => send('view.toggleGrid') },

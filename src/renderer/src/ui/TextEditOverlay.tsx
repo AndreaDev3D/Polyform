@@ -20,6 +20,8 @@ export function TextEditOverlay({ nodeId }: { nodeId: NodeId }) {
   const node = documentStore.scene.getNode(nodeId) as TextNode | undefined
 
   useEffect(() => {
+    // Re-arm on every (re)mount so a remounted overlay can still commit.
+    committedRef.current = false
     if (node && initialRef.current === null) {
       initialRef.current = node.characters
     }
@@ -28,7 +30,8 @@ export function TextEditOverlay({ nodeId }: { nodeId: NodeId }) {
       el.focus()
       el.select()
     }
-    // Commit on unmount if not already done.
+    // Commit on unmount if not already done (blur does not fire when the
+    // element is removed from the DOM, e.g. Escape via the controller).
     return () => {
       if (!committedRef.current) commit()
     }

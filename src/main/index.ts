@@ -50,13 +50,14 @@ function createWindow(): void {
     if (projects.current && isDirty) {
       e.preventDefault()
       mainWindow?.webContents.send('app:request-close')
-      // Fail-safe: force close if the renderer never confirms.
+      // Fail-safe: force close if the renderer never confirms. Generous
+      // timeout — the renderer is serializing and writing the document.
       setTimeout(() => {
         if (!closeConfirmed && mainWindow && !mainWindow.isDestroyed()) {
           closeConfirmed = true
           mainWindow.close()
         }
-      }, 5000)
+      }, 15000)
     }
   })
 

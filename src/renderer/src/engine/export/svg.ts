@@ -50,25 +50,28 @@ function paintToSvgFill(ctx: SvgCtx, paint: Paint, node: SceneNode): string | nu
   if (paint.type === 'SOLID') return rgbaToCss(paint.color, paint.opacity)
   if (paint.type === 'GRADIENT_LINEAR' || paint.type === 'GRADIENT_RADIAL') {
     const id = `grad${++defsCounter}`
+    const w = node.width
+    const h = node.height
     const stops = paint.stops
       .map(
         (s) =>
           `<stop offset="${num(Math.max(0, Math.min(1, s.position)))}" stop-color="${rgbaToCss(s.color, paint.opacity)}"/>`,
       )
       .join('')
+    // userSpaceOnUse matches the canvas renderer exactly (objectBoundingBox
+    // would turn radial gradients into ellipses on non-square shapes).
     if (paint.type === 'GRADIENT_LINEAR') {
       ctx.defs.push(
-        `<linearGradient id="${id}" gradientUnits="objectBoundingBox" x1="${num(paint.start.x)}" y1="${num(paint.start.y)}" x2="${num(paint.end.x)}" y2="${num(paint.end.y)}">${stops}</linearGradient>`,
+        `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${num(paint.start.x * w)}" y1="${num(paint.start.y * h)}" x2="${num(paint.end.x * w)}" y2="${num(paint.end.y * h)}">${stops}</linearGradient>`,
       )
     } else {
-      const r = Math.max(0.001, Math.hypot(paint.end.x - paint.start.x, paint.end.y - paint.start.y))
+      const r = Math.max(0.001, Math.hypot((paint.end.x - paint.start.x) * w, (paint.end.y - paint.start.y) * h))
       ctx.defs.push(
-        `<radialGradient id="${id}" gradientUnits="objectBoundingBox" cx="${num(paint.start.x)}" cy="${num(paint.start.y)}" r="${num(r)}">${stops}</radialGradient>`,
+        `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="${num(paint.start.x * w)}" cy="${num(paint.start.y * h)}" r="${num(r)}">${stops}</radialGradient>`,
       )
     }
     return `url(#${id})`
   }
-  void node
   return null
 }
 
@@ -137,16 +140,17 @@ async function fillElements(ctx: SvgCtx, node: SceneNode, d: string, fillRule: s
   return out
 }
 
-async function nodeToSvg(ctx: SvgCtx, id: NodeId): Promise<string> {
+async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promise<string> {
   const scene = ctx.scene
   const node = scene.getNode(id)
   if (!node || !node.visible) return ''
   const common = commonAttrs(node) + effectsFilter(ctx, node)
+  const tf = skipTransform ? '' : transformAttr(node)
 
   if (node.type === 'GROUP') {
     let inner = ''
     for (const cid of node.children) inner += await nodeToSvg(ctx, cid)
-    return `<g${transformAttr(node)}${common}>${inner}</g>`
+    return `<g${tf}${common}>${inner}</g>`
   }
 
   if (node.type === 'FRAME') {
@@ -162,7 +166,7 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId): Promise<string> {
     for (const cid of node.children) children += await nodeToSvg(ctx, cid)
     const stroke = strokeAttrs(ctx, node)
     const border = stroke ? `<path d="${d}" fill="none"${stroke}/>` : ''
-    return `<g${transformAttr(node)}${common}><g${clipAttr}>${inner}${children}</g>${border}</g>`
+    return `<g${tf}${common}><g${clipAttr}>${inner}${children}</g>${border}</g>`
   }
 
   if (node.type === 'BOOLEAN') {
@@ -176,11 +180,11 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId): Promise<string> {
     const fills = await fillElements(ctx, node, d.trim(), 'evenodd')
     const stroke = strokeAttrs(ctx, node)
     const border = stroke ? `<path d="${d.trim()}" fill="none"${stroke}/>` : ''
-    return `<g${transformAttr(node)}${common}>${fills}${border}</g>`
+    return `<g${tf}${common}>${fills}${border}</g>`
   }
 
   if (node.type === 'TEXT') {
-    return textToSvg(ctx, node, common)
+    return textToSvg(ctx, node, common, tf)
   }
 
   const d = subPathsToSvg(nodeOutline(node))
@@ -190,10 +194,10 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId): Promise<string> {
   const fills = isOpen ? '' : await fillElements(ctx, node, d, fillRule)
   const stroke = strokeAttrs(ctx, node)
   const border = stroke ? `<path d="${d}" fill="none"${stroke}/>` : ''
-  return `<g${transformAttr(node)}${common}>${fills}${border}</g>`
+  return `<g${tf}${common}>${fills}${border}</g>`
 }
 
-function textToSvg(ctx: SvgCtx, node: TextNode, common: string): string {
+function textToSvg(ctx: SvgCtx, node: TextNode, common: string, tf: string): string {
   const layout = layoutText(node)
   const paint = node.fills.find((f) => f.visible)
   const fill = paint && paint.type !== 'IMAGE' ? (paintToSvgFill(ctx, paint, node) ?? '#000') : '#000'
@@ -204,7 +208,7 @@ function textToSvg(ctx: SvgCtx, node: TextNode, common: string): string {
     if (!line.text) continue
     spans += `<tspan x="${num(line.x)}" y="${num(line.baseline)}">${esc(line.text)}</tspan>`
   }
-  return `<g${transformAttr(node)}${common}><text font-family="${esc(node.fontFamily)}" font-size="${num(node.fontSize)}" font-weight="${node.fontWeight}"${style}${spacing} fill="${fill}">${spans}</text></g>`
+  return `<g${tf}${common}><text font-family="${esc(node.fontFamily)}" font-size="${num(node.fontSize)}" font-weight="${node.fontWeight}"${style}${spacing} fill="${fill}">${spans}</text></g>`
 }
 
 /**
@@ -250,29 +254,8 @@ async function nodeToSvgWorld(ctx: SvgCtx, id: NodeId): Promise<string> {
   const node = scene.getNode(id)
   if (!node) return ''
   const m = scene.worldMatrix(id)
-  const inner = await nodeToSvgLocalBody(ctx, id)
+  const inner = await nodeToSvg(ctx, id, true)
   return `<g transform="matrix(${num(m.a)} ${num(m.b)} ${num(m.c)} ${num(m.d)} ${num(m.e)} ${num(m.f)})">${inner}</g>`
-}
-
-/** Node markup WITHOUT its own transform (already applied by caller). */
-async function nodeToSvgLocalBody(ctx: SvgCtx, id: NodeId): Promise<string> {
-  const scene = ctx.scene
-  const node = scene.getNode(id)
-  if (!node) return ''
-  // Reuse nodeToSvg by faking a zero transform: temporarily emit children
-  // with the node positioned at origin.
-  const saved = { x: node.x, y: node.y, rotation: node.rotation }
-  node.x = 0
-  node.y = 0
-  node.rotation = 0
-  try {
-    return await nodeToSvg(ctx, id)
-  } finally {
-    node.x = saved.x
-    node.y = saved.y
-    node.rotation = saved.rotation
-    // nodeToSvg reads but does not bump the scene; no cache invalidation needed.
-  }
 }
 
 export function isExportableContainer(node: SceneNode): boolean {

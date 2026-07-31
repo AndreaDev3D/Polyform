@@ -43,6 +43,13 @@ export class HistoryDb {
   private filePath: string | null = null
   private dirty = false
   private persistTimer: NodeJS.Timeout | null = null
+  /**
+   * Absolute journal position of the first entry handed to the renderer at
+   * open(). Renderer cursors are relative to that window and to entries
+   * appended since — both of which sit on top of this fixed base.
+   */
+  private windowBase = 0
+  private persistChain: Promise<void> = Promise.resolve()
 
   async open(bundlePath: string): Promise<JournalState> {
     await this.close()
@@ -75,17 +82,17 @@ export class HistoryDb {
     }
     stmt.free()
     entries.reverse()
+    const totalStmt = this.db.prepare(`SELECT COUNT(*) AS c FROM journal`)
+    totalStmt.step()
+    const total = Number(totalStmt.getAsObject().c)
+    totalStmt.free()
+    this.windowBase = Math.max(0, total - entries.length)
     let cursor = entries.length
     const cursorStmt = this.db.prepare(`SELECT value FROM meta WHERE key = 'cursor'`)
     if (cursorStmt.step()) {
+      // Stored cursor counts ALL applied entries; translate into the window.
       const stored = Number(cursorStmt.getAsObject().value)
-      // Stored cursor counts ALL applied entries; translate into the loaded window.
-      const totalStmt = this.db.prepare(`SELECT COUNT(*) AS c FROM journal`)
-      totalStmt.step()
-      const total = Number(totalStmt.getAsObject().c)
-      totalStmt.free()
-      const windowStart = Math.max(0, total - entries.length)
-      cursor = Math.max(0, Math.min(entries.length, stored - windowStart))
+      cursor = Math.max(0, Math.min(entries.length, stored - this.windowBase))
     }
     cursorStmt.free()
     return { entries, cursor }
@@ -140,15 +147,15 @@ export class HistoryDb {
     this.db?.run(`INSERT INTO meta (key, value) VALUES ('cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(cursor)])
   }
 
-  /** cursorInWindow is relative to the loaded window reported by open(). */
+  /**
+   * cursorInWindow is relative to the window reported by open() plus entries
+   * appended since — i.e. always `windowBase + cursorInWindow` in absolute
+   * journal rows. (Recomputing a base from the CURRENT total here would
+   * drift once the journal exceeds the loaded window.)
+   */
   setCursor(cursorInWindow: number): void {
     if (!this.db) return
-    const totalStmt = this.db.prepare(`SELECT COUNT(*) AS c FROM journal`)
-    totalStmt.step()
-    const total = Number(totalStmt.getAsObject().c)
-    totalStmt.free()
-    const windowStart = Math.max(0, total - MAX_LOADED_ENTRIES)
-    this.setStoredCursor(windowStart + Math.max(0, cursorInWindow))
+    this.setStoredCursor(this.windowBase + Math.max(0, cursorInWindow))
     this.markDirty()
   }
 
@@ -161,17 +168,27 @@ export class HistoryDb {
     }, 1500)
   }
 
-  async persist(): Promise<void> {
+  /** Persists are chained so overlapping calls never race on the same file. */
+  persist(): Promise<void> {
+    const run = this.persistChain.then(() => this.doPersist())
+    this.persistChain = run.catch(() => {})
+    return run
+  }
+
+  private async doPersist(): Promise<void> {
     if (!this.db || !this.filePath || !this.dirty) return
     this.dirty = false
+    const filePath = this.filePath
     const bytes = this.db.export()
-    const tmp = `${this.filePath}.tmp`
+    const tmp = `${filePath}.${process.pid}.tmp`
     await fs.writeFile(tmp, Buffer.from(bytes))
-    await fs.rename(tmp, this.filePath).catch(async () => {
+    try {
+      await fs.rename(tmp, filePath)
+    } catch {
       // Windows rename-over-existing can fail transiently; retry once.
-      await fs.rm(this.filePath!, { force: true })
-      await fs.rename(tmp, this.filePath!)
-    })
+      await fs.rm(filePath, { force: true })
+      await fs.rename(tmp, filePath)
+    }
   }
 
   async close(): Promise<void> {

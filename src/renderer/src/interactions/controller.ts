@@ -50,9 +50,16 @@ type Mode =
       startWorld: Vec2
       startBox: AABB
       snapshots: DragNodeSnapshot[]
+      tops: NodeId[]
       single: NodeId | null
     }
-  | { kind: 'rotate'; center: Vec2; startAngle: number; snapshots: DragNodeSnapshot[] }
+  | {
+      kind: 'rotate'
+      center: Vec2
+      startAngle: number
+      snapshots: DragNodeSnapshot[]
+      worldCenters: Map<NodeId, Vec2>
+    }
   | { kind: 'draw'; rec: OpRecorder; nodeId: NodeId; startWorld: Vec2; parentId: NodeId | null }
   | { kind: 'pen' }
 
@@ -322,6 +329,7 @@ export class InteractionController {
       startWorld: screenToWorld(editor.get().camera, { x: handle.x, y: handle.y }),
       startBox: this.selectionWorldBox(ids),
       snapshots: this.snapshotWithDescendants(ids, ['x', 'y', 'width', 'height', 'autoResize']),
+      tops: ids,
       single,
     }
   }
@@ -333,11 +341,18 @@ export class InteractionController {
     const center = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }
     const camera = editor.get().camera
     const world = screenToWorld(camera, { x: handle.x, y: handle.y })
+    const worldCenters = new Map<NodeId, Vec2>()
+    for (const id of ids) {
+      const node = this.scene.getNode(id)
+      if (!node) continue
+      worldCenters.set(id, applyMat(this.scene.worldMatrix(id), { x: node.width / 2, y: node.height / 2 }))
+    }
     this.mode = {
       kind: 'rotate',
       center,
       startAngle: Math.atan2(world.y - center.y, world.x - center.x),
       snapshots: this.snapshotNodes(ids, ['rotation', 'x', 'y']),
+      worldCenters,
     }
   }
 
@@ -457,10 +472,28 @@ export class InteractionController {
         const angle = Math.atan2(world.y - this.mode.center.y, world.x - this.mode.center.x)
         let deltaDeg = ((angle - this.mode.startAngle) * 180) / Math.PI
         if (mods.shift) deltaDeg = Math.round(deltaDeg / 15) * 15
+        const rad = (deltaDeg * Math.PI) / 180
+        const cos = Math.cos(rad)
+        const sin = Math.sin(rad)
         for (const s of this.mode.snapshots) {
           const node = this.scene.getNode(s.id)
           if (!node) continue
           node.rotation = norm180((s.props.rotation as number) + deltaDeg)
+          // Orbit the node's center around the shared selection center so a
+          // multi-selection rotates rigidly (no-op for a single node).
+          const c0 = this.mode.worldCenters.get(s.id)
+          if (c0) {
+            const dx = c0.x - this.mode.center.x
+            const dy = c0.y - this.mode.center.y
+            const cNew = {
+              x: this.mode.center.x + dx * cos - dy * sin,
+              y: this.mode.center.y + dx * sin + dy * cos,
+            }
+            const parentId = this.scene.parentOf(s.id)
+            const local = parentId ? applyMat(matInvert(this.scene.worldMatrix(parentId)), cNew) : cNew
+            node.x = local.x - node.width / 2
+            node.y = local.y - node.height / 2
+          }
         }
         this.scene.bump()
         documentStore.transient()
@@ -508,24 +541,16 @@ export class InteractionController {
         return
       }
       case 'pen': {
-        const state2 = editor.get()
-        if (state2.penDraft) {
-          editor.set({
-            penDraft: {
-              ...state2.penDraft,
-              cursor: world,
-              closable:
-                this.penAnchors.length >= 3 &&
-                Math.hypot(
-                  (world.x - this.penAnchors[0].p.x) * state.camera.zoom,
-                  (world.y - this.penAnchors[0].p.y) * state.camera.zoom,
-                ) < 8,
-            },
-          })
-        }
+        this.updatePenPreview(world, state.camera.zoom)
         return
       }
       case 'idle': {
+        // The pen rubber-band must track the cursor between clicks too
+        // (mode returns to idle after each anchor is placed).
+        if (state.tool === 'pen' && state.penDraft) {
+          this.updatePenPreview(world, state.camera.zoom)
+          return
+        }
         // Hover + cursor updates, throttled.
         const now = performance.now()
         if (now - this.lastHoverUpdate < 30) return
@@ -534,6 +559,20 @@ export class InteractionController {
         return
       }
     }
+  }
+
+  private updatePenPreview(world: Vec2, zoom: number): void {
+    const draft = editor.get().penDraft
+    if (!draft) return
+    editor.set({
+      penDraft: {
+        ...draft,
+        cursor: world,
+        closable:
+          this.penAnchors.length >= 3 &&
+          Math.hypot((world.x - this.penAnchors[0].p.x) * zoom, (world.y - this.penAnchors[0].p.y) * zoom) < 8,
+      },
+    })
   }
 
   private updateHoverAndCursor(screen: Vec2, world: Vec2): void {
@@ -669,17 +708,33 @@ export class InteractionController {
     sy = Math.max(0.01, sy)
     const anchorX = handle.includes('w') ? startBox.maxX : startBox.minX
     const anchorY = handle.includes('n') ? startBox.maxY : startBox.minY
-    for (const s of this.mode.snapshots) {
-      const node = scene.getNode(s.id)
-      if (!node) continue
+    // Only scale the top-level selected nodes directly; their descendants
+    // (in snapshots for undo diffing) are scaled via scaleChildren in the
+    // container's LOCAL space — never with the world anchor.
+    for (const id of this.mode.tops) {
+      const s = this.mode.snapshots.find((snap) => snap.id === id)
+      const node = scene.getNode(id)
+      if (!s || !node) continue
       const px = s.props.x as number
       const py = s.props.y as number
       const pw = (s.props.width as number) ?? node.width
       const ph = (s.props.height as number) ?? node.height
-      node.x = anchorX + (px - anchorX) * sx
-      node.y = anchorY + (py - anchorY) * sy
+      // Express the world anchor in this node's parent space.
+      let ax = anchorX
+      let ay = anchorY
+      const parentId = scene.parentOf(id)
+      if (parentId) {
+        const a = applyMat(matInvert(scene.worldMatrix(parentId)), { x: anchorX, y: anchorY })
+        ax = a.x
+        ay = a.y
+      }
+      node.x = ax + (px - ax) * sx
+      node.y = ay + (py - ay) * sy
       node.width = Math.max(0.5, pw * sx)
       node.height = node.type === 'LINE' ? 0 : Math.max(0.5, ph * sy)
+      if (node.type === 'GROUP' || node.type === 'BOOLEAN') {
+        scaleChildren(scene, this.mode.snapshots, node.id, sx, sy)
+      }
     }
     this.scene.bump()
     documentStore.transient()
@@ -745,6 +800,9 @@ export class InteractionController {
             this.scene.bump()
           }
         }
+        // Re-capture the final node state into the add op so redo restores
+        // the drawn size, not the 0.01px creation stub.
+        this.mode.rec.refreshAddSnapshots()
         this.mode.rec.commit(`Draw ${node?.type.toLowerCase() ?? 'shape'}`)
         editor.set({ tool: 'select' })
         break
@@ -845,11 +903,21 @@ export class InteractionController {
     if (this.mode.kind === 'pen') this.mode = { kind: 'idle' }
   }
 
-  /** Escape key: cancel the in-flight interaction. */
+  /** Escape key: cancel the in-flight interaction and restore node state. */
   cancel(): void {
     if (this.mode.kind === 'draw') {
       this.mode.rec.rollback()
       setSelection([])
+    }
+    if (this.mode.kind === 'move' || this.mode.kind === 'resize' || this.mode.kind === 'rotate') {
+      // Restore every snapshotted property so the aborted drag leaves no trace.
+      for (const s of this.mode.snapshots) {
+        const node = this.scene.getNode(s.id)
+        if (!node) continue
+        Object.assign(node, structuredClone(s.props))
+      }
+      this.scene.bump()
+      documentStore.transient()
     }
     if (this.mode.kind === 'pen' || editor.get().penDraft) {
       this.cancelPen()

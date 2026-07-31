@@ -50,25 +50,32 @@ export function NumberInput({ label, value, onCommit, step = 1, min = -Infinity,
   const onLabelPointerDown = (e: React.PointerEvent) => {
     if (value === null) return
     dragRef.current = { startX: e.clientX, startVal: value, active: false }
+    let lastVal = value
     const onMove = (ev: PointerEvent) => {
       const d = dragRef.current
       if (!d) return
       const dx = ev.clientX - d.startX
       if (!d.active && Math.abs(dx) < 3) return
       d.active = true
-      onCommitLive(clampNum(d.startVal + dx * step, min, max))
+      // Preview in the field only while scrubbing; a single history entry
+      // is committed on release (per-pixel commits would flood the journal).
+      lastVal = clampNum(d.startVal + dx * step, min, max)
+      setEditing(true)
+      setText(String(round(lastVal, precision)))
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      const wasActive = dragRef.current?.active
       dragRef.current = null
+      if (wasActive) {
+        setEditing(false)
+        onCommit(lastVal)
+      }
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
   }
-
-  // Scrub commits continuously (each change is applied; caller may debounce).
-  const onCommitLive = onCommit
 
   return (
     <div className={`flex items-center gap-1 ${className ?? ''}`}>

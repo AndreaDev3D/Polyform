@@ -2,7 +2,7 @@
 // (accelerators); this handles single-key tools, nudging and Escape/Enter.
 
 import { editor, type Tool } from '../state/editor'
-import { deleteSelection, nudgeSelection, setSelection } from '../state/actions'
+import { deleteSelection, nudgeSelection, setSelection, zoomToFit } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 
 const TOOL_KEYS: Record<string, Tool> = {
@@ -50,6 +50,13 @@ export function installShortcuts(): () => void {
 
     if (e.key === 'Enter' && state.penDraft) {
       interactionController.finishPen(false)
+      return
+    }
+
+    if (e.shiftKey && e.code === 'Digit1') {
+      // Zoom to Fit (menu shows the hint; registered here so typing '!' in
+      // text fields is never intercepted — the guards above already ran).
+      zoomToFit()
       return
     }
 

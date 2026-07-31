@@ -21,7 +21,9 @@ export function App() {
   useEffect(() => {
     const offMenu = window.polyform.onMenuAction((id) => dispatchMenuAction(id))
     const offClose = window.polyform.onRequestClose(() => {
-      void saveFlow().finally(() => window.polyform.confirmClose())
+      // Skip the thumbnail render on quit — the close fail-safe must not
+      // fire while a slow full-scene render is still running.
+      void saveFlow(false).finally(() => window.polyform.confirmClose())
     })
     const offShortcuts = installShortcuts()
 
