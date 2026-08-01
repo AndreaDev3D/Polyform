@@ -1,5 +1,12 @@
 # Technical & Architectural Specification: Local-First Vector Design Tool
 
+> **Historical document** — the original technical spec (July 2026), kept as written.
+> Where the implementation deviates, an ADR records why: TypeScript engine first with a
+> planned Rust port ([ADR-002](Architecture-Decisions.md), [V0.4-Porting-Plan.md](V0.4-Porting-Plan.md)),
+> MessagePack envelope before FlatBuffers (ADR-004; current schema: [schema.fbs](schema.fbs)),
+> Canvas2D before WebGPU (ADR-003), polygon-flattened booleans (ADR-007). The embedded
+> `schema.fbs` below is the original v1 sketch — [docs/schema.fbs](schema.fbs) is current.
+
 **Document Version:** 1.0.0  
 **Target Architecture:** Cross-Platform Desktop (Windows, macOS, Linux)  
 **Core Stack:** Rust (WASM/Native), Electron / Tauri 2.0, WebGPU / Skia, React, FlatBuffers, SQLite  

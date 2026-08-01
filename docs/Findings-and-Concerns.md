@@ -20,6 +20,11 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-09](#f-09) | .poly portability caveats (fonts not embedded) | Med |
 | [F-10](#f-10) | Future auto-update security | High (deferred, groundwork now) |
 | [F-11](#f-11) | Memory for large images | Med |
+| [F-12](#f-12) | Instance sync hashing cost (v0.3) | Med (High with big/many components) |
+| [F-13](#f-13) | Nested-instance override capture depth (v0.3) | Med |
+| [F-14](#f-14) | Library updates can orphan overrides (v0.3) | Med |
+| [F-15](#f-15) | Plugin runner is unsandboxed (v0.3 preview) | High (consent-gated) |
+| [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Med |
 
 ---
 
@@ -292,6 +297,71 @@ Image fills (ADR-009) decode to bitmaps for rendering. Costs:
   2. **Downsampled display proxies:** decode to a mip-appropriate size for the current zoom via `createImageBitmap(resizeWidth/Height)`; full-resolution decode only for high zoom and export paths.
   3. **Import-time guardrail:** warn (not block) on placing images above a size threshold, with a one-click "downsample copy into assets" offer — original bytes preserved by content addressing if declined.
 * **Watch:** renderer memory on documents with 20+ distinct multi-megapixel images is the metric; if proxies (step 2) don't hold it, image decode moves off-thread (worker + `ImageBitmap` transfer) ahead of schedule.
+
+---
+
+<a id="f-12"></a>
+## F-12. Instance sync hashing cost
+
+**Severity: Med** today; **High** for documents with many or large components.
+
+### The problem
+Instance staleness (ADR-012) is detected by hashing `JSON.stringify` of the component subtree + overrides on every derived pass — i.e., after every commit, transient drag frame, and undo. Cost is O(total component content) per scene change. With dozens of instances of large components, this eats the frame budget during drags even when nothing component-related changed.
+
+### Mitigation
+Shipped: hashing is djb2 over one serialization pass (no tree diffing), and unchanged hashes skip materialization entirely. Planned (v0.4): the Rust core owns dirty-tracking — component subtree revision counters bumped by the op applier make staleness O(1), deleting the hash entirely. The `syncedHash` field is engine-internal, so this swap is invisible to the file format (the field just stops being consulted).
+
+---
+
+<a id="f-13"></a>
+## F-13. Nested-instance override capture is nearest-instance only
+
+**Severity: Med** — correctness edge, silent when it bites.
+
+### The problem
+Edits inside an instance are captured into the *nearest* enclosing instance's override map. When instances nest (component B contains an instance of A, and a document instance of B is edited inside the inner A), the override lands on the materialized inner instance — which is itself regenerated whenever B changes, discarding that override map.
+
+### Mitigation
+Shipped: single-level instances (the overwhelmingly common case) are fully correct; the structural lock prevents the worst confusion. Documented here rather than hidden. Planned: override *paths* (chains of sourceIds) captured to the outermost instance — designed alongside variant properties, which need the same addressing scheme; doing it once, correctly, beats doing it twice.
+
+---
+
+<a id="f-14"></a>
+## F-14. Library updates can orphan instance overrides
+
+**Severity: Med** — data is not lost, but intent can be.
+
+### The problem
+"Update from library" replaces an imported component's children with freshly-imported (re-identified) nodes. Instance overrides are keyed by the *old* child ids; after the update the sync pass regenerates instances against new ids, so overrides keyed to replaced children silently stop applying.
+
+### Mitigation
+Shipped: the update is an explicit, user-initiated pull (never a background surprise), it is one undoable entry (Ctrl+Z restores the previous component *and* re-applies old overrides), and instance geometry/position are never touched. Planned: structural re-keying (match old→new children by path/name/type) in the v1.0 update-review flow.
+
+---
+
+<a id="f-15"></a>
+## F-15. Plugin runner executes untrusted code with document access
+
+**Severity: High**, deliberately accepted for a consent-gated dev preview (ADR-014).
+
+### The problem
+`Plugins → Run Plugin Script…` evaluates arbitrary JavaScript in the renderer. Context isolation + sandbox keep Node and the filesystem out of reach, but a hostile script can still read and mutate the open document, spam dialogs, or hang the renderer.
+
+### Mitigation
+Shipped: explicit file pick each run (no auto-run, no plugin folder scanning), a plain-language consent dialog, all mutations in one rollback-able history entry, and `docs/Plugin-API.md` states the trust model in bold. Planned (post-1.0): worker isolation with a typed message bridge and manifest permissions — the current API surface was shaped so that migration is additive (`await` in front of the same calls).
+
+---
+
+<a id="f-16"></a>
+## F-16. Background blur's backdrop pass is a full-canvas self-draw
+
+**Severity: Med** — purely a performance concern.
+
+### The problem
+Each node with background blur clips to its shape, then redraws the *entire canvas* through a blur filter (backdrop capture). Several such nodes stack full-canvas passes per frame; on a 4K viewport this is the single most expensive effect in the renderer.
+
+### Mitigation
+Shipped: the pass runs only for nodes actually carrying the effect, and only within their clip. Documented in the matrix as the expensive effect. Planned: the WebGPU backend (v0.4) renders backdrop blur as a scoped texture sample — this is one of the four listed triggers that make WebGPU stop being optional (F-01).
 
 ---
 

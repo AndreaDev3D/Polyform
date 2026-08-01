@@ -297,6 +297,54 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-011: Pages are root containers addressed by page id in the op log (v0.2)
+
+**Context.** Multi-page documents (roadmap 2.6) had to coexist with a patch-op journal written before pages existed. Ops that add/move root nodes need a parent reference that stays correct even when the user switches pages between an edit and its undo.
+
+**Decision.** A page is a lightweight container (`{ id, name, rootIds, guides, viewport }`), not a node. `SceneGraph.childListOf` accepts a node id, a page id, or `null`; `null` resolves to the *active* page (v0.1 journal compatibility), while every newly recorded op normalizes root parents to a concrete page id. `parentOf(root)` returns the page id; ancestor walks stop at pages.
+
+**Consequences.** Undo/redo lands on the correct page regardless of the currently active page. Old journals replay unchanged. Page create/rename/delete are ops (`page-add`/`page-remove`/`page-rename`), so page management is undoable; guides and per-page viewports are deliberately view-state (persisted, not journaled).
+
+**Revisit when.** Cross-page node moves or page reordering land — both need explicit ops.
+
+---
+
+## ADR-012: Instances are materialized subtrees with journaled overrides (v0.3)
+
+**Context.** Components/instances (roadmap 3.1) are the largest data-model addition. The alternatives were render-time expansion (instances resolved during painting, like Figma's internal model) or materialization (instance children exist as real nodes, kept in sync).
+
+**Decision.** Materialize. An `INSTANCE` is a frame-like container whose children are real copies of the component subtree, each tagged `sourceId`. A derived sync pass (`syncInstances`, run with layout) regenerates stale instances — staleness detected by hashing the component subtree + overrides + instance size; materialized ids are **reused across regenerations** so selection and journal references stay valid. User edits inside an instance are ordinary patch ops; `DocumentStore.commit` additionally captures the changed props into the instance's `overrides` map **within the same history entry**, so an override and the edit that caused it undo together and survive restarts. Structural edits inside instances are locked at the interaction layer. A cycle guard refuses self-referential expansion; a GC pass removes materialized orphans after undo.
+
+**Consequences.** Rendering, hit-testing, constraints, auto-layout, serialization, export and undo needed **zero** instance-specific changes — the engine sees ordinary nodes. Files remain readable by tools that know nothing about components. Costs: `scene.bin` stores expanded copies (size), the sync hash is recomputed per scene change (CPU, see F-12), and deep-nested override capture is nearest-instance only (F-13).
+
+**Revisit when.** The Rust core lands (dirty-tracking replaces hashing) or variant property groups arrive (which need richer override addressing).
+
+---
+
+## ADR-013: Libraries are import-on-use local files, not live-linked registries (v0.3)
+
+**Context.** Roadmap 3.2 wants design systems shared across documents by copying directories — no cloud, no daemon watching files.
+
+**Decision.** Attaching a library records `{ path, name }` in the document. Inserting a library component **copies** it into the document as a local component (with `origin` provenance) and instantiates the local copy; styles import the same way. "Update" is an explicit pull that re-reads the library file and replaces imported components' contents, letting instance sync propagate the changes.
+
+**Consequences.** Documents remain fully self-contained (a `.poly` opens correctly with its libraries missing). No file watchers, no cross-document id coupling — origin ids are provenance, not live references. Cost: updates are manual, and overrides keyed to replaced children can be dropped when the library's structure diverges (F-14).
+
+**Revisit when.** v1.0 distribution work adds an update-review UI; consider content hashing for smarter override re-keying.
+
+---
+
+## ADR-014: Plugin dev-preview runs unsandboxed behind a consent dialog (v0.3)
+
+**Context.** Roadmap 3.4 calls for a *sketch*: prove the scene API shape without committing to a plugin runtime before the Rust core stabilizes the object model.
+
+**Decision.** Ship a script runner (`Plugins → Run Plugin Script…`) that executes a user-picked `.js` file in the renderer against a minimal `polyform` API. All mutations flow through one `OpRecorder`, committing a single undoable entry with rollback on throw. A confirmation dialog states the trust model plainly. The sandboxed worker + typed-bridge design is documented in `docs/Plugin-API.md` and deferred to post-1.0.
+
+**Consequences.** Real automation is possible today (the API mirrors the engine's public surface, so the WASM core can serve it unchanged), and we learn the API shape cheaply. The renderer is context-isolated and sandboxed from Node, but a malicious script can still trash the open document — hence consent dialog, no auto-run, no plugin directory scanning.
+
+**Revisit when.** Post-1.0, per the Plugin-API design doc. Any plugin distribution story requires the worker sandbox first.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -311,5 +359,9 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 008 | Patch-based journal | No (stable) | — |
 | 009 | Image = rectangle + image fill | No (stable) | — |
 | 010 | Mutable store + version subscriptions | No (stable) | — |
+| 011 | Pages as op-addressable root containers | No (stable) | — |
+| 012 | Materialized instances + journaled overrides | Partially | Rust core replaces hash-based staleness with dirty tracking |
+| 013 | Import-on-use local libraries | No (stable) | Update-review UI in v1.0 |
+| 014 | Unsandboxed plugin preview + consent | Yes | Worker sandbox + typed bridge post-1.0 |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

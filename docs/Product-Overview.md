@@ -1,5 +1,10 @@
 # Product Overview: Local-First Native Vector Design Tool
 
+> **Historical document** — this is the original product vision (July 2026), kept as written.
+> For what actually shipped and where implementation deviates (deliberately), see
+> [Feature-Matrix.md](Feature-Matrix.md), [Architecture-Decisions.md](Architecture-Decisions.md),
+> and the [CHANGELOG](../CHANGELOG.md). The project bundle extension shipped as `.poly`.
+
 ## Executive Summary
 This document outlines the product vision and high-level architectural framework for a native, cross-platform desktop vector design application (a local-first "Figma clone"). Designed specifically for single-machine, local-first operation, the application eliminates cloud server dependencies, centralized database infrastructure, and SaaS platform lock-in. Every design project is represented as a self-contained, portable directory structure (`.poly`) on the user's filesystem.
 

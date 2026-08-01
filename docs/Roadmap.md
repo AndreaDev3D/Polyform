@@ -119,6 +119,8 @@ Goal: design-systems features — reuse, libraries, and history you can see. Sti
 
 ## v0.4 — Performance Core
 
+> **Preparation:** the concrete execution plan — module inventory with port priorities, the three API contracts, WASM embedding rules, verification gates and sprint sequencing — lives in [V0.4-Porting-Plan.md](V0.4-Porting-Plan.md). The current object model the Rust core must implement is [schema.fbs](schema.fbs) (document schema v3).
+
 Goal: swap the hot paths of the TypeScript engine for Rust/WASM and upgrade rendering and text, without breaking a single document or feature. Rust 1.97 toolchain is already installed and the interfaces were designed for this from day one. See [the incremental port plan](#how-the-rust-port-lands-incrementally-without-a-rewrite) below.
 
 | # | Item | Effort | Depends on | Notes |

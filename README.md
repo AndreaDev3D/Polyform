@@ -8,12 +8,13 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 
 ## Highlights
 
-- **100% local-first** — projects are self-contained `.poly` directory bundles: `manifest.json`, binary `scene.bin`, a real SQLite `history.sqlite` journal, and SHA-256 content-addressed `assets/`.
-- **Session-spanning undo/redo** — history is journaled to SQLite on disk; close the app, reopen the project, and keep undoing.
-- **Canvas-rendered scene** — shapes are never DOM or SVG nodes; everything paints through a GPU-composited canvas pipeline behind a renderer interface (WebGPU backend planned, see the roadmap).
-- **Real design tools** — frames, rectangles/ellipses/lines/polygons/stars, pen paths (vector networks), text with system fonts, image fills, gradients, effects, boolean operations, auto layout, snapping, align/distribute, PNG/SVG export.
+- **100% local-first** — projects are self-contained `.poly` directory bundles: `manifest.json`, binary `scene.bin`, a real SQLite `history.sqlite` journal, and SHA-256 content-addressed `assets/`. Design-system libraries are just other `.poly` folders you attach.
+- **Session-spanning undo/redo + version history** — every edit is journaled to SQLite on disk; reopen a project and keep undoing, or browse the timeline (`Ctrl+Alt+H`) and jump anywhere.
+- **Components & instances** — materialized instances with journaled overrides, swap, and detach; a design system can live entirely in local files.
+- **Real design tools** — multi-page documents, frames with auto layout + constraints, shapes, pen paths with a vector-edit mode, text with system fonts, image fills (crop/adjust), gradients with a stop editor, effects (drop/inner shadow, layer/background blur), masks, boolean operations, rulers + guides, snapping with smart + spacing guides, align/distribute, SVG import, PNG/SVG export.
+- **Canvas-rendered scene** — shapes are never DOM or SVG nodes; everything paints through a GPU-composited canvas pipeline behind a renderer interface (WebGPU backend is the v0.4 track).
 - **R-tree spatial indexing** for fast hit-testing and viewport culling.
-- **Open format** — the scene schema is documented ([docs/schema.fbs](docs/schema.fbs)); the `.poly` bundle is inspectable with standard tools.
+- **Open format** — the scene schema is documented ([docs/schema.fbs](docs/schema.fbs)); the `.poly` bundle is inspectable with standard tools. A plugin-API dev preview ships behind the Plugins menu.
 
 ## Getting started
 
@@ -58,13 +59,16 @@ Copying the folder copies the entire project — shapes, history, and assets inc
 
 | Doc | Contents |
 | --- | -------- |
-| [Product-Overview.md](docs/Product-Overview.md) | Original product vision & stack |
-| [Technical-Specification.md](docs/Technical-Specification.md) | Original architecture spec |
-| [Feature-Matrix.md](docs/Feature-Matrix.md) | 200+ row Figma parity matrix with honest statuses |
-| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADRs incl. deviations from the spec and why |
-| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Engineering risk register |
-| [Roadmap.md](docs/Roadmap.md) | Phased plan: editing depth → components → Rust/WASM + WebGPU core → auto-update |
-| [schema.fbs](docs/schema.fbs) | Target FlatBuffers schema for `scene.bin` |
+| [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
+| [Feature-Matrix.md](docs/Feature-Matrix.md) | 231-row Figma parity matrix with honest statuses (recounted each release) |
+| [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v1.0 distribution |
+| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…014: every load-bearing decision and its replacement trigger |
+| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-16 with severities and mitigations |
+| [V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md) | Rust/WASM + WebGPU port: module inventory, API contracts, verification gates |
+| [Plugin-API.md](docs/Plugin-API.md) | Plugin dev preview API + post-1.0 sandbox design |
+| [schema.fbs](docs/schema.fbs) | Scene object model (schema v3) — FlatBuffers target & Rust struct reference |
+| [Product-Overview.md](docs/Product-Overview.md) | Original product vision (historical) |
+| [Technical-Specification.md](docs/Technical-Specification.md) | Original architecture spec (historical) |
 
 ## Architecture (v0.1)
 

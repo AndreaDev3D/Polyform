@@ -1,9 +1,15 @@
-// Polyform scene graph — FlatBuffers target schema (see ADR-004).
-// scene.bin currently ships as a MessagePack envelope ('PFRM' + format byte);
-// this schema is the source of truth for the planned FlatBuffers migration
-// once flatc codegen is wired into the build.
+// Polyform scene graph — FlatBuffers target schema, tracking document
+// schema v3 (v0.3.0). This is the source of truth for the planned
+// FlatBuffers migration (ADR-004) and the reference object model for the
+// v0.4 Rust core (see V0.4-Porting-Plan.md). scene.bin currently ships as a
+// MessagePack envelope: bytes "PFRM" + format byte 0x01 + msgpack payload
+// { schemaVersion, savedAt, doc }.
 
 namespace Polyform.Schema;
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
 
 enum NodeType : byte {
   Frame,
@@ -15,7 +21,9 @@ enum NodeType : byte {
   Polygon,
   Star,
   VectorPath,
-  Text
+  Text,
+  Component,   // v3: main component (frame semantics + provenance)
+  Instance     // v3: materialized instance of a component
 }
 
 enum BooleanOp : byte { Union, Subtract, Intersect, Exclude }
@@ -28,8 +36,14 @@ enum CounterAlign : byte { Min, Center, Max }
 enum TextAlignH : byte { Left, Center, Right }
 enum TextAlignV : byte { Top, Center, Bottom }
 enum TextAutoResize : byte { WidthAndHeight, Height, None }
-enum EffectType : byte { DropShadow, LayerBlur }
+enum EffectType : byte { DropShadow, InnerShadow, LayerBlur, BackgroundBlur } // v2: +Inner/+Background
 enum WindingRule : byte { NonZero, EvenOdd }
+enum GuideAxis : byte { X, Y }                                                // v2
+enum Constraint : byte { Min, Max, Center, Stretch, Scale }                   // v2
+
+// ---------------------------------------------------------------------------
+// Value types
+// ---------------------------------------------------------------------------
 
 struct Vec2 {
   x: float;
@@ -48,24 +62,41 @@ table GradientStop {
   color: Color;
 }
 
+// v2: non-destructive crop rect, normalized to the source image (0..1).
+table ImageCrop {
+  x: float;
+  y: float;
+  w: float;
+  h: float;
+}
+
+// v2: non-destructive adjustments, each -1..1 (0 = neutral).
+table ImageAdjust {
+  exposure: float;
+  contrast: float;
+  saturation: float;
+}
+
 table Paint {
   type: PaintType;
   visible: bool = true;
   opacity: float = 1.0;
   color: Color;               // Solid
   stops: [GradientStop];      // Gradients
-  start: Vec2;                // Gradient handles (normalized)
+  start: Vec2;                // Gradient handles (normalized node space)
   end: Vec2;
   asset_hash: string;         // Image (SHA-256 in assets/)
   scale_mode: ImageScaleMode; // Image
+  crop: ImageCrop;            // Image, optional (v2)
+  adjust: ImageAdjust;        // Image, optional (v2)
 }
 
 table Effect {
   type: EffectType;
   visible: bool = true;
-  color: Color;   // DropShadow
-  offset: Vec2;   // DropShadow
-  blur: float;    // DropShadow blur / LayerBlur radius
+  color: Color;   // DropShadow / InnerShadow
+  offset: Vec2;   // DropShadow / InnerShadow
+  blur: float;    // shadow blur, or LayerBlur/BackgroundBlur radius
 }
 
 table VectorVertex {
@@ -108,6 +139,33 @@ table CornerRadius {
   bl: float;
 }
 
+// v3: references into the document's shared styles (applied-by-reference).
+table StyleRefs {
+  fill: string;
+  text: string;
+  effect: string;
+}
+
+// v3: one overridden-property set of an instance, keyed by the component
+// descendant's id. Values are property patches (encoded as a nested map in
+// the MessagePack envelope; FlatBuffers will carry them as msgpack bytes
+// until override addressing is finalized alongside variants).
+table InstanceOverride {
+  source_id: string (key);
+  props_msgpack: [ubyte];
+}
+
+// v3: provenance of a component imported from a local library file.
+table LibraryOrigin {
+  library_path: string;
+  component_id: string;
+  imported_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Nodes
+// ---------------------------------------------------------------------------
+
 table Node {
   id: string (key);
   node_type: NodeType;
@@ -127,12 +185,18 @@ table Node {
   stroke_align: StrokeAlign = Inside;
   stroke_dash: [float];
   effects: [Effect];
-  children: [string];         // child node ids, bottom -> top
+  children: [string];              // child node ids, bottom -> top
+
+  // v2 additions
+  constraints_h: Constraint = Min; // relative to parent frame
+  constraints_v: Constraint = Min;
+  is_mask: bool = false;           // clips siblings above it in its container
+  style_refs: StyleRefs;
 
   // Type-specific fields
-  corner_radius: CornerRadius;      // Frame / Rectangle
-  clips_content: bool = true;       // Frame
-  layout: AutoLayout;               // Frame
+  corner_radius: CornerRadius;      // Frame-likes / Rectangle
+  clips_content: bool = true;       // Frame-likes
+  layout: AutoLayout;               // Frame-likes
   boolean_op: BooleanOp;            // Boolean
   point_count: uint16;              // Polygon / Star
   inner_ratio: float;               // Star
@@ -148,12 +212,85 @@ table Node {
   text_align_h: TextAlignH;         // Text
   text_align_v: TextAlignV;         // Text
   auto_resize: TextAutoResize;      // Text
+
+  // v3 additions (Component / Instance / materialized copies)
+  source_id: string;                // materialized copy -> component descendant
+  component_id: string;             // Instance -> its component
+  overrides: [InstanceOverride];    // Instance
+  synced_hash: string;              // Instance sync cache (engine-internal)
+  origin: LibraryOrigin;            // Component imported from a library
+  description: string;              // Component
+}
+
+// ---------------------------------------------------------------------------
+// Document (v2: pages/guides/styles; v3: libraries)
+// ---------------------------------------------------------------------------
+
+table Guide {
+  axis: GuideAxis;
+  pos: float;
+}
+
+table PageViewport {
+  x: float;
+  y: float;
+  zoom: float;
+}
+
+table Page {
+  id: string (key);
+  name: string;
+  root_ids: [string];   // z-order, bottom -> top
+  guides: [Guide];
+  viewport: PageViewport;
+}
+
+table ColorStyle {
+  id: string (key);
+  name: string;
+  paint: Paint;
+}
+
+table TextStyleProps {
+  font_family: string;
+  font_weight: uint16;
+  italic: bool = false;
+  font_size: float;
+  line_height: float;
+  letter_spacing: float;
+}
+
+table TextStyle {
+  id: string (key);
+  name: string;
+  props: TextStyleProps;
+}
+
+table EffectStyle {
+  id: string (key);
+  name: string;
+  effects: [Effect];
+}
+
+table DocumentStyles {
+  colors: [ColorStyle];
+  texts: [TextStyle];
+  effects: [EffectStyle];
+}
+
+table AttachedLibrary {
+  path: string;         // absolute path of the library's .poly bundle
+  name: string;
+  attached_at: string;
 }
 
 table SceneGraph {
-  schema_version: uint32;
+  schema_version: uint32;   // 3 as of v0.3.0 (v1: single-page; v2: +pages/styles/constraints/effects; v3: +components/libraries)
   nodes: [Node];
-  root_ids: [string];
+  pages: [Page];
+  active_page_id: string;
+  styles: DocumentStyles;
+  libraries: [AttachedLibrary];
 }
 
 root_type SceneGraph;

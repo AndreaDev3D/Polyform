@@ -8,7 +8,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Status | Meaning |
 | :--- | :--- |
-| ✅ | **Implemented** — working in Polyform v0.1 |
+| ✅ | **Implemented** — working in the current release (v0.3.0) |
 | 🟡 | **Partial** — implemented with known gaps or approximations vs. Figma |
 | 📋 | **Planned** — on the roadmap, not yet implemented |
 | ❌ | **Out of scope** — deliberately excluded (local-first, single-user product) |
@@ -48,7 +48,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Zoom to cursor | Ctrl/Cmd + wheel zooms toward the pointer | ✅ | |
 | Zoom to fit | Shift+1 frames all content in view | ✅ | |
 | Zoom to 100% | Shift+0 / Ctrl+0 resets to actual size | ✅ | |
-| Zoom to selection | Shift+2 frames the current selection | 📋 | Fit and 100% zoom ship in v0.1 |
+| Zoom to selection | Shift+2 frames the current selection | 📋 | Fit and 100% zoom shipped |
 | Pixel grid at high zoom | Pixel lattice appears when zoomed far in | ✅ | |
 | Pixel grid toggle | Show/hide pixel grid preference | ✅ | |
 | Layout grids | Column/row/grid overlays on frames | 📋 | |
@@ -128,7 +128,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Copy / paste | Clipboard for design objects | ✅ | App-internal clipboard |
 | Duplicate (Ctrl+D) | Duplicate in place with offset | ✅ | |
 | Delete | Remove selection | ✅ | |
-| Paste from OS clipboard | Paste images/text copied from other apps | 📋 | Clipboard is app-internal in v0.1 |
+| Paste from OS clipboard | Paste images/text copied from other apps | 📋 | Clipboard is app-internal for now |
 | Math in inspector fields | Type `100+20` or `50%` into number fields | 📋 | |
 
 ## Layers & Hierarchy
@@ -199,7 +199,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Text decoration | Underline and strikethrough | 📋 | |
 | Text case | Uppercase/lowercase/title transforms | 📋 | |
 | Lists | Bulleted and numbered lists | 📋 | |
-| Mixed styles in one node | Different styles per character range | 📋 | v0.1 text nodes are uniformly styled |
+| Mixed styles in one node | Different styles per character range | 📋 | Text nodes are uniformly styled |
 | OpenType features & ligatures | Ligatures, stylistic sets, figures control | 📋 | Requires HarfBuzz shaping (planned) |
 | Variable fonts | Variable axis sliders | 📋 | |
 | Text shaping quality | HarfBuzz-grade kerning/ligature shaping | 🟡 | Canvas2D shaping today; HarfBuzz planned per spec §5 |
@@ -215,7 +215,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Counter-axis alignment | Align children across the flow axis | ✅ | |
 | Hug contents | Container sizes itself to children | ✅ | |
 | Fill container | Child stretches to fill parent | 📋 | |
-| Wrap | Children wrap onto multiple rows | 📋 | Explicit v0.1 gap vs. Figma |
+| Wrap | Children wrap onto multiple rows | 📋 | Known gap vs. Figma |
 | Auto gap (space between) | Distribute remaining space between items | 📋 | |
 | Absolute position in auto layout | Exempt a child from the flow | 📋 | |
 | Constraints (pin / scale) | Pin edges or scale with parent resize | ✅ | Left/right/center/stretch/scale per axis; cascades through nested frames |
@@ -262,7 +262,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | JPG export | Lossy raster export | 📋 | |
 | SVG export | Vector export of nodes/frames | ✅ | Selection or frames |
 | PDF export | Per-frame PDF output | 📋 | |
-| Per-node export settings | Persisted export presets on layers | 📋 | Export is invoked ad hoc in v0.1 |
+| Per-node export settings | Persisted export presets on layers | 📋 | Export is invoked ad hoc for now |
 | Slice export | Export arbitrary canvas regions | 📋 | Blocked on slice tool |
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
 | .fig import | Open Figma's native files | 📋 | |
@@ -316,9 +316,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
 | WebGPU backend | Hardware rasterization pipeline | 📋 | Planned behind the existing `IRenderer` interface |
-| Rust/WASM core engine | C++/WASM core in Figma's case | 📋 | v0.1 engine is TypeScript behind clean interfaces (`IRenderer`, SceneGraph, Command/PatchOp); Rust 1.97 toolchain ready, port is phase 2 per spec |
+| Rust/WASM core engine | C++/WASM core in Figma's case | 📋 | Engine is TypeScript behind clean interfaces; the v0.4 port is scoped in V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
-| 100k+ object documents | Smooth editing on massive files | 📋 | Spec target for the Rust/WASM phase; v0.1 TS engine targets typical documents |
+| 100k+ object documents | Smooth editing on massive files | 📋 | Spec target for the v0.4 Rust/WASM phase; TS engine targets typical documents |
 | Swappable render backends | Single internal engine (not swappable) | ✅ | `IRenderer` abstraction is a Polyform architectural feature |
 
 ## Desktop / Platform
@@ -330,11 +330,11 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Context menu | Right-click canvas/layer menus | ✅ | |
 | Figma-compatible shortcuts | Extensive keyboard shortcut map | ✅ | Shortcut map deliberately mirrors Figma |
 | Status bar | No equivalent (zoom lives in toolbar) | ✅ | Polyform addition |
-| UI themes | Light and dark editor themes | 🟡 | Dark Figma-like UI only in v0.1 |
+| UI themes | Light and dark editor themes | 🟡 | Dark Figma-like UI only for now |
 | Runs in the browser | Full editor available at figma.com | ❌ | Desktop-only by design |
 | Auto-update | Silent background updates | 📋 | Planned via GitHub Releases; CI groundwork ships now |
 | Installers | Signed installers per platform | 📋 | NSIS `.exe`, `.dmg`, `.AppImage`/`.deb` targets per spec §6 |
-| Multiple windows / tabs | Many files open in tabs | 📋 | One document window in v0.1 |
+| Multiple windows / tabs | Many files open in tabs | 📋 | One document window for now |
 
 ## Extensibility
 
@@ -350,4 +350,4 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above. Statuses reflect the actual v0.1 implementation — approximations (boolean flattening, stroke-align clipping, Canvas2D text shaping and blend-mode subset, minimal gradient stop UI) are intentionally reported as 🟡 rather than ✅.*
+*Counts in the summary table are exact row tallies from the sections above (mechanically recounted each release). Statuses reflect the actual implementation as of **v0.3.0** — approximations (boolean flattening, stroke-align clipping, Canvas2D text shaping and blend-mode subset, shape-clip masks, nearest-instance override capture) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
