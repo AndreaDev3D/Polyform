@@ -40,10 +40,12 @@ import { rgbaToCss } from '../../color'
 import type { RenderOptions } from '../canvas2d'
 import { drawTextInto } from '../canvas2d'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
+import { GlyphAtlas } from './glyphatlas'
 import {
   BLUR_WGSL,
   COMPOSITE_WGSL,
   FX_WGSL,
+  GLYPH_WGSL,
   GRADIENT_WGSL,
   SOLID_WGSL,
   STENCIL_WGSL,
@@ -90,6 +92,7 @@ interface ScissorRect {
 
 type Segment =
   | { kind: 'batch'; blend: number; firstIndex: number; indexCount: number }
+  | { kind: 'glyphs'; blend: number; firstIndex: number; indexCount: number }
   | { kind: 'stencil'; op: 'push' | 'pop'; firstIndex: number; indexCount: number }
   | { kind: 'scissor'; op: 'push' | 'pop'; rect?: ScissorRect }
   | { kind: 'setRef'; delta: number } // temporary stencil ref adjustment (stroke aligns)
@@ -243,9 +246,11 @@ export class WebGPURenderer {
   private stencilPopPipeline!: GPURenderPipeline
   private gradientPipelines!: GPURenderPipeline[]
   private texturePipelines!: GPURenderPipeline[]
+  private glyphPipelines!: GPURenderPipeline[]
   private fxPipeline!: GPURenderPipeline
   private blurPipeline!: GPURenderPipeline
   private blitPipeline!: GPURenderPipeline
+  private glyphLayout!: GPUBindGroupLayout
 
   private cameraLayout!: GPUBindGroupLayout
   private cameraBuffer!: GPUBuffer
@@ -294,6 +299,17 @@ export class WebGPURenderer {
   /** Bind groups resolved lazily at execute time against the CURRENT uniform buffer. */
   private textureBindGroups = new Map<string, GPUBindGroup>()
 
+  // Shaped text (Sprint E): glyph quads from the shared atlas
+  private glyphArena = new GrowBuffer() // interleaved: x, y, u, v, color
+  private glyphIndices = new GrowIndexBuffer()
+  private glyphGpu: GPUBuffer | null = null
+  private glyphIndexGpu: GPUBuffer | null = null
+  private atlas = new GlyphAtlas()
+  private atlasTexture: GPUTexture | null = null
+  private atlasBindGroup: GPUBindGroup | null = null
+  /** Session fallback to per-node rasters after repeated atlas overflow. */
+  private glyphFallback = false
+
   // Effect layers (rebuilt each bake)
   private fxLayers: FxLayerSpec[] = []
   private fxKeyCounter = 0
@@ -338,6 +354,9 @@ export class WebGPURenderer {
     this.arenaIndexGpu?.destroy()
     this.localGpu?.destroy()
     this.localIndexGpu?.destroy()
+    this.glyphGpu?.destroy()
+    this.glyphIndexGpu?.destroy()
+    this.atlasTexture?.destroy()
     this.uniformGpu?.destroy()
     this.blitUniform?.destroy()
     this.device.destroy()
@@ -562,6 +581,42 @@ export class WebGPURenderer {
       }),
     )
 
+    this.glyphLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+      ],
+    })
+    const glyphModule = device.createShaderModule({ code: GLYPH_WGSL })
+    this.glyphPipelines = blendStates.map((blend) =>
+      device.createRenderPipeline({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.cameraLayout, this.glyphLayout],
+        }),
+        vertex: {
+          module: glyphModule,
+          entryPoint: 'vs',
+          buffers: [
+            {
+              arrayStride: 20,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: 'float32x2' },
+                { shaderLocation: 1, offset: 8, format: 'float32x2' },
+                { shaderLocation: 2, offset: 16, format: 'unorm8x4' },
+              ],
+            },
+          ],
+        },
+        fragment: {
+          module: glyphModule,
+          entryPoint: 'fs',
+          targets: [{ format: this.format, blend }],
+        },
+        multisample: { count: 4 },
+        depthStencil: stencilKeep('equal', 'keep'),
+      }),
+    )
+
     const fxModule = device.createShaderModule({ code: FX_WGSL })
     this.fxPipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({
@@ -617,32 +672,48 @@ export class WebGPURenderer {
   private bakeScene!: SceneGraph
   private currentBatchStart = -1
   private currentBatchBlend = 0
+  private currentGlyphStart = -1
+  private currentGlyphBlend = 0
 
   private bake(scene: SceneGraph, opts: RenderOptions): void {
     this.bakeScene = scene
     this.bakeOpts = opts
-    this.arena.reset()
-    this.arenaIndices.reset()
-    this.localArena.reset()
-    this.localIndices.reset()
-    this.uniformLen = 0
-    this.segments = []
-    this.currentBatchStart = -1
-    this.currentBatchBlend = 0
-    this.fxLayers = []
-    this.fxKeyCounter = 0
     this.meshCache.prune(scene)
 
-    for (const id of scene.rootIds()) {
-      this.bakeNode(id, IDENTITY, 1, 0, false)
+    // An atlas overflow mid-bake invalidates uv refs baked before the clear
+    // — rebuild once against the freshly cleared atlas; if even that
+    // overflows, fall back to per-node text rasters for the session.
+    for (let attempt = 0; ; attempt++) {
+      this.arena.reset()
+      this.arenaIndices.reset()
+      this.localArena.reset()
+      this.localIndices.reset()
+      this.glyphArena.reset()
+      this.glyphIndices.reset()
+      this.uniformLen = 0
+      this.segments = []
+      this.currentBatchStart = -1
+      this.currentBatchBlend = 0
+      this.currentGlyphStart = -1
+      this.currentGlyphBlend = 0
+      this.fxLayers = []
+      this.fxKeyCounter = 0
+      this.atlas.beginBake()
+
+      for (const id of scene.rootIds()) {
+        this.bakeNode(id, IDENTITY, 1, 0, false)
+      }
+      this.endBatch()
+      if (!this.atlas.clearedDuringBake || attempt >= 2) break
+      if (attempt === 1) this.glyphFallback = true
     }
-    this.endBatch()
     this.hasBackdropFx = this.segments.some((s) => s.kind === 'fxQuad' && s.needsBackdrop)
     this.uploadArenas()
+    this.uploadAtlas()
     this.preRenderFxLayers()
   }
 
-  private endBatch(): void {
+  private endSolidBatch(): void {
     if (this.currentBatchStart >= 0 && this.arenaIndices.len > this.currentBatchStart) {
       this.segments.push({
         kind: 'batch',
@@ -654,6 +725,23 @@ export class WebGPURenderer {
     this.currentBatchStart = -1
   }
 
+  private endGlyphBatch(): void {
+    if (this.currentGlyphStart >= 0 && this.glyphIndices.len > this.currentGlyphStart) {
+      this.segments.push({
+        kind: 'glyphs',
+        blend: this.currentGlyphBlend,
+        firstIndex: this.currentGlyphStart,
+        indexCount: this.glyphIndices.len - this.currentGlyphStart,
+      })
+    }
+    this.currentGlyphStart = -1
+  }
+
+  private endBatch(): void {
+    this.endSolidBatch()
+    this.endGlyphBatch()
+  }
+
   private appendSolid(
     positions: Float32Array,
     indices: Uint32Array,
@@ -662,7 +750,8 @@ export class WebGPURenderer {
     blend: number,
   ): void {
     if (indices.length === 0) return
-    if (this.currentBatchStart >= 0 && this.currentBatchBlend !== blend) this.endBatch()
+    if (this.currentGlyphStart >= 0) this.endGlyphBatch()
+    if (this.currentBatchStart >= 0 && this.currentBatchBlend !== blend) this.endSolidBatch()
     if (this.currentBatchStart < 0) {
       this.currentBatchStart = this.arenaIndices.len
       this.currentBatchBlend = blend
@@ -907,9 +996,111 @@ export class WebGPURenderer {
     this.segments.push({ kind: 'texture', blend, uniformOffset: offset, texKey, ...loc })
   }
 
+  /** Glyph quads (world-transformed) into the shared batched glyph arena. */
+  private appendGlyphQuads(
+    quads: number[], // [x0, y0, x1, y1, u0, v0, u1, v1] * n, node-local
+    m: Mat,
+    color: [number, number, number, number],
+    blend: number,
+  ): void {
+    if (quads.length === 0) return
+    if (this.currentBatchStart >= 0) this.endSolidBatch()
+    if (this.currentGlyphStart >= 0 && this.currentGlyphBlend !== blend) this.endGlyphBatch()
+    if (this.currentGlyphStart < 0) {
+      this.currentGlyphStart = this.glyphIndices.len
+      this.currentGlyphBlend = blend
+    }
+    const a = color[3]
+    const r = Math.round(Math.max(0, Math.min(1, color[0] * a)) * 255)
+    const g = Math.round(Math.max(0, Math.min(1, color[1] * a)) * 255)
+    const b = Math.round(Math.max(0, Math.min(1, color[2] * a)) * 255)
+    const alpha = Math.round(Math.max(0, Math.min(1, a)) * 255)
+    const packed = (r | (g << 8) | (b << 16) | (alpha << 24)) >>> 0
+    const quadCount = quads.length / 8
+    this.glyphArena.ensure(quadCount * 4 * 5)
+    this.glyphIndices.ensure(quadCount * 6)
+    const f32 = this.glyphArena.data
+    const u32 = this.glyphArena.u32
+    const idx = this.glyphIndices.data
+    let w = this.glyphArena.len
+    let iw = this.glyphIndices.len
+    for (let q = 0; q < quadCount; q++) {
+      const o = q * 8
+      const x0 = quads[o]
+      const y0 = quads[o + 1]
+      const x1 = quads[o + 2]
+      const y1 = quads[o + 3]
+      const base = w / 5
+      const corners = [
+        [x0, y0, quads[o + 4], quads[o + 5]],
+        [x1, y0, quads[o + 6], quads[o + 5]],
+        [x1, y1, quads[o + 6], quads[o + 7]],
+        [x0, y1, quads[o + 4], quads[o + 7]],
+      ]
+      for (const [x, y, u, v] of corners) {
+        f32[w] = m.a * x + m.c * y + m.e
+        f32[w + 1] = m.b * x + m.d * y + m.f
+        f32[w + 2] = u
+        f32[w + 3] = v
+        u32[w + 4] = packed
+        w += 5
+      }
+      idx[iw++] = base
+      idx[iw++] = base + 1
+      idx[iw++] = base + 2
+      idx[iw++] = base
+      idx[iw++] = base + 2
+      idx[iw++] = base + 3
+    }
+    this.glyphArena.len = w
+    this.glyphIndices.len = iw
+  }
+
   private bakeText(node: Extract<SceneNode, { type: 'TEXT' }>, m: Mat, opacity: number, blend: number): void {
     const paint = node.fills.find((f) => f.visible)
     if (!paint || node.width <= 0 || node.height <= 0) return
+
+    // Shaped path (Sprint E): batched atlas quads. SOLID fills only —
+    // gradient/image text keeps the raster path (documented).
+    if (!this.glyphFallback && paint.type === 'SOLID') {
+      const layout = layoutText(node)
+      if (layout.shaped) {
+        const rasterScale = Math.min(4, Math.max(1, zoomBucket(this.bakeOpts.camera.zoom) * this.bakeOpts.dpr))
+        const unitScale = (node.fontSize * rasterScale) / layout.shaped.unitsPerEm
+        const quads: number[] = []
+        let ok = true
+        for (const line of layout.lines) {
+          const glyphs = line.glyphs
+          if (!glyphs) continue
+          for (let i = 0; i + 3 <= glyphs.length; i += 3) {
+            const entry = this.atlas.get(layout.shaped.fontId, glyphs[i], unitScale)
+            if (!entry) {
+              ok = false
+              break
+            }
+            if (entry.empty) continue
+            const gx = glyphs[i + 1]
+            const gy = glyphs[i + 2]
+            quads.push(
+              gx + entry.x0 / rasterScale,
+              gy + entry.y0 / rasterScale,
+              gx + entry.x1 / rasterScale,
+              gy + entry.y1 / rasterScale,
+              entry.u0,
+              entry.v0,
+              entry.u1,
+              entry.v1,
+            )
+          }
+          if (!ok) break
+        }
+        if (ok) {
+          this.appendGlyphQuads(quads, m, this.paintColor(paint, opacity), blend)
+          return
+        }
+      }
+    }
+
     const bucket = zoomBucket(this.bakeOpts.camera.zoom)
     const scale = Math.min(4, Math.max(1, bucket * this.bakeOpts.dpr))
     const layout = layoutText(node)
@@ -1266,6 +1457,7 @@ export class WebGPURenderer {
       this.endBatch()
     } else if (node.type === 'TEXT') {
       if (this.bakeOpts.editingTextId !== node.id) this.bakeText(node, m, opacity, blend)
+      this.endBatch() // seal glyph quads inside the fx content range
     } else if (mesh) {
       // Fills — the first visible fill is sealed into its own segment range
       // so it can double as the drop-shadow caster.
@@ -1517,6 +1709,26 @@ export class WebGPURenderer {
     }
     device.queue.writeBuffer(this.localIndexGpu!, 0, this.localIndices.data.buffer, 0, this.localIndices.len * 4)
 
+    const glyphBytes = Math.max(16, this.glyphArena.len * 4)
+    if (need(this.glyphGpu, glyphBytes)) {
+      this.glyphGpu?.destroy()
+      this.glyphGpu = device.createBuffer({
+        size: Math.ceil((glyphBytes * 1.5) / 16) * 16,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      })
+    }
+    device.queue.writeBuffer(this.glyphGpu!, 0, this.glyphArena.data.buffer, 0, this.glyphArena.len * 4)
+
+    const glyphIdxBytes = Math.max(16, this.glyphIndices.len * 4)
+    if (need(this.glyphIndexGpu, glyphIdxBytes)) {
+      this.glyphIndexGpu?.destroy()
+      this.glyphIndexGpu = device.createBuffer({
+        size: Math.ceil((glyphIdxBytes * 1.5) / 16) * 16,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      })
+    }
+    device.queue.writeBuffer(this.glyphIndexGpu!, 0, this.glyphIndices.data.buffer, 0, this.glyphIndices.len * 4)
+
     if (!this.uniformGpu || this.uniformGpu.size < this.uniformData.length) {
       // Recreating the buffer invalidates every bind group that referenced it.
       this.uniformGpu?.destroy()
@@ -1539,6 +1751,39 @@ export class WebGPURenderer {
         ],
       })
     }
+  }
+
+  /** Upload freshly rasterized atlas cells (whole-canvas copy on change). */
+  private uploadAtlas(): void {
+    if (!this.atlas.dirty) return
+    if (!this.atlasTexture) {
+      this.atlasTexture = this.device.createTexture({
+        size: [this.atlas.size, this.atlas.size],
+        format: 'rgba8unorm',
+        usage:
+          GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      })
+      this.atlasBindGroup = null
+    }
+    this.device.queue.copyExternalImageToTexture(
+      { source: this.atlas.canvas },
+      { texture: this.atlasTexture, premultipliedAlpha: true },
+      [this.atlas.size, this.atlas.size],
+    )
+    this.atlas.dirty = false
+  }
+
+  private getAtlasBindGroup(): GPUBindGroup | null {
+    if (this.atlasBindGroup) return this.atlasBindGroup
+    if (!this.atlasTexture) return null
+    this.atlasBindGroup = this.device.createBindGroup({
+      layout: this.glyphLayout,
+      entries: [
+        { binding: 0, resource: this.sampler },
+        { binding: 1, resource: this.atlasTexture.createView() },
+      ],
+    })
+    return this.atlasBindGroup
   }
 
   // -------------------------------------------------------------------------
@@ -1830,6 +2075,17 @@ export class WebGPURenderer {
         pass.setStencilReference(ctx.stencilDepth + ctx.refDelta)
         pass.setVertexBuffer(0, this.arenaGpu!)
         pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
+        pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
+        break
+      }
+      case 'glyphs': {
+        const bg = this.getAtlasBindGroup()
+        if (!bg) break
+        pass.setPipeline(this.glyphPipelines[seg.blend])
+        pass.setStencilReference(ctx.stencilDepth + ctx.refDelta)
+        pass.setBindGroup(1, bg)
+        pass.setVertexBuffer(0, this.glyphGpu!)
+        pass.setIndexBuffer(this.glyphIndexGpu!, 'uint32')
         pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
         break
       }

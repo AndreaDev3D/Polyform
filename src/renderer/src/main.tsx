@@ -1,11 +1,16 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './ui/App'
 import { initWasmEngine } from './engine/backend'
+import { installFontLoader } from './ui/fontloader'
 import './styles.css'
 
 // Load the Rust/WASM engine core in the background; engine modules stay on
 // their TS implementations until it resolves (and forever if it fails).
-void initWasmEngine()
+// The font loader resolves the shaping engine's font-byte requests from
+// queryLocalFonts once the engine is up (Sprint E).
+void initWasmEngine().then((ok) => {
+  if (ok) installFontLoader()
+})
 
 // GPU/Canvas2D parity + perf harness (POLYFORM_RENDER_TEST=1).
 const bootParams = new URLSearchParams(window.location.search)

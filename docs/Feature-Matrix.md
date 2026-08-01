@@ -23,7 +23,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 5 | 4 | 1 | 23 |
-| [Text & Typography](#text--typography) | 10 | 1 | 7 | 1 | 19 |
+| [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
@@ -33,7 +33,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 1 | 1 | 1 | 4 | 7 |
-| **Total** | **129** | **21** | **58** | **23** | **231** |
+| **Total** | **130** | **21** | **57** | **23** | **231** |
 
 ---
 
@@ -200,9 +200,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Text case | Uppercase/lowercase/title transforms | 📋 | |
 | Lists | Bulleted and numbered lists | 📋 | |
 | Mixed styles in one node | Different styles per character range | 📋 | Text nodes are uniformly styled |
-| OpenType features & ligatures | Ligatures, stylistic sets, figures control | 📋 | Requires HarfBuzz shaping (planned) |
+| OpenType features & ligatures | Ligatures, stylistic sets, figures control | 🟡 | Font-default ligatures/kerning ship via engine shaping (ADR-018); no feature-toggle UI yet (liga/ss01/tnum) |
 | Variable fonts | Variable axis sliders | 📋 | |
-| Text shaping quality | HarfBuzz-grade kerning/ligature shaping | 🟡 | Canvas2D shaping today; HarfBuzz planned per spec §5 |
+| Text shaping quality | HarfBuzz-grade kerning/ligature shaping | ✅ | rustybuzz (HarfBuzz port) in the engine core — deterministic across machines and Electron upgrades (ADR-018); single-run shaping, no bidi itemization yet |
 
 ## Auto Layout & Constraints
 
@@ -350,4 +350,4 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above (mechanically recounted each release). Statuses reflect the actual implementation as of **v0.3.0 plus the v0.4 Sprint A engine work** (Rust/WASM geometry/shapes/spatial core) — approximations (boolean flattening, stroke-align clipping, Canvas2D text shaping and blend-mode subset, shape-clip masks, nearest-instance override capture) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above (mechanically recounted each release). Statuses reflect the actual implementation as of **v0.3.0 plus the v0.4 Sprints A–E** (Rust/WASM engine core, exact-CSG booleans, WebGPU renderer beta with the effects/blend compositor, rustybuzz text shaping) — remaining approximations (stroke-align clipping, shape-clip masks, nearest-instance override capture, single-run text shaping) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

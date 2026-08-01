@@ -10,7 +10,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | # | Finding | Severity |
 | :-- | :-- | :-- |
 | [F-01](#f-01) | Canvas2D performance ceiling | Med (High at scale) |
-| [F-02](#f-02) | Text fidelity gaps without HarfBuzz | Med |
+| [F-02](#f-02) | Text fidelity gaps without HarfBuzz | Low (shaping shipped v0.4, ADR-018; bidi/caret/feature-UI open) |
 | [F-03](#f-03) | Boolean precision on curves | Med |
 | [F-04](#f-04) | Stroke-align approximation artifacts | Low |
 | [F-05](#f-05) | sql.js memory-resident DB + persistence/corruption | High |
@@ -65,7 +65,19 @@ Concrete triggers, in expected order of arrival:
 <a id="f-02"></a>
 ## F-02. Text fidelity gaps without HarfBuzz
 
-**Severity: Med** — correctness is fine for UI-design text in Latin scripts; fidelity and internationalization are not.
+> **Status (v0.4 Sprint E): largely resolved.** Text now shapes through
+> rustybuzz (the pure-Rust HarfBuzz port) in the engine core by default
+> (ADR-018): kerning and ligatures come from the font's own tables, layout
+> is deterministic and version-pinned to the shipped WASM binary (no more
+> re-flow across Chromium upgrades), and both renderers consume the same
+> positioned-glyph runs (Canvas2D fills outlines, WebGPU draws atlas
+> quads). Letter-spacing now applies per shaped cluster. Still open from
+> the list below: RTL/bidi itemization, cluster-aware caret movement in the
+> edit overlay, an OpenType feature UI, and color emoji in shaped runs
+> (single-run LTR shaping only for now — the legacy Canvas2D path remains
+> the automatic per-node fallback, including while font bytes load).
+
+**Severity: Low** (was Med) — Latin-script fidelity is now deterministic and feature-correct; internationalization gaps remain.
 
 ### The problem
 

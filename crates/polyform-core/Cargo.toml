@@ -21,6 +21,9 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 rmp-serde = "1"
 lyon_tessellation = "1"
 lyon_path = "1"
+# Pure-Rust HarfBuzz port (shaping) — re-exports its matching ttf-parser
+# (metrics + glyph outlines), so both stay version-locked.
+rustybuzz = "0.18"
 
 # wasm-opt needs a binaryen download; keep builds hermetic for now and
 # revisit when tuning size/speed (V0.4-Porting-Plan verification gates).

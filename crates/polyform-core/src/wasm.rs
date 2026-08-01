@@ -628,3 +628,98 @@ impl Default for WasmSpatialIndex {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Text (Sprint E): font registry, shaped layout, glyph outlines
+// ---------------------------------------------------------------------------
+
+/// Register font bytes; returns a font id, or -1 if the face fails to parse.
+#[wasm_bindgen(js_name = loadFont)]
+pub fn load_font(bytes: &[u8]) -> i32 {
+    match crate::text::load_font(bytes.to_vec()) {
+        Some(id) => id as i32,
+        None => -1,
+    }
+}
+
+/// {unitsPerEm, ascender, descender, lineGap} in font units; "null" on bad id.
+#[wasm_bindgen(js_name = fontMetricsJson)]
+pub fn font_metrics_json(id: u32) -> String {
+    crate::text::with_face(id as usize, |face| {
+        let m = crate::text::metrics(face);
+        serde_json::json!({
+            "unitsPerEm": m.units_per_em,
+            "ascender": m.ascender,
+            "descender": m.descender,
+            "lineGap": m.line_gap,
+        })
+        .to_string()
+    })
+    .unwrap_or_else(|| "null".to_string())
+}
+
+/// Shaped layout. Params JSON: {text, size, lineHeight, letterSpacing,
+/// width, height, alignH: 0|1|2, alignV: 0|1|2, autoResize: 0|1|2}.
+/// Returns {ascent, lineHeightPx, totalWidth, totalHeight, lines: [{text,
+/// width, x, baseline, glyphs: [gid, x, y]*flat}]} or "null".
+#[wasm_bindgen(js_name = layoutTextJson)]
+pub fn layout_text_json(id: u32, params_json: &str) -> String {
+    let parsed: serde_json::Value = match serde_json::from_str(params_json) {
+        Ok(v) => v,
+        Err(_) => return "null".to_string(),
+    };
+    let num = |k: &str| parsed.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let text = parsed.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let params = crate::text::LayoutParams {
+        text: &text,
+        size: num("size"),
+        line_height: num("lineHeight"),
+        letter_spacing: num("letterSpacing"),
+        width: num("width"),
+        height: num("height"),
+        align_h: num("alignH") as u8,
+        align_v: num("alignV") as u8,
+        auto_resize: num("autoResize") as u8,
+    };
+    crate::text::with_face(id as usize, |face| {
+        let out = crate::text::layout_text(face, &params);
+        let lines: Vec<serde_json::Value> = out
+            .lines
+            .iter()
+            .map(|line| {
+                let mut glyphs = Vec::with_capacity(line.glyphs.len() * 3);
+                for glyph in &line.glyphs {
+                    glyphs.push(glyph.glyph_id as f64);
+                    glyphs.push(glyph.x);
+                    glyphs.push(glyph.y);
+                }
+                serde_json::json!({
+                    "text": line.text,
+                    "width": line.width,
+                    "x": line.x,
+                    "baseline": line.baseline,
+                    "glyphs": glyphs,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "ascent": out.ascent,
+            "lineHeightPx": out.line_height_px,
+            "totalWidth": out.total_width,
+            "totalHeight": out.total_height,
+            "lines": lines,
+        })
+        .to_string()
+    })
+    .unwrap_or_else(|| "null".to_string())
+}
+
+/// Glyph outline as a SubPath blob in FONT UNITS, y-down (baseline at 0).
+/// Empty for whitespace/missing glyphs or a bad font id.
+#[wasm_bindgen(js_name = glyphSubPaths)]
+pub fn glyph_sub_paths_export(id: u32, glyph_id: u32) -> Vec<f64> {
+    crate::text::with_face(id as usize, |face| {
+        encode_sub_paths(&crate::text::glyph_sub_paths(face, glyph_id as u16))
+    })
+    .unwrap_or_default()
+}

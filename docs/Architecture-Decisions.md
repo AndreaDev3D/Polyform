@@ -384,6 +384,18 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-018: Text shapes in the engine (rustybuzz); renderers consume positioned glyphs (v0.4)
+
+**Context.** Canvas2D `measureText`/`fillText` delegated shaping to Chromium with no control (F-02): no per-glyph output (blocking any glyph atlas), letter-spacing that broke kern pairs, and layout that could re-flow across Electron upgrades. Sprint E replaces the *measurement and shaping authority* while keeping every consumer's interface intact.
+
+**Decision.** Shaping and line layout move into the engine core behind the per-module backend switch (`text: 'wasm'` by default). rustybuzz (the pure-Rust HarfBuzz port, ~0.8 MB of the WASM binary) shapes single-style LTR runs with the font's real kern/liga tables; `text.rs` mirrors `text.ts`'s layout algorithm exactly (same greedy wrap, same binary-search hard break, same alignment and baseline formula) but measures with shaped advances and the font's real ascender, applying letter-spacing per shaped cluster. `layoutText` stays the single seam: the derived auto-resize pass, both renderers, overlays, and SVG export all get shaped metrics for free, and every caller falls back per node to the legacy Canvas2D path while a font's bytes are loading, when the family can't be resolved, for non-SOLID text fills (GPU), or with the flag off. **Font bytes come from `queryLocalFonts().blob()`** — no native module; the renderer-side loader matches family + weight/italic by style-name heuristics and registers common fallbacks *under the requested key* when a family isn't installed (mirroring the browser's silent substitution in the old path). **Rendering**: Canvas2D fills the actual glyph outlines (one combined `Path2D` per node keeps gradient fills aligned); the WebGPU backend rasterizes each (font, glyph, scale-bucket) once into a shelf-packed 2048² atlas and draws batched world-space quads — consecutive text nodes with the same blend collapse into one draw call, and the atlas clears wholesale on overflow (one rebake; a second overflow falls back to per-node rasters for the session).
+
+**Consequences.** Deterministic, machine-independent text metrics (closes F-02's fidelity/stability core; documents re-measure once on open where auto-resize sizes shift by the real-vs-0.8em ascender difference). Gates: 6 Rust unit tests (system-font-gated), 7 vitest contract tests through the WASM boundary, and three harness fixtures — shaped-vs-shaped parity 0.59%, kerning/ligature/alignment/rotation 1.22%, legacy raster path still 0.00%. Known limits, documented: single-run LTR shaping (no bidi/itemization), no OpenType feature UI yet, unhinted outline rasterization (marginally softer than Chromium's hinted fillText at very small sizes), and the text-edit overlay still measures with the DOM while typing.
+
+**Revisit when.** Bidi/complex-script demand arrives (itemization + per-script runs on the same shaping core), an OpenType feature UI is scheduled (rustybuzz already accepts features — plumbing only), or the engine flip moves auto-resize measurement fully inside the worker boundary.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -405,5 +417,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 015 | WASM inlined + committed pkg + measured per-module flags | Partially | Worker embedding; pkg decommitted once release pipeline builds it |
 | 016 | WebGPU: baked world-space arenas + segment stream + stencil stack | Partially | Glyph atlas (Sprint E); incremental bake if profiling demands |
 | 017 | GPU effects: bake-time layer pre-render; scene pass splits only for backdrop effects | Partially | Fx-layer content caching; nested backdrop effects; Sprint E glyph shadows |
+| 018 | Engine-owned shaping (rustybuzz) + glyph atlas; Canvas2D path as per-node fallback | Partially | Bidi/complex scripts; OpenType feature UI; worker-side auto-resize |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

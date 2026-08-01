@@ -75,9 +75,33 @@ export function flattenCubic(coords: Float64Array, tolerance: number): Float64Ar
 
 export function flattenSubPaths(blob: Float64Array, tolerance: number): Float64Array;
 
+/**
+ * {unitsPerEm, ascender, descender, lineGap} in font units; "null" on bad id.
+ */
+export function fontMetricsJson(id: number): string;
+
+/**
+ * Glyph outline as a SubPath blob in FONT UNITS, y-down (baseline at 0).
+ * Empty for whitespace/missing glyphs or a bad font id.
+ */
+export function glyphSubPaths(id: number, glyph_id: number): Float64Array;
+
 export function invertOpJson(op_json: string): string;
 
+/**
+ * Shaped layout. Params JSON: {text, size, lineHeight, letterSpacing,
+ * width, height, alignH: 0|1|2, alignV: 0|1|2, autoResize: 0|1|2}.
+ * Returns {ascent, lineHeightPx, totalWidth, totalHeight, lines: [{text,
+ * width, x, baseline, glyphs: [gid, x, y]*flat}]} or "null".
+ */
+export function layoutTextJson(id: number, params_json: string): string;
+
 export function linePath(w: number): Float64Array;
+
+/**
+ * Register font bytes; returns a font id, or -1 if the face fails to parse.
+ */
+export function loadFont(bytes: Uint8Array): number;
 
 export function matInvert(m: Float64Array): Float64Array;
 
@@ -132,8 +156,12 @@ export interface InitOutput {
     readonly encodeSceneBytes: (a: number, b: number, c: number, d: number) => [number, number];
     readonly flattenCubic: (a: number, b: number, c: number) => [number, number];
     readonly flattenSubPaths: (a: number, b: number, c: number) => [number, number];
+    readonly fontMetricsJson: (a: number) => [number, number];
+    readonly glyphSubPaths: (a: number, b: number) => [number, number];
     readonly invertOpJson: (a: number, b: number) => [number, number];
+    readonly layoutTextJson: (a: number, b: number, c: number) => [number, number];
     readonly linePath: (a: number) => [number, number];
+    readonly loadFont: (a: number, b: number) => number;
     readonly matInvert: (a: number, b: number) => [number, number];
     readonly matMultiply: (a: number, b: number, c: number, d: number) => [number, number];
     readonly matRotateDeg: (a: number) => [number, number];

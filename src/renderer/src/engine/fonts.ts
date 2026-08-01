@@ -7,6 +7,8 @@ export interface LocalFontData {
   fullName: string
   postscriptName: string
   style: string
+  /** Raw font file bytes (Local Font Access API) — feeds the shaping engine. */
+  blob(): Promise<Blob>
 }
 
 declare global {

@@ -2,7 +2,14 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.4.0 "Performance Core", Sprints A–D (2026-08-01)
+## Unreleased — 0.4.0 "Performance Core", Sprints A–E (2026-08-01)
+
+### Sprint E — the HarfBuzz text stack (ADR-018)
+
+- **Text now shapes in the engine**: rustybuzz (the pure-Rust HarfBuzz port) runs in the WASM core behind the `text` backend flag (default on) — real kerning and ligatures from the font's own tables, letter-spacing applied per shaped cluster, and **deterministic layout** that no longer re-flows across Electron upgrades (closes F-02's fidelity/stability core). Font bytes come straight from Chromium's Local Font Access API (`queryLocalFonts().blob()`) — no native module; missing families resolve through sensible installed fallbacks, and every text node falls back to the legacy Canvas2D path until its font's bytes arrive.
+- **One layout, both renderers**: `layoutText` stays the single seam — auto-resize, Canvas2D (fills the actual glyph outlines), the WebGPU backend, overlays and SVG export all consume the same positioned-glyph runs.
+- **GPU glyph atlas**: the WebGPU backend replaces per-node text rasters with a shelf-packed glyph atlas — each (font, glyph, zoom-bucket) rasterizes once, text draws collapse into batched quads sharing one texture.
+- **Verified**: 6 Rust unit tests + 7 vitest contract tests through the WASM boundary, plus three harness fixtures — shaped-vs-shaped parity 0.59% differing pixels, a kerning/ligature/alignment/rotation fixture at 1.22%, and the legacy raster path still pixel-exact. Known limits (documented): single-run shaping (no bidi/RTL itemization), no OpenType feature-toggle UI yet. WASM binary grows 1.16 → 1.97 MB.
 
 ### Sprint D follow-up — GPU effects & blend compositor (ADR-017)
 

@@ -205,6 +205,43 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
 `
 
 /**
+ * Batched glyph quads from the shared atlas (Sprint E): world-space
+ * positions + uv + premultiplied per-node color; the atlas holds white
+ * glyphs, so alpha carries the coverage.
+ */
+export const GLYPH_WGSL = /* wgsl */ `
+${CAMERA_WGSL}
+
+struct VsIn {
+  @location(0) pos: vec2<f32>,
+  @location(1) uv: vec2<f32>,
+  @location(2) color: vec4<f32>, // unorm8x4, premultiplied
+}
+struct VsOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) color: vec4<f32>,
+}
+@group(1) @binding(0) var samp: sampler;
+@group(1) @binding(1) var atlas: texture_2d<f32>;
+
+@vertex
+fn vs(in: VsIn) -> VsOut {
+  var out: VsOut;
+  out.pos = world_to_ndc(in.pos);
+  out.uv = in.uv;
+  out.color = in.color;
+  return out;
+}
+
+@fragment
+fn fs(in: VsOut) -> @location(0) vec4<f32> {
+  let coverage = textureSample(atlas, samp, in.uv).a;
+  return in.color * coverage;
+}
+`
+
+/**
  * Fullscreen blur pass (separable gaussian, direction in params0.xy, radius
  * in texture px). σ = radius/2 to match Canvas2D shadowBlur / CSS blur().
  * Flag bits: 1 = read (1 − alpha) instead of alpha (inner shadows),

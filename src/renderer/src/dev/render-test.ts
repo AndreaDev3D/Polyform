@@ -17,7 +17,8 @@ import type { BooleanNode, SceneNode } from '../engine/types'
 import { drawScene, type RenderOptions } from '../engine/render/canvas2d'
 import { WebGPURenderer } from '../engine/render/webgpu/renderer'
 import { assetCache } from '../engine/assets'
-import { initWasmEngine } from '../engine/backend'
+import { initWasmEngine, setEngineBackend, type BackendKind } from '../engine/backend'
+import { preloadFont } from '../ui/fontloader'
 
 const W = 640
 const H = 480
@@ -39,7 +40,13 @@ function make<T extends SceneNode['type']>(
   return node
 }
 
-type Fixture = { name: string; badLimit: number; build: (scene: SceneGraph) => void }
+type Fixture = {
+  name: string
+  badLimit: number
+  build: (scene: SceneGraph) => void
+  /** Force the text backend for this fixture (legacy-path regression). */
+  textBackend?: BackendKind
+}
 
 const FIXTURES: Fixture[] = [
   {
@@ -305,7 +312,7 @@ const FIXTURES: Fixture[] = [
   },
   {
     name: 'text',
-    badLimit: 0.04,
+    badLimit: 0.05,
     build: (s) => {
       make(s, 'TEXT', null, {
         x: 30, y: 40, width: 400, height: 60, characters: 'Polyform GPU rendering',
@@ -317,6 +324,54 @@ const FIXTURES: Fixture[] = [
         characters: 'The quick brown fox jumps over the lazy dog 0123456789',
         fontSize: 18, fontFamily: 'Arial', lineHeight: 1.4,
         fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.7, g: 0.85, b: 1, a: 1 } }],
+      })
+    },
+  },
+  {
+    // Shaped stack features: kerning pairs, ligatures, alignment, rotation.
+    // Both backends consume the SAME rustybuzz layout; the diff measures
+    // outline-fill (Canvas2D) vs atlas-quad (GPU) rasterization only.
+    name: 'text-shaping',
+    badLimit: 0.05,
+    build: (s) => {
+      make(s, 'TEXT', null, {
+        x: 30, y: 30, width: 560, height: 50, characters: 'AVATAR Wavery To LTA offific',
+        fontSize: 30, fontFamily: 'Arial',
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 0.95, b: 0.85, a: 1 } }],
+      })
+      make(s, 'TEXT', null, {
+        x: 30, y: 110, width: 280, height: 120, autoResize: 'NONE',
+        characters: 'Centered lines\nwith fixed box metrics',
+        fontSize: 20, fontFamily: 'Arial', lineHeight: 1.3,
+        textAlignH: 'CENTER', textAlignV: 'CENTER',
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.6, g: 0.9, b: 0.7, a: 1 } }],
+      })
+      make(s, 'TEXT', null, {
+        x: 340, y: 110, width: 260, height: 120, autoResize: 'NONE',
+        characters: 'Right-aligned\nletter spaced',
+        fontSize: 20, fontFamily: 'Arial', letterSpacing: 2, textAlignH: 'RIGHT',
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.95, g: 0.7, b: 0.6, a: 1 } }],
+      })
+      make(s, 'TEXT', null, {
+        x: 80, y: 290, width: 380, height: 60, rotation: -8,
+        characters: 'Rotated shaped text 12345',
+        fontSize: 28, fontFamily: 'Arial',
+        fills: [{ type: 'SOLID', visible: true, opacity: 0.9, color: { r: 0.7, g: 0.8, b: 1, a: 1 } }],
+      })
+    },
+  },
+  {
+    // Regression guard: the legacy Canvas2D raster path must stay intact
+    // (it is the fallback while fonts load, for non-SOLID text fills, and
+    // for the 'text' backend flag set to 'ts').
+    name: 'text-legacy',
+    badLimit: 0.04,
+    textBackend: 'ts',
+    build: (s) => {
+      make(s, 'TEXT', null, {
+        x: 30, y: 40, width: 500, height: 60, characters: 'Legacy raster text path',
+        fontSize: 32, fontFamily: 'Arial',
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
       })
     },
   },
@@ -349,6 +404,7 @@ function compare(a: Uint8ClampedArray, b: Uint8ClampedArray): { bad: number; mea
 async function runParity(gpu: WebGPURenderer): Promise<boolean> {
   let allPass = true
   for (const fixture of FIXTURES) {
+    if (fixture.textBackend) setEngineBackend('text', fixture.textBackend)
     const scene = new SceneGraph()
     fixture.build(scene)
     const opts: RenderOptions = {
@@ -370,6 +426,7 @@ async function runParity(gpu: WebGPURenderer): Promise<boolean> {
     log(
       `parity ${fixture.name}: badPixels=${(bad * 100).toFixed(2)}% mean=${mean.toFixed(2)} limit=${(fixture.badLimit * 100).toFixed(1)}% ${pass ? 'PASS' : 'FAIL'}`,
     )
+    if (fixture.textBackend) setEngineBackend('text', 'wasm')
   }
   return allPass
 }
@@ -438,6 +495,8 @@ export async function runRenderTest(): Promise<void> {
   try {
     log('starting')
     await initWasmEngine()
+    // Shaped-text fixtures need Arial's bytes in the engine before baking.
+    await preloadFont('Arial')
     if (!WebGPURenderer.isSupported()) {
       log('FATAL WebGPU unsupported in this environment')
       log('RENDER_TEST_DONE result=FAIL')

@@ -12,6 +12,7 @@ import { drawGridInto, drawScene } from '../engine/render/canvas2d'
 import { WebGPURenderer } from '../engine/render/webgpu/renderer'
 import { drawOverlays, screenToWorld } from '../engine/render/overlays'
 import { assetCache } from '../engine/assets'
+import { onFontsChanged } from '../engine/fontstore'
 import { documentStore } from '../state/document'
 import { editor, useEditor } from '../state/editor'
 import { interactionController } from '../interactions/controller'
@@ -63,6 +64,13 @@ export function CanvasView() {
       gpu?.invalidate()
       markDirty()
     }
+    // Font bytes arriving flips text nodes from the legacy path to shaped
+    // layout: re-run derived passes (auto-resize re-measures) and repaint.
+    const unsubFonts = onFontsChanged(() => {
+      gpu?.invalidate()
+      documentStore.transient()
+      markDirty()
+    })
     const unsubDoc = documentStore.subscribe(markDirty)
     const unsubEditor = useEditor.subscribe(markDirty)
 
@@ -154,6 +162,7 @@ export function CanvasView() {
       disposed = true
       cancelAnimationFrame(raf)
       ro.disconnect()
+      unsubFonts()
       unsubDoc()
       unsubEditor()
       container.removeEventListener('wheel', onWheel)

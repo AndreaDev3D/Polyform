@@ -12,6 +12,7 @@ import type { SubPath } from '../shapes'
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { layoutText } from '../text'
+import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
 import type { AssetCache } from '../assets'
 
@@ -331,6 +332,24 @@ function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type
   if (!paint) return
   const style =
     paint.type === 'IMAGE' ? 'rgba(0,0,0,1)' : (paintStyle(ctx, paint, node.width, node.height) ?? 'rgba(0,0,0,1)')
+  if (layout.shaped) {
+    // Shaped path: fill the actual glyph outlines. One combined Path2D per
+    // node keeps gradient fills aligned to node space.
+    const s = node.fontSize / layout.shaped.unitsPerEm
+    const combined = new Path2D()
+    for (const line of layout.lines) {
+      const glyphs = line.glyphs
+      if (!glyphs) continue
+      for (let i = 0; i + 3 <= glyphs.length; i += 3) {
+        const outline = glyphOutline(layout.shaped.fontId, glyphs[i])
+        if (!outline?.path) continue
+        combined.addPath(outline.path, new DOMMatrix([s, 0, 0, s, glyphs[i + 1], glyphs[i + 2]]))
+      }
+    }
+    ctx.fillStyle = style
+    ctx.fill(combined)
+    return
+  }
   ctx.fillStyle = style
   ctx.font = layout.font
   try {

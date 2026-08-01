@@ -4,7 +4,7 @@
 
 Polyform is a Figma-style design editor that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
-> Status: **v0.3.0 shipped; v0.4 "Performance Core" Sprints A–D landed** — every engine module now has a fuzz-proven Rust/WASM twin (the spatial index and exact-CSG booleans run on Rust by default), and a WebGPU renderer beta (View → GPU Rendering) pans **100,000 shapes at 60fps** with pixel-parity fixtures against the Canvas2D reference ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). v0.3 "Systems" shipped components & instances, local-file libraries, a version-history browser, and a plugin-API dev preview, on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
+> Status: **v0.3.0 shipped; v0.4 "Performance Core" Sprints A–E landed** — every engine module now has a fuzz-proven Rust/WASM twin (spatial index, exact-CSG booleans and rustybuzz text shaping run on Rust by default), and a WebGPU renderer beta (View → GPU Rendering) pans **100,000 shapes at 60fps** with 11/11 pixel-parity fixtures against the Canvas2D reference — effects, all 16 blend modes and shaped text included ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). v0.3 "Systems" shipped components & instances, local-file libraries, a version-history browser, and a plugin-API dev preview, on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
 
 ## Highlights
 
@@ -13,7 +13,8 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 - **Components & instances** — materialized instances with journaled overrides, swap, and detach; a design system can live entirely in local files.
 - **Real design tools** — multi-page documents, frames with auto layout + constraints, shapes, pen paths with a vector-edit mode, text with system fonts, image fills (crop/adjust), gradients with a stop editor, effects (drop/inner shadow, layer/background blur), masks, boolean operations, rulers + guides, snapping with smart + spacing guides, align/distribute, SVG import, PNG/SVG export.
 - **Canvas-rendered scene** — shapes are never DOM or SVG nodes; everything paints through a GPU-composited canvas pipeline behind a renderer interface (WebGPU backend is the v0.4 track).
-- **Rust/WASM engine core** — the full engine surface (geometry, outlines, spatial index, exact-CSG booleans, scene graph + command engine, constraints, hit-testing, components/layout passes, serialization) has Rust twins in `crates/polyform-core`, held equivalent to the TypeScript engine by differential fuzz suites; the spatial index and boolean CSG run on Rust by default. The TS engine remains the reference implementation and automatic fallback.
+- **Rust/WASM engine core** — the full engine surface (geometry, outlines, spatial index, exact-CSG booleans, scene graph + command engine, constraints, hit-testing, components/layout passes, serialization, text shaping) has Rust twins in `crates/polyform-core`, held equivalent to the TypeScript engine by differential fuzz suites; the spatial index, boolean CSG and text shaping run on Rust by default. The TS engine remains the reference implementation and automatic fallback.
+- **Real text shaping** — rustybuzz (the pure-Rust HarfBuzz port) shapes text in the engine: kerning and ligatures from the font's own tables, deterministic layout pinned to the shipped engine (not the browser version), fonts read directly from the OS via the Local Font Access API. Both renderers draw the same positioned glyphs; the WebGPU backend batches them from a shared glyph atlas.
 - **WebGPU rendering (beta)** — View → GPU Rendering switches the scene onto a lyon-tessellated, batched WebGPU pipeline: **100,000 shapes pan at 60fps** (verified by the in-app harness), with 9/9 pixel-parity fixtures against the Canvas2D reference — including drop/inner shadows, layer & background blur, and all 16 blend modes through a bake-time effects compositor (ADR-017). Canvas2D remains the default renderer.
 - **R-tree spatial indexing** for fast hit-testing and viewport culling.
 - **Open format** — the scene schema is documented ([docs/schema.fbs](docs/schema.fbs)); the `.poly` bundle is inspectable with standard tools. A plugin-API dev preview ships behind the Plugins menu.
@@ -87,8 +88,8 @@ Electron main ──ipc── preload bridge ──── React UI chrome (panel
                     crates/polyform-core (Rust→WASM) — the full engine surface:
                     geometry, outlines, spatial index, exact-CSG booleans, scene
                     graph + commands, constraints, hit-testing, components/layout,
-                    serialization, lyon tessellation for the WebGPU backend.
-                    Per-module TS/WASM switch in engine/backend.ts (ADR-015).
+                    serialization, lyon tessellation + rustybuzz text shaping for
+                    the renderers. Per-module TS/WASM switch in backend.ts (ADR-015).
 ```
 
 The engine (scene graph, geometry, commands, booleans, layout, serialization) is dependency-light TypeScript with no DOM access, deliberately shaped so the Rust core can replace it module-by-module behind unchanged interfaces (ADR-002). That port is underway: each Rust module ships only after a differential fuzz suite proves it equivalent to its TS twin ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)).

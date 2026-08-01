@@ -14,10 +14,10 @@
 
 type WasmModule = typeof import('./wasm/pkg/polyform_core')
 
-export type SwitchableModule = 'shapes' | 'spatial' | 'booleans'
+export type SwitchableModule = 'shapes' | 'spatial' | 'booleans' | 'text'
 export type BackendKind = 'ts' | 'wasm'
 
-const ALL_MODULES = ['shapes', 'spatial', 'booleans'] as const
+const ALL_MODULES = ['shapes', 'spatial', 'booleans', 'text'] as const
 
 // Defaults per the Sprint A/B gates (docs/V0.4-Porting-Plan.md):
 // - shapes: TS. Per-call encode/decode across the boundary outweighs the
@@ -27,10 +27,14 @@ const ALL_MODULES = ['shapes', 'spatial', 'booleans'] as const
 // - booleans: WASM. Exact bezier CSG (flo_curves) replaces the polygon
 //   flattening approximation — a quality win, not just perf (closes F-03).
 //   Any WASM runtime failure poisons the engine back to TS for the session.
+// - text: WASM. rustybuzz shaping + deterministic engine layout (Sprint E,
+//   closes F-02). Per-node fallback to the Canvas2D path while a font's
+//   bytes are still loading (or missing) is built into layoutText.
 const flags: Record<SwitchableModule, BackendKind> = {
   shapes: 'ts',
   spatial: 'wasm',
   booleans: 'wasm',
+  text: 'wasm',
 }
 
 const STORAGE_KEY = 'polyform.engineBackends'

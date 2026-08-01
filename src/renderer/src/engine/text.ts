@@ -1,8 +1,17 @@
-// Text measurement & line layout on Canvas2D. HarfBuzz shaping is a planned
-// upgrade (docs/Roadmap.md); Canvas2D gives kerning via the platform shaper.
-// Falls back to a heuristic estimator in non-DOM environments (unit tests).
+// Text measurement & line layout. Two paths behind the 'text' backend flag
+// (Sprint E, ADR-018):
+//  - SHAPED (default when WASM + font bytes are loaded): rustybuzz shaping
+//    with deterministic engine layout — kerning, ligatures, real metrics,
+//    identical on every machine (closes F-02). Returns per-glyph positions
+//    that both renderers consume (Canvas2D fills outlines, WebGPU draws
+//    atlas quads).
+//  - LEGACY Canvas2D measureText + fillText, kept as the per-node fallback
+//    while a font's bytes are loading/missing, when the flag is off, and as
+//    the heuristic estimator in non-DOM environments (unit tests).
 
 import type { TextNode } from './types'
+import { poisonWasmEngine, useWasm, wasmHandle } from './backend'
+import { fontEntryFor } from './fontstore'
 
 export interface TextLine {
   text: string
@@ -11,6 +20,8 @@ export interface TextLine {
   x: number
   /** Baseline Y inside the node. */
   baseline: number
+  /** Shaped path only: flat [glyphId, x, y]* (y = baseline, y-down). */
+  glyphs?: number[]
 }
 
 export interface TextLayout {
@@ -20,6 +31,8 @@ export interface TextLayout {
   totalWidth: number
   totalHeight: number
   font: string
+  /** Present when this layout came from the shaping engine. */
+  shaped?: { fontId: number; unitsPerEm: number }
 }
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -81,11 +94,73 @@ function wrapLine(text: string, node: TextNode, maxWidth: number): string[] {
   return lines
 }
 
+const ALIGN_H = { LEFT: 0, CENTER: 1, RIGHT: 2 } as const
+const ALIGN_V = { TOP: 0, CENTER: 1, BOTTOM: 2 } as const
+const AUTO_RESIZE = { WIDTH_AND_HEIGHT: 0, HEIGHT: 1, NONE: 2 } as const
+
+interface ShapedLineJson {
+  text: string
+  width: number
+  x: number
+  baseline: number
+  glyphs: number[]
+}
+
+interface ShapedLayoutJson {
+  ascent: number
+  lineHeightPx: number
+  totalWidth: number
+  totalHeight: number
+  lines: ShapedLineJson[]
+}
+
+function shapedLayout(node: TextNode): TextLayout | null {
+  if (!useWasm('text')) return null
+  const entry = fontEntryFor(node.fontFamily, node.fontWeight, node.italic)
+  if (!entry) return null
+  try {
+    const raw = wasmHandle().layoutTextJson(
+      entry.id,
+      JSON.stringify({
+        text: node.characters,
+        size: node.fontSize,
+        lineHeight: node.lineHeight,
+        letterSpacing: node.letterSpacing,
+        width: node.width,
+        height: node.height,
+        alignH: ALIGN_H[node.textAlignH],
+        alignV: ALIGN_V[node.textAlignV],
+        autoResize: AUTO_RESIZE[node.autoResize],
+      }),
+    )
+    const parsed = JSON.parse(raw) as ShapedLayoutJson | null
+    if (!parsed) return null
+    return {
+      lines: parsed.lines,
+      lineHeightPx: parsed.lineHeightPx,
+      ascent: parsed.ascent,
+      totalWidth: parsed.totalWidth,
+      totalHeight: parsed.totalHeight,
+      font: fontString(node),
+      shaped: { fontId: entry.id, unitsPerEm: entry.metrics.unitsPerEm },
+    }
+  } catch (err) {
+    poisonWasmEngine(err)
+    return null
+  }
+}
+
 /**
  * Lay out a text node's characters into positioned lines. When the node
  * auto-resizes, the caller applies `totalWidth`/`totalHeight` back onto it.
  */
 export function layoutText(node: TextNode): TextLayout {
+  const shaped = shapedLayout(node)
+  if (shaped) return shaped
+  return legacyLayout(node)
+}
+
+function legacyLayout(node: TextNode): TextLayout {
   const lineHeightPx = node.fontSize * node.lineHeight
   const ascent = node.fontSize * 0.8 // approximation consistent across renderer + export
   const raw = node.characters.length > 0 ? node.characters.split('\n') : ['']

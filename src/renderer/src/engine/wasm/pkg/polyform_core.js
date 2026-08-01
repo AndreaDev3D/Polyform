@@ -491,6 +491,38 @@ export function flattenSubPaths(blob, tolerance) {
 }
 
 /**
+ * {unitsPerEm, ascender, descender, lineGap} in font units; "null" on bad id.
+ * @param {number} id
+ * @returns {string}
+ */
+export function fontMetricsJson(id) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.fontMetricsJson(id);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Glyph outline as a SubPath blob in FONT UNITS, y-down (baseline at 0).
+ * Empty for whitespace/missing glyphs or a bad font id.
+ * @param {number} id
+ * @param {number} glyph_id
+ * @returns {Float64Array}
+ */
+export function glyphSubPaths(id, glyph_id) {
+    const ret = wasm.glyphSubPaths(id, glyph_id);
+    var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v1;
+}
+
+/**
  * @param {string} op_json
  * @returns {string}
  */
@@ -510,6 +542,30 @@ export function invertOpJson(op_json) {
 }
 
 /**
+ * Shaped layout. Params JSON: {text, size, lineHeight, letterSpacing,
+ * width, height, alignH: 0|1|2, alignV: 0|1|2, autoResize: 0|1|2}.
+ * Returns {ascent, lineHeightPx, totalWidth, totalHeight, lines: [{text,
+ * width, x, baseline, glyphs: [gid, x, y]*flat}]} or "null".
+ * @param {number} id
+ * @param {string} params_json
+ * @returns {string}
+ */
+export function layoutTextJson(id, params_json) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.layoutTextJson(id, ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * @param {number} w
  * @returns {Float64Array}
  */
@@ -518,6 +574,18 @@ export function linePath(w) {
     var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
     return v1;
+}
+
+/**
+ * Register font bytes; returns a font id, or -1 if the face fails to parse.
+ * @param {Uint8Array} bytes
+ * @returns {number}
+ */
+export function loadFont(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.loadFont(ptr0, len0);
+    return ret;
 }
 
 /**
