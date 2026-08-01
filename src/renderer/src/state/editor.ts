@@ -50,6 +50,8 @@ interface EditorState {
   showHistory: boolean
   /** Left panel tab. */
   leftTab: 'layers' | 'assets'
+  /** WebGPU scene rendering (beta); falls back to Canvas2D when unavailable. */
+  gpuRender: boolean
 
   setTool: (tool: Tool) => void
   setSelection: (ids: NodeId[]) => void
@@ -71,6 +73,7 @@ interface EditorState {
   setVectorSelection: (ids: number[]) => void
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
+  setGpuRender: (v: boolean) => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -94,6 +97,8 @@ export const useEditor = create<EditorState>((set) => ({
   vectorSelection: [],
   showHistory: false,
   leftTab: 'layers' as const,
+  gpuRender:
+    typeof localStorage !== 'undefined' && localStorage.getItem('polyform.gpuRender') === '1',
 
   setTool: (tool) => set({ tool, penDraft: null, contextMenu: null }),
   setSelection: (selection) => set({ selection }),
@@ -115,6 +120,14 @@ export const useEditor = create<EditorState>((set) => ({
   setVectorSelection: (vectorSelection) => set({ vectorSelection }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),
+  setGpuRender: (gpuRender) => {
+    try {
+      localStorage.setItem('polyform.gpuRender', gpuRender ? '1' : '0')
+    } catch {
+      // session-only when storage is unavailable
+    }
+    set({ gpuRender })
+  },
 }))
 
 /** Imperative accessors for non-React interaction code. */

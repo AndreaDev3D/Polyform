@@ -66,10 +66,19 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // POLYFORM_RENDER_TEST=1 boots the renderer into the GPU/Canvas2D pixel
+  // parity + perf harness (dev/render-test.ts); results go to the console.
+  // POLYFORM_GPU=1 force-enables the GPU renderer toggle (smoke tests).
+  const params = new URLSearchParams()
+  if (process.env['POLYFORM_RENDER_TEST'] === '1') params.set('renderTest', '1')
+  if (process.env['POLYFORM_GPU'] === '1') params.set('gpu', '1')
+  const renderTest = params.size > 0 ? `?${params.toString()}` : ''
   if (process.env['ELECTRON_RENDERER_URL']) {
-    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + renderTest)
   } else {
-    void mainWindow.loadFile(path.join(import.meta.dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), {
+      search: renderTest || undefined,
+    })
   }
 }
 

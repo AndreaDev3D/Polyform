@@ -58,6 +58,7 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         // registerAccelerator: false — bare Shift+R would steal 'R' from text
         // fields; the renderer handles it with a focus guard.
         { label: 'Toggle Rulers', accelerator: 'Shift+R', registerAccelerator: false, click: () => send('view.toggleRulers') },
+        { label: 'GPU Rendering (Beta)', click: () => send('view.toggleGpu') },
         { label: 'Version History', accelerator: 'CmdOrCtrl+Alt+H', click: () => send('view.history') },
         { type: 'separator' },
         { role: 'toggleDevTools' },

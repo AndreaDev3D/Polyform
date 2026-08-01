@@ -265,6 +265,62 @@ export class SpatialIndex {
 }
 if (Symbol.dispose) SpatialIndex.prototype[Symbol.dispose] = SpatialIndex.prototype.free;
 
+export class TessMesh {
+    static __wrap(ptr) {
+        const obj = Object.create(TessMesh.prototype);
+        obj.__wbg_ptr = ptr;
+        TessMeshFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        TessMeshFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_tessmesh_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    fillIndices() {
+        const ret = wasm.tessmesh_fillIndices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    fillPositions() {
+        const ret = wasm.tessmesh_fillPositions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    strokeIndices() {
+        const ret = wasm.tessmesh_strokeIndices(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Float32Array}
+     */
+    strokePositions() {
+        const ret = wasm.tessmesh_strokePositions(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+}
+if (Symbol.dispose) TessMesh.prototype[Symbol.dispose] = TessMesh.prototype.free;
+
 /**
  * @param {Float64Array} pts
  * @returns {Float64Array}
@@ -665,6 +721,30 @@ export function subPathsToSvg(blob, precision) {
 }
 
 /**
+ * Tessellate one node's geometry from its SubPath blob.
+ * stroke_align: 0 = CENTER, 1 = INSIDE, 2 = OUTSIDE (inside/outside meshes
+ * are tessellated at double width; the renderer stencil-clips them against
+ * the fill mesh). A dash pattern splits the outline before stroking.
+ * @param {Float64Array} blob
+ * @param {boolean} even_odd
+ * @param {number} stroke_width
+ * @param {number} stroke_align
+ * @param {Float64Array} dash
+ * @param {number} fill_tolerance
+ * @param {boolean} want_fill
+ * @param {boolean} want_stroke
+ * @returns {TessMesh}
+ */
+export function tessellateNode(blob, even_odd, stroke_width, stroke_align, dash, fill_tolerance, want_fill, want_stroke) {
+    const ptr0 = passArrayF64ToWasm0(blob, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArrayF64ToWasm0(dash, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.tessellateNode(ptr0, len0, even_odd, stroke_width, stroke_align, ptr1, len1, fill_tolerance, want_fill, want_stroke);
+    return TessMesh.__wrap(ret);
+}
+
+/**
  * @param {Float64Array} m
  * @param {number} w
  * @param {number} h
@@ -710,6 +790,14 @@ const SceneHandleFinalization = (typeof FinalizationRegistry === 'undefined')
 const SpatialIndexFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_spatialindex_free(ptr, 1));
+const TessMeshFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_tessmesh_free(ptr, 1));
+
+function getArrayF32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
 
 function getArrayF64FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
@@ -724,6 +812,14 @@ function getArrayU32FromWasm0(ptr, len) {
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
 }
 
 let cachedFloat64ArrayMemory0 = null;
@@ -852,6 +948,7 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
+    cachedFloat32ArrayMemory0 = null;
     cachedFloat64ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;

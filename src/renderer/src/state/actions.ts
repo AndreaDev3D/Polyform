@@ -1342,6 +1342,9 @@ export function dispatchMenuAction(id: string): void {
     case 'view.toggleRulers':
       editor.set({ showRulers: !editor.get().showRulers })
       break
+    case 'view.toggleGpu':
+      editor.get().setGpuRender(!editor.get().gpuRender)
+      break
     case 'object.toggleMask':
       toggleMaskSelection()
       break

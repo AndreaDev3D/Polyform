@@ -350,6 +350,14 @@ function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type
   }
 }
 
+/** Rasterize a text node into an arbitrary 2D context (WebGPU text quads). */
+export function drawTextInto(
+  ctx: CanvasRenderingContext2D,
+  node: Extract<SceneNode, { type: 'TEXT' }>,
+): void {
+  drawText(ctx, node)
+}
+
 /** Node-local Path2D used when this node acts as a mask. */
 function maskPathFor(scene: SceneGraph, node: SceneNode): Path2D {
   if (node.type === 'BOOLEAN') return ringsToPath2D(booleanRings(scene, node))
@@ -492,6 +500,25 @@ function drawGrid(ctx: CanvasRenderingContext2D, opts: RenderOptions, viewBox: A
     ctx.lineTo(viewBox.maxX, y)
   }
   ctx.stroke()
+  ctx.restore()
+}
+
+/**
+ * Grid pass for the WebGPU mode's overlay canvas (the GPU backend draws the
+ * scene; the grid stays a cheap Canvas2D pass layered above it, exactly
+ * where drawScene paints it).
+ */
+export function drawGridInto(ctx: CanvasRenderingContext2D, opts: RenderOptions): void {
+  const { camera, dpr } = opts
+  const viewBox: AABB = {
+    minX: camera.x,
+    minY: camera.y,
+    maxX: camera.x + opts.width / camera.zoom,
+    maxY: camera.y + opts.height / camera.zoom,
+  }
+  ctx.save()
+  ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, -camera.x * camera.zoom * dpr, -camera.y * camera.zoom * dpr)
+  drawGrid(ctx, opts, viewBox)
   ctx.restore()
 }
 

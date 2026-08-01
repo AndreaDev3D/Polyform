@@ -30,10 +30,10 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Export & Import](#export--import) | 4 | 1 | 6 | 0 | 11 |
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
-| [Performance & Rendering](#performance--rendering) | 5 | 2 | 3 | 0 | 10 |
+| [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 1 | 1 | 1 | 4 | 7 |
-| **Total** | **129** | **19** | **60** | **23** | **231** |
+| **Total** | **129** | **21** | **58** | **23** | **231** |
 
 ---
 
@@ -310,15 +310,15 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
-| GPU-accelerated rendering | Custom WebGL/WebGPU tile renderer | 🟡 | GPU-composited HTML5 Canvas2D today; WebGPU (CanvasKit/Vello-style) backend planned behind `IRenderer` |
+| GPU-accelerated rendering | Custom WebGL/WebGPU tile renderer | 🟡 | Canvas2D default; WebGPU beta backend shipped behind View → GPU Rendering (ADR-016) |
 | No DOM/SVG shapes | Canvas is never built from DOM nodes | ✅ | Shapes render to canvas only; DOM is reserved for editor chrome |
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 📋 | Planned behind the existing `IRenderer` interface |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | Beta: lyon-tessellated batched pipeline, 6/6 pixel-parity fixtures vs Canvas2D; effects + non-NORMAL blends not yet composited |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
-| 100k+ object documents | Smooth editing on massive files | 📋 | Spec target for the v0.4 Rust/WASM phase; TS engine targets typical documents |
+| 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) in the WebGPU beta; Canvas2D default targets typical documents |
 | Swappable render backends | Single internal engine (not swappable) | ✅ | `IRenderer` abstraction is a Polyform architectural feature |
 
 ## Desktop / Platform

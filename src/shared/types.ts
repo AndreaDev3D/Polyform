@@ -91,6 +91,7 @@ export type MenuActionId =
   | 'view.zoomActual'
   | 'view.toggleGrid'
   | 'view.toggleRulers'
+  | 'view.toggleGpu'
   | 'object.group'
   | 'object.ungroup'
   | 'object.frameSelection'

@@ -2,7 +2,14 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.4.0 "Performance Core", Sprints A–C (2026-08-01)
+## Unreleased — 0.4.0 "Performance Core", Sprints A–D (2026-08-01)
+
+### Sprint D — WebGPU renderer (beta): the 100k-shape claim is real
+
+- **WebGPU scene backend** behind View → GPU Rendering (Beta), ADR-016: Rust/lyon tessellation (fills, strokes with all three aligns, dash splitting), world-space geometry arenas baked per scene version, one stencil stack for masks/rotated clips/stroke aligns, scissor fast path, gradient/image/text draws from a uniform arena, dual-canvas viewport (editor overlays stay Canvas2D). Canvas2D remains the default renderer; GPU failures fall back automatically.
+- **Verified performance**: panning a **100,000-shape document runs at 60fps** — 0.18ms CPU per frame, a single draw call — with a 121ms full rebake after an edit (in-app harness, NVIDIA Ampere). The Product-Overview headline claim is no longer aspirational.
+- **Verified fidelity**: six pixel-diff parity fixtures against the Canvas2D reference all pass (worst case 2.63% differing pixels, confined to anti-aliased edges; text rasters are pixel-identical). Run it yourself: `POLYFORM_RENDER_TEST=1 npm start`.
+- Beta gaps (documented): effects (shadows/blurs) and non-NORMAL blend modes are not composited in GPU mode yet; text uses cached Canvas2D rasters until the Sprint E glyph atlas.
 
 ### Sprint C — the engine-port track is complete
 

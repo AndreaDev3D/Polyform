@@ -15,5 +15,6 @@ pub mod scene;
 pub mod serialization;
 pub mod shapes;
 pub mod spatial;
+pub mod tess;
 
 mod wasm;

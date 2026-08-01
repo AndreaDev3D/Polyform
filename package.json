@@ -38,6 +38,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/sql.js": "^1.4.9",
     "@vitejs/plugin-react": "^5.0.0",
+    "@webgpu/types": "^0.1.71",
     "electron": "^38.0.0",
     "electron-builder": "^26.0.0",
     "electron-vite": "^4.0.0",

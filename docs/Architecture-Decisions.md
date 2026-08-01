@@ -360,6 +360,18 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-016: WebGPU renderer bakes world-space geometry arenas per scene version (v0.4)
+
+**Context.** Sprint D delivers the WebGPU backend (ADR-003's replacement track). The design question: how to organize GPU work so a 100k-shape document pans at 60fps while staying pixel-compatible with the Canvas2D reference.
+
+**Decision.** The scene is **baked** once per scene version (+ zoom bucket, dpr, text-editing state) into world-space vertex/index arenas plus an ordered segment list; per frame only a 32-byte camera uniform changes. Solid fills/strokes with normal blending collapse into large batched draws (the 100k-rect exit scene is ONE draw call); gradients, images and text rasters draw individually from a 256-aligned uniform arena with local-space meshes and per-draw world matrices. Geometry comes from the Rust lyon tessellator (fill + stroke + dash splitting), cached **content-addressed** — identical geometry shares one mesh, so 100k copies of a component tessellate once — with a sharp-rectangle fast path that skips the WASM boundary entirely. Masks, rotated/rounded frame clips and INSIDE/OUTSIDE stroke aligns share one stencil stack (INSIDE strokes test `ref=depth+1` after pushing the fill mesh, OUTSIDE test `ref=depth`); unrotated sharp frames use the scissor fast path. Text renders as cached Canvas2D rasters on quads until the Sprint E glyph atlas. The overlay chrome stays Canvas2D on a stacked transparent canvas; the GPU toggle is a beta View-menu option, Canvas2D remains the default, and any GPU failure falls back automatically.
+
+**Consequences.** Verified by the in-app harness (`POLYFORM_RENDER_TEST=1`): six pixel-diff parity fixtures pass against Canvas2D (worst case 2.63% differing pixels, all along anti-aliased edges; text pixel-identical), and the Product-Overview headline claim holds — **100k shapes pan at 60fps** (0.18ms CPU/frame, 121ms bake) on an NVIDIA Ampere adapter. Known beta gaps, documented in the matrix: effects (shadows/blurs) and non-NORMAL blend modes are not composited yet (they need offscreen/backdrop passes — the blur/composite shaders are staged), and edits rebake the arena (fine at 121ms/100k; incremental bake is the escape hatch if profiling ever demands it).
+
+**Revisit when.** The effects/blend compositor lands (closes F-16 properly via scoped backdrop sampling), or the glyph atlas replaces text rasters (Sprint E), or profiling justifies incremental arena updates.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -379,5 +391,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 013 | Import-on-use local libraries | No (stable) | Update-review UI in v1.0 |
 | 014 | Unsandboxed plugin preview + consent | Yes | Worker sandbox + typed bridge post-1.0 |
 | 015 | WASM inlined + committed pkg + measured per-module flags | Partially | Worker embedding; pkg decommitted once release pipeline builds it |
+| 016 | WebGPU: baked world-space arenas + segment stream + stencil stack | Partially | Effects/blend compositor; glyph atlas (Sprint E); incremental bake if profiling demands |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

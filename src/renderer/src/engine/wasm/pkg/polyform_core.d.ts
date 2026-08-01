@@ -40,6 +40,16 @@ export class SpatialIndex {
     search(min_x: number, min_y: number, max_x: number, max_y: number): Uint32Array;
 }
 
+export class TessMesh {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    fillIndices(): Uint32Array;
+    fillPositions(): Float32Array;
+    strokeIndices(): Uint32Array;
+    strokePositions(): Float32Array;
+}
+
 export function aabbOfPoints(pts: Float64Array): Float64Array;
 
 export function applyMat(m: Float64Array, x: number, y: number): Float64Array;
@@ -95,6 +105,14 @@ export function starPath(w: number, h: number, points: number, inner_ratio: numb
 
 export function subPathsToSvg(blob: Float64Array, precision: number): string;
 
+/**
+ * Tessellate one node's geometry from its SubPath blob.
+ * stroke_align: 0 = CENTER, 1 = INSIDE, 2 = OUTSIDE (inside/outside meshes
+ * are tessellated at double width; the renderer stencil-clips them against
+ * the fill mesh). A dash pattern splits the outline before stroking.
+ */
+export function tessellateNode(blob: Float64Array, even_odd: boolean, stroke_width: number, stroke_align: number, dash: Float64Array, fill_tolerance: number, want_fill: boolean, want_stroke: boolean): TessMesh;
+
 export function transformedRectAabb(m: Float64Array, w: number, h: number): Float64Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -103,6 +121,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_scenehandle_free: (a: number, b: number) => void;
     readonly __wbg_spatialindex_free: (a: number, b: number) => void;
+    readonly __wbg_tessmesh_free: (a: number, b: number) => void;
     readonly aabbOfPoints: (a: number, b: number) => [number, number];
     readonly applyMat: (a: number, b: number, c: number, d: number) => [number, number];
     readonly booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -146,6 +165,11 @@ export interface InitOutput {
     readonly spatialindex_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly starPath: (a: number, b: number, c: number, d: number) => [number, number];
     readonly subPathsToSvg: (a: number, b: number, c: number) => [number, number];
+    readonly tessellateNode: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
+    readonly tessmesh_fillIndices: (a: number) => [number, number];
+    readonly tessmesh_fillPositions: (a: number) => [number, number];
+    readonly tessmesh_strokeIndices: (a: number) => [number, number];
+    readonly tessmesh_strokePositions: (a: number) => [number, number];
     readonly transformedRectAabb: (a: number, b: number, c: number, d: number) => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;

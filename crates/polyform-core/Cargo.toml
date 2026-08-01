@@ -19,6 +19,8 @@ flo_curves = "0.7"
 # off by 1 ulp) — bit-exact document round-trips are the whole contract here.
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 rmp-serde = "1"
+lyon_tessellation = "1"
+lyon_path = "1"
 
 # wasm-opt needs a binaryen download; keep builds hermetic for now and
 # revisit when tuning size/speed (V0.4-Porting-Plan verification gates).

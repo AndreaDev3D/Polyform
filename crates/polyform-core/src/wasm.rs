@@ -471,6 +471,79 @@ impl WasmSceneHandle {
 }
 
 // ---------------------------------------------------------------------------
+// GPU tessellation (Sprint D — WebGPU backend geometry)
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen]
+pub struct TessMesh {
+    fill_positions: Vec<f32>,
+    fill_indices: Vec<u32>,
+    stroke_positions: Vec<f32>,
+    stroke_indices: Vec<u32>,
+}
+
+#[wasm_bindgen]
+impl TessMesh {
+    #[wasm_bindgen(js_name = fillPositions)]
+    pub fn fill_positions(&self) -> Vec<f32> {
+        self.fill_positions.clone()
+    }
+    #[wasm_bindgen(js_name = fillIndices)]
+    pub fn fill_indices(&self) -> Vec<u32> {
+        self.fill_indices.clone()
+    }
+    #[wasm_bindgen(js_name = strokePositions)]
+    pub fn stroke_positions(&self) -> Vec<f32> {
+        self.stroke_positions.clone()
+    }
+    #[wasm_bindgen(js_name = strokeIndices)]
+    pub fn stroke_indices(&self) -> Vec<u32> {
+        self.stroke_indices.clone()
+    }
+}
+
+/// Tessellate one node's geometry from its SubPath blob.
+/// stroke_align: 0 = CENTER, 1 = INSIDE, 2 = OUTSIDE (inside/outside meshes
+/// are tessellated at double width; the renderer stencil-clips them against
+/// the fill mesh). A dash pattern splits the outline before stroking.
+#[wasm_bindgen(js_name = tessellateNode)]
+#[allow(clippy::too_many_arguments)]
+pub fn tessellate_node(
+    blob: &[f64],
+    even_odd: bool,
+    stroke_width: f64,
+    stroke_align: u32,
+    dash: &[f64],
+    fill_tolerance: f64,
+    want_fill: bool,
+    want_stroke: bool,
+) -> TessMesh {
+    let subpaths = decode_sub_paths(blob);
+    let fill = if want_fill || (want_stroke && stroke_align != 0) {
+        crate::tess::tessellate_fill(&subpaths, even_odd, fill_tolerance)
+    } else {
+        crate::tess::Mesh { positions: Vec::new(), indices: Vec::new() }
+    };
+    let stroke = if want_stroke && stroke_width > 0.0 {
+        let width = if stroke_align == 0 { stroke_width } else { stroke_width * 2.0 };
+        let stroked_paths = if dash.is_empty() {
+            subpaths
+        } else {
+            crate::tess::dash_sub_paths(&subpaths, dash)
+        };
+        crate::tess::tessellate_stroke(&stroked_paths, width, fill_tolerance)
+    } else {
+        crate::tess::Mesh { positions: Vec::new(), indices: Vec::new() }
+    };
+    TessMesh {
+        fill_positions: fill.positions,
+        fill_indices: fill.indices,
+        stroke_positions: stroke.positions,
+        stroke_indices: stroke.indices,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Serialization (serialization.ts twin)
 // ---------------------------------------------------------------------------
 
