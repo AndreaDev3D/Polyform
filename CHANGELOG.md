@@ -4,6 +4,14 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.4.0 "Performance Core", Sprints A–D (2026-08-01)
 
+### Sprint D follow-up — GPU effects & blend compositor (ADR-017)
+
+- **Effects now composite in GPU mode**: drop shadows, inner shadows, layer blur and background blur render through the WebGPU pipeline. View-independent effects pre-render at bake time into world-anchored per-node textures (replay of the node's baked geometry through a layer-local camera + separable gaussian, σ matching Canvas2D semantics) — so panning remains a pure camera-uniform update, effect nodes included.
+- **All 16 blend modes render in GPU mode**: MULTIPLY and SCREEN as exact fixed-function pipeline variants (batched and inherited per-primitive, mirroring Canvas2D); the other thirteen (OVERLAY…LUMINOSITY, incl. the HSL four) through backdrop-sampling composite shaders implementing the W3C formulas.
+- **Frame graph**: the scene pass now resolves to an intermediate texture with a final canvas blit; background blur and backdrop-dependent blends split the pass (snapshot → blur → resume). Scenes without backdrop effects keep the old single-pass cost — the 100k gate is unchanged (0.18ms CPU/frame, one draw call).
+- **Verified**: three new pixel-parity fixtures — shadows 0.10% differing pixels, blurs 2.69%, twelve blend modes **0.00%** — bringing the harness to **9/9 PASS**. Closes F-16's cost concern in GPU mode (scoped backdrop sampling).
+- Remaining GPU beta gap: text uses cached Canvas2D rasters until the Sprint E glyph atlas; Canvas2D stays the default renderer pending real-document soak time.
+
 ### Sprint D — WebGPU renderer (beta): the 100k-shape claim is real
 
 - **WebGPU scene backend** behind View → GPU Rendering (Beta), ADR-016: Rust/lyon tessellation (fills, strokes with all three aligns, dash splitting), world-space geometry arenas baked per scene version, one stencil stack for masks/rotated clips/stroke aligns, scissor fast path, gradient/image/text draws from a uniform arena, dual-canvas viewport (editor overlays stay Canvas2D). Canvas2D remains the default renderer; GPU failures fall back automatically.

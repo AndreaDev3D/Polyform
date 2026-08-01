@@ -205,19 +205,26 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
 `
 
 /**
- * Fullscreen blur pass (separable gaussian, direction in params). Used by
- * drop/inner shadows, layer blur and background blur.
+ * Fullscreen blur pass (separable gaussian, direction in params0.xy, radius
+ * in texture px). σ = radius/2 to match Canvas2D shadowBlur / CSS blur().
+ * Flag bits: 1 = read (1 − alpha) instead of alpha (inner shadows),
+ * 2 = replace color with tint × blurred alpha (shadow passes),
+ * 4 = multiply the result by the mask texture's alpha (inner shadows).
+ * params1.xy shifts every source sample (shadow offset, in texture px).
  */
 export const BLUR_WGSL = /* wgsl */ `
 struct BlurUniform {
-  // direction.xy (unit), radius in px, unused
-  params: vec4<f32>,
-  // tint color (premultiplied) for shadow passes; a=0 disables tinting
+  // direction.xy (unit), radius in px, flags
+  params0: vec4<f32>,
+  // sample offset in px, unused
+  params1: vec4<f32>,
+  // tint color (premultiplied) for shadow passes
   tint: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> blur_u: BlurUniform;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var src: texture_2d<f32>;
+@group(0) @binding(3) var mask: texture_2d<f32>;
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
@@ -237,28 +244,38 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-  let radius = blur_u.params.z;
+  let radius = blur_u.params0.z;
+  let flags = u32(blur_u.params0.w);
   let dims = vec2<f32>(textureDimensions(src));
-  let texel = blur_u.params.xy / dims;
+  let base = in.uv + blur_u.params1.xy / dims;
+  let texel = blur_u.params0.xy / dims;
   var sum = vec4<f32>(0.0);
   var weight_sum = 0.0;
   let sigma = max(radius / 2.0, 0.5);
-  let taps = i32(min(radius, 64.0));
+  let taps = i32(clamp(radius * 1.5, 1.0, 64.0));
+  let invert = (flags & 1u) != 0u;
   for (var i = -taps; i <= taps; i = i + 1) {
     let w = exp(-f32(i * i) / (2.0 * sigma * sigma));
-    sum = sum + textureSample(src, samp, in.uv + texel * f32(i)) * w;
+    var s = textureSample(src, samp, base + texel * f32(i));
+    if (invert) { s = vec4<f32>(0.0, 0.0, 0.0, 1.0 - s.a); }
+    sum = sum + s * w;
     weight_sum = weight_sum + w;
   }
   var c = sum / weight_sum;
-  if (blur_u.tint.a > 0.0) {
+  if ((flags & 2u) != 0u) {
     // shadow pass: replace color with tint scaled by blurred alpha
     c = blur_u.tint * c.a;
+  }
+  // The mask sample must stay in uniform control flow.
+  let m = textureSample(mask, samp, in.uv);
+  if ((flags & 4u) != 0u) {
+    c = c * m.a;
   }
   return c;
 }
 `
 
-/** Composite a texture onto the target 1:1 (premultiplied source-over). */
+/** Blit a texture onto the target 1:1 (final resolve -> canvas pass). */
 export const COMPOSITE_WGSL = /* wgsl */ `
 struct CompositeUniform {
   // offset in device px, opacity, unused
@@ -288,9 +305,149 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let dims = vec2<f32>(textureDimensions(src));
   let uv = in.uv - comp_u.params.xy / dims;
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-    return vec4<f32>(0.0);
+  // No early return: textureSample requires uniform control flow.
+  var mask = 1.0;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { mask = 0.0; }
+  let c = textureSample(src, samp, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+  return c * comp_u.params.z * mask;
+}
+`
+
+/**
+ * Effect composites drawn INSIDE the scene pass (MSAA, stencil-tested):
+ * pre-rendered fx layer textures (shadows, layer blurs, isolated blends) as
+ * world-anchored quads, plus the background-blur mask-mesh draw.
+ *
+ * mode = 0: plain premultiplied source-over of the layer texture.
+ * mode = 1: sample the blurred BACKDROP at the fragment's screen position and
+ *           write it opaque (background blur — geometry supplies coverage).
+ * mode >= 2: W3C blend modes against the (opaque) backdrop:
+ *           2 OVERLAY 3 DARKEN 4 LIGHTEN 5 COLOR_DODGE 6 COLOR_BURN
+ *           7 HARD_LIGHT 8 SOFT_LIGHT 9 DIFFERENCE 10 EXCLUSION
+ *           11 HUE 12 SATURATION 13 COLOR 14 LUMINOSITY
+ * (NORMAL/MULTIPLY/SCREEN never route here — they are fixed-function.)
+ */
+export const FX_WGSL = /* wgsl */ `
+${CAMERA_WGSL}
+
+struct FxUniform {
+  mat0: vec4<f32>,   // a, b, c, d (identity for world-space quads)
+  mat1: vec4<f32>,   // e, f, opacity, mode
+  // layer-texture mapping: uv = (world - origin) * uv_scale
+  origin_scale: vec4<f32>,
+  _pad: vec4<f32>,
+}
+@group(1) @binding(0) var<uniform> fx_u: FxUniform;
+@group(1) @binding(1) var samp: sampler;
+@group(1) @binding(2) var layer: texture_2d<f32>;
+@group(1) @binding(3) var backdrop: texture_2d<f32>;
+
+struct VsOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs(@location(0) pos: vec2<f32>) -> VsOut {
+  let world = vec2<f32>(
+    fx_u.mat0.x * pos.x + fx_u.mat0.z * pos.y + fx_u.mat1.x,
+    fx_u.mat0.y * pos.x + fx_u.mat0.w * pos.y + fx_u.mat1.y,
+  );
+  var out: VsOut;
+  out.pos = world_to_ndc(world);
+  out.uv = (world - fx_u.origin_scale.xy) * fx_u.origin_scale.zw;
+  return out;
+}
+
+fn lum(c: vec3<f32>) -> f32 {
+  return dot(c, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn clip_color(c_in: vec3<f32>) -> vec3<f32> {
+  var c = c_in;
+  let l = lum(c);
+  let n = min(c.r, min(c.g, c.b));
+  let x = max(c.r, max(c.g, c.b));
+  if (n < 0.0) { c = l + (c - l) * l / max(l - n, 1e-6); }
+  if (x > 1.0) { c = l + (c - l) * (1.0 - l) / max(x - l, 1e-6); }
+  return c;
+}
+
+fn set_lum(c: vec3<f32>, l: f32) -> vec3<f32> {
+  return clip_color(c + (l - lum(c)));
+}
+
+fn sat(c: vec3<f32>) -> f32 {
+  return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+}
+
+fn set_sat(c_in: vec3<f32>, s: f32) -> vec3<f32> {
+  let mn = min(c_in.r, min(c_in.g, c_in.b));
+  let mx = max(c_in.r, max(c_in.g, c_in.b));
+  if (mx <= mn + 1e-6) { return vec3<f32>(0.0); }
+  return (c_in - mn) * s / (mx - mn);
+}
+
+fn hard_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
+  let lo = 2.0 * cs * cb;
+  let hi = vec3<f32>(1.0) - 2.0 * (1.0 - cs) * (1.0 - cb);
+  return select(hi, lo, cs <= vec3<f32>(0.5));
+}
+
+fn soft_light(cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
+  let d = select(sqrt(cb), ((16.0 * cb - 12.0) * cb + 4.0) * cb, cb <= vec3<f32>(0.25));
+  let lo = cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb);
+  let hi = cb + (2.0 * cs - 1.0) * (d - cb);
+  return select(hi, lo, cs <= vec3<f32>(0.5));
+}
+
+fn blend_rgb(mode: u32, cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
+  switch (mode) {
+    case 2u: { return hard_light(cs, cb); } // overlay = hardlight swapped
+    case 3u: { return min(cb, cs); }
+    case 4u: { return max(cb, cs); }
+    case 5u: { // color-dodge
+      let r = select(min(vec3<f32>(1.0), cb / max(1.0 - cs, vec3<f32>(1e-6))), vec3<f32>(1.0), cs >= vec3<f32>(1.0));
+      return select(r, vec3<f32>(0.0), cb <= vec3<f32>(0.0));
+    }
+    case 6u: { // color-burn
+      let r = select(1.0 - min(vec3<f32>(1.0), (1.0 - cb) / max(cs, vec3<f32>(1e-6))), vec3<f32>(0.0), cs <= vec3<f32>(0.0));
+      return select(r, vec3<f32>(1.0), cb >= vec3<f32>(1.0));
+    }
+    case 7u: { return hard_light(cb, cs); }
+    case 8u: { return soft_light(cb, cs); }
+    case 9u: { return abs(cb - cs); }
+    case 10u: { return cb + cs - 2.0 * cb * cs; }
+    case 11u: { return set_lum(set_sat(cs, sat(cb)), lum(cb)); }
+    case 12u: { return set_lum(set_sat(cb, sat(cs)), lum(cb)); }
+    case 13u: { return set_lum(cs, lum(cb)); }
+    case 14u: { return set_lum(cb, lum(cs)); }
+    default: { return cs; }
   }
-  return textureSample(src, samp, uv) * comp_u.params.z;
+}
+
+@fragment
+fn fs(in: VsOut) -> @location(0) vec4<f32> {
+  // Both samples unconditional: textureSample needs uniform control flow.
+  let lc = textureSample(layer, samp, clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+  let screen_uv = in.pos.xy / camera.viewport;
+  let bd = textureSample(backdrop, samp, screen_uv);
+  let opacity = fx_u.mat1.z;
+  let mode = u32(fx_u.mat1.w);
+  // Outside the layer texture there is nothing to composite (modes 0 and 2+).
+  var edge = 1.0;
+  if (in.uv.x < 0.0 || in.uv.x > 1.0 || in.uv.y < 0.0 || in.uv.y > 1.0) { edge = 0.0; }
+  if (mode == 0u) {
+    return lc * edge * opacity;
+  }
+  if (mode == 1u) {
+    // Blurred backdrop, opaque inside the mask geometry.
+    return vec4<f32>(bd.rgb, 1.0);
+  }
+  let as_ = lc.a * edge * opacity;
+  let cs = lc.rgb / max(lc.a, 1e-5);
+  // The scene target is opaque, so backdrop rgb is already straight color.
+  let b = blend_rgb(mode, clamp(bd.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), clamp(cs, vec3<f32>(0.0), vec3<f32>(1.0)));
+  return vec4<f32>(b * as_, as_);
 }
 `

@@ -6,8 +6,9 @@
 // exceeds 24/255 ("bad pixels") between the Canvas2D and WebGPU renders of
 // the SAME scene. Anti-aliasing coverage differs legitimately between the
 // two rasterizers along every edge, so thresholds are per-fixture-tuned to
-// edge density rather than zero. Fixtures with effects are excluded (GPU
-// beta does not composite effects yet — documented gap).
+// edge density rather than zero. Effect fixtures additionally tolerate the
+// difference between Chromium's box-blur gaussian approximation and the
+// GPU's direct gaussian taps (low-frequency, sub-threshold in practice).
 
 import { SceneGraph } from '../engine/scene'
 import { SpatialIndex } from '../engine/spatial-index'
@@ -201,6 +202,104 @@ const FIXTURES: Fixture[] = [
             { id: 3, v0: 3, v1: 0, cp0: null, cp1: null },
           ],
         },
+      })
+    },
+  },
+  {
+    name: 'effects-shadows',
+    badLimit: 0.04,
+    build: (s) => {
+      make(s, 'RECTANGLE', null, {
+        x: 40, y: 40, width: 140, height: 90,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.9, g: 0.35, b: 0.3, a: 1 } }],
+        effects: [{ type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.6 }, offset: { x: 8, y: 8 }, blur: 14 }],
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 250, y: 40, width: 140, height: 90, rotation: 25,
+        cornerRadius: { tl: 20, tr: 20, br: 20, bl: 20 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.3, g: 0.6, b: 0.95, a: 1 } }],
+        effects: [{ type: 'DROP_SHADOW', visible: true, color: { r: 0.1, g: 0.2, b: 0.6, a: 0.7 }, offset: { x: -6, y: 10 }, blur: 10 }],
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 450, y: 40, width: 130, height: 100,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.95, g: 0.85, b: 0.4, a: 1 } }],
+        effects: [{ type: 'INNER_SHADOW', visible: true, color: { r: 0.4, g: 0.1, b: 0, a: 0.8 }, offset: { x: 6, y: 6 }, blur: 12 }],
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 60, y: 220, width: 160, height: 110,
+        cornerRadius: { tl: 12, tr: 12, br: 12, bl: 12 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.25, g: 0.75, b: 0.55, a: 1 } }],
+        effects: [
+          { type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.5 }, offset: { x: 0, y: 12 }, blur: 18 },
+          { type: 'INNER_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.55 }, offset: { x: 0, y: -6 }, blur: 8 },
+        ],
+      })
+      make(s, 'TEXT', null, {
+        x: 280, y: 250, width: 320, height: 60, characters: 'Shadowed text',
+        fontSize: 34, fontFamily: 'Arial',
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+        effects: [{ type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.8 }, offset: { x: 4, y: 4 }, blur: 6 }],
+      })
+    },
+  },
+  {
+    name: 'effects-blurs',
+    badLimit: 0.06,
+    build: (s) => {
+      // Colorful backdrop for the background-blur panel.
+      make(s, 'RECTANGLE', null, {
+        x: 60, y: 60, width: 200, height: 160,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.9, g: 0.3, b: 0.4, a: 1 } }],
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 160, y: 100, width: 180, height: 140,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.25, g: 0.55, b: 0.95, a: 1 } }],
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 120, y: 90, width: 180, height: 100, rotation: 12,
+        fills: [{ type: 'SOLID', visible: true, opacity: 0.5, color: { r: 1, g: 1, b: 1, a: 1 } }],
+        cornerRadius: { tl: 16, tr: 16, br: 16, bl: 16 },
+        effects: [{ type: 'BACKGROUND_BLUR', visible: true, radius: 10 }],
+      })
+      // Layer blurs on single shapes (identical semantics in both backends).
+      make(s, 'RECTANGLE', null, {
+        x: 400, y: 60, width: 140, height: 100,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.4, g: 0.9, b: 0.5, a: 1 } }],
+        effects: [{ type: 'LAYER_BLUR', visible: true, radius: 8 }],
+      })
+      make(s, 'STAR', null, {
+        x: 400, y: 240, width: 130, height: 130, pointCount: 5, innerRatio: 0.5,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.95, g: 0.7, b: 0.25, a: 1 } }],
+        effects: [{ type: 'LAYER_BLUR', visible: true, radius: 5 }],
+      })
+    },
+  },
+  {
+    name: 'blend-modes',
+    badLimit: 0.03,
+    build: (s) => {
+      make(s, 'RECTANGLE', null, {
+        x: 20, y: 20, width: 600, height: 420,
+        fills: [{
+          type: 'GRADIENT_LINEAR', visible: true, opacity: 1,
+          start: { x: 0, y: 0 }, end: { x: 1, y: 1 },
+          stops: [
+            { position: 0, color: { r: 0.85, g: 0.35, b: 0.25, a: 1 } },
+            { position: 0.5, color: { r: 0.25, g: 0.6, b: 0.85, a: 1 } },
+            { position: 1, color: { r: 0.35, g: 0.85, b: 0.45, a: 1 } },
+          ],
+        }],
+      })
+      const modes = [
+        'MULTIPLY', 'SCREEN', 'OVERLAY', 'DARKEN', 'LIGHTEN', 'COLOR_DODGE',
+        'COLOR_BURN', 'HARD_LIGHT', 'SOFT_LIGHT', 'DIFFERENCE', 'EXCLUSION', 'HUE',
+      ] as const
+      modes.forEach((mode, i) => {
+        make(s, 'RECTANGLE', null, {
+          x: 50 + (i % 4) * 140, y: 50 + Math.floor(i / 4) * 130, width: 110, height: 100,
+          blendMode: mode,
+          fills: [{ type: 'SOLID', visible: true, opacity: 0.9, color: { r: 0.75, g: 0.55, b: 0.35, a: 1 } }],
+        })
       })
     },
   },

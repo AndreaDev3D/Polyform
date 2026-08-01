@@ -24,7 +24,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-13](#f-13) | Nested-instance override capture depth (v0.3) | Med |
 | [F-14](#f-14) | Library updates can orphan overrides (v0.3) | Med |
 | [F-15](#f-15) | Plugin runner is unsandboxed (v0.3 preview) | High (consent-gated) |
-| [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Med |
+| [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Low (resolved in GPU mode, ADR-017; Canvas2D default unchanged) |
 | [F-17](#f-17) | Plugin preview is CSP-blocked in the built app (v0.3) | Med |
 
 ---
@@ -370,7 +370,9 @@ Shipped: explicit file pick each run (no auto-run, no plugin folder scanning), a
 Each node with background blur clips to its shape, then redraws the *entire canvas* through a blur filter (backdrop capture). Several such nodes stack full-canvas passes per frame; on a 4K viewport this is the single most expensive effect in the renderer.
 
 ### Mitigation
-Shipped: the pass runs only for nodes actually carrying the effect, and only within their clip. Documented in the matrix as the expensive effect. Planned: the WebGPU backend (v0.4) renders backdrop blur as a scoped texture sample — this is one of the four listed triggers that make WebGPU stop being optional (F-01).
+Shipped (Canvas2D): the pass runs only for nodes actually carrying the effect, and only within their clip. Documented in the matrix as the expensive effect.
+
+**Resolved in GPU mode (v0.4, ADR-017):** the WebGPU compositor renders backdrop blur as a scoped pass split — snapshot the resolved backdrop, separable-gaussian ping-pong, resume the pass drawing the node's fill mesh sampling the blurred texture. The cost model is now explicit and bounded: one split + one fullscreen blur pair per backdrop-effect node per frame, zero cost to scenes without them. Canvas2D (still the default renderer) keeps the original behavior, so this entry stays open at Low severity until GPU mode is the default.
 
 ---
 

@@ -1,5 +1,6 @@
-// WebGPU scene renderer (Sprint D, ADR-003). Same visual contract as
-// render/canvas2d.ts drawScene; overlays stay Canvas2D on a stacked canvas.
+// WebGPU scene renderer (Sprint D + effects compositor, ADR-016/017). Same
+// visual contract as render/canvas2d.ts drawScene; overlays stay Canvas2D on
+// a stacked canvas.
 //
 // Architecture: the scene is BAKED once per scene version (+ zoom bucket,
 // dpr, editing state) into world-space geometry arenas and an ordered
@@ -10,26 +11,75 @@
 // rotated/rounded frame clips and INSIDE/OUTSIDE stroke aligns share one
 // stencil stack (scissor fast-path for unrotated sharp frames).
 //
-// Beta gaps (documented in the matrix / porting plan): effects
-// (shadows/blurs) and non-NORMAL blend modes are not yet composited — nodes
-// draw their base geometry. The Canvas2D backend remains the default.
+// Effects & blends (ADR-017): drop/inner shadows, layer blurs and isolated
+// exotic blends pre-render at BAKE time into world-anchored per-node
+// textures (the node's segment range replayed with a layer-local camera,
+// then separable-gaussian blur passes), composited in the scene pass as
+// world quads — panning stays a pure camera-uniform update. The scene pass
+// resolves into an intermediate texture and blits to the canvas at frame
+// end; background blur and exotic blend modes split the scene pass to
+// sample the backdrop-so-far. MULTIPLY and SCREEN are exact fixed-function
+// blend variants (per-primitive + inherited, mirroring Canvas2D); the other
+// thirteen modes route through layer isolation + a backdrop-sampling
+// composite shader implementing the W3C formulas.
+//
+// Documented divergences from the Canvas2D reference (all container-only):
+// layer blur / exotic blends isolate the subtree and composite ONCE
+// (Figma-style) where Canvas2D filters each primitive; effect composites
+// always draw source-over even under an inherited MULTIPLY/SCREEN; backdrop
+// effects inside an isolated layer fall back (bg blur skipped, exotic blend
+// renders NORMAL).
 
-import type { NodeId, Paint, SceneNode } from '../../types'
+import type { NodeId, Paint, SceneNode, BlendMode, DropShadowEffect } from '../../types'
 import { isFrameLike } from '../../types'
 import type { SceneGraph } from '../../scene'
-import type { Mat } from '../../geometry'
+import type { Mat, AABB } from '../../geometry'
 import { IDENTITY, matMultiply } from '../../geometry'
 import { layoutText } from '../../text'
 import { rgbaToCss } from '../../color'
-import type { AssetCache } from '../../assets'
 import type { RenderOptions } from '../canvas2d'
 import { drawTextInto } from '../canvas2d'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
-import { GRADIENT_WGSL, SOLID_WGSL, STENCIL_WGSL, TEXTURE_WGSL } from './shaders'
+import {
+  BLUR_WGSL,
+  COMPOSITE_WGSL,
+  FX_WGSL,
+  GRADIENT_WGSL,
+  SOLID_WGSL,
+  STENCIL_WGSL,
+  TEXTURE_WGSL,
+} from './shaders'
 
 const UNIFORM_ALIGN = 256
 const GRADIENT_UNIFORM_SIZE = 224 // 6 vec4 + 8 color vec4 = 14 * 16
 const TEXTURE_UNIFORM_SIZE = 64
+const FX_UNIFORM_SIZE = 64
+const BLUR_UNIFORM_SIZE = 48
+const MAX_LAYER_TEX = 2048
+
+/** Fixed-function blend variants (exact against the opaque scene target). */
+const FIXED_BLEND: Partial<Record<BlendMode, number>> = {
+  NORMAL: 0,
+  MULTIPLY: 1,
+  SCREEN: 2,
+}
+
+/** Shader-composited blend modes (ids match FX_WGSL blend_rgb). */
+const FX_BLEND_MODE: Partial<Record<BlendMode, number>> = {
+  OVERLAY: 2,
+  DARKEN: 3,
+  LIGHTEN: 4,
+  COLOR_DODGE: 5,
+  COLOR_BURN: 6,
+  HARD_LIGHT: 7,
+  SOFT_LIGHT: 8,
+  DIFFERENCE: 9,
+  EXCLUSION: 10,
+  HUE: 11,
+  SATURATION: 12,
+  COLOR: 13,
+  LUMINOSITY: 14,
+}
 
 interface ScissorRect {
   minX: number
@@ -39,12 +89,14 @@ interface ScissorRect {
 }
 
 type Segment =
-  | { kind: 'batch'; firstIndex: number; indexCount: number }
+  | { kind: 'batch'; blend: number; firstIndex: number; indexCount: number }
   | { kind: 'stencil'; op: 'push' | 'pop'; firstIndex: number; indexCount: number }
   | { kind: 'scissor'; op: 'push' | 'pop'; rect?: ScissorRect }
   | { kind: 'setRef'; delta: number } // temporary stencil ref adjustment (stroke aligns)
+  | { kind: 'skip'; to: number } // scene pass jumps over isolated/caster-only content
   | {
       kind: 'gradient'
+      blend: number
       uniformOffset: number
       firstVertex: number
       firstIndex: number
@@ -52,12 +104,56 @@ type Segment =
     }
   | {
       kind: 'texture'
+      blend: number
       uniformOffset: number
       texKey: string
       firstVertex: number
       firstIndex: number
       indexCount: number
     }
+  | {
+      kind: 'fxQuad'
+      mode: number // 0 plain, 1 backdrop blur, >=2 blend modes (FX_WGSL)
+      layerKey: string | null
+      uniformOffset: number
+      fallbackUniformOffset: number // mode-0 twin for replay contexts (-1: none)
+      needsBackdrop: boolean
+      radiusWorld: number // background blur radius in world units
+      firstVertex: number
+      firstIndex: number
+      indexCount: number
+    }
+
+/** A pre-rendered effect layer: replay range + world->texture mapping. */
+interface FxLayerSpec {
+  key: string
+  segStart: number
+  segEnd: number
+  originX: number
+  originY: number
+  scale: number // texture px per world unit
+  texW: number
+  texH: number
+  blurRadiusPx: number
+  sampleOffX: number
+  sampleOffY: number
+  tint: [number, number, number, number] | null // premultiplied shadow color
+  invert: boolean // blur (1 - alpha): inner shadows
+  mask: boolean // multiply result by the unblurred caster alpha
+}
+
+interface ExecCtx {
+  dw: number
+  dh: number
+  camX: number
+  camY: number
+  zoomDpr: number
+  scissors: ScissorRect[]
+  stencilPops: Segment[]
+  stencilDepth: number
+  refDelta: number
+  replay: boolean
+}
 
 class GrowBuffer {
   data: Float32Array
@@ -142,20 +238,34 @@ export class WebGPURenderer {
   private context: GPUCanvasContext
   private format: GPUTextureFormat
 
-  private solidPipeline!: GPURenderPipeline
+  private solidPipelines!: GPURenderPipeline[]
   private stencilPushPipeline!: GPURenderPipeline
   private stencilPopPipeline!: GPURenderPipeline
-  private gradientPipeline!: GPURenderPipeline
-  private texturePipeline!: GPURenderPipeline
+  private gradientPipelines!: GPURenderPipeline[]
+  private texturePipelines!: GPURenderPipeline[]
+  private fxPipeline!: GPURenderPipeline
+  private blurPipeline!: GPURenderPipeline
+  private blitPipeline!: GPURenderPipeline
 
+  private cameraLayout!: GPUBindGroupLayout
   private cameraBuffer!: GPUBuffer
   private cameraBindGroup!: GPUBindGroup
   private gradientLayout!: GPUBindGroupLayout
   private textureLayout!: GPUBindGroupLayout
+  private fxLayout!: GPUBindGroupLayout
+  private blurLayout!: GPUBindGroupLayout
+  private blitLayout!: GPUBindGroupLayout
   private sampler!: GPUSampler
+  private blitUniform!: GPUBuffer
+  private dummyTex!: GPUTexture
 
   private msaa: GPUTexture | null = null
   private depthStencil: GPUTexture | null = null
+  private resolveTex: GPUTexture | null = null
+  private backdropTex: GPUTexture | null = null
+  private pingA: GPUTexture | null = null
+  private pingB: GPUTexture | null = null
+  private blitBindGroup: GPUBindGroup | null = null
   private targetW = 0
   private targetH = 0
 
@@ -170,6 +280,7 @@ export class WebGPURenderer {
   private segments: Segment[] = []
   private bakedKey = ''
   private invalidated = true
+  private hasBackdropFx = false
 
   private arenaGpu: GPUBuffer | null = null
   private arenaIndexGpu: GPUBuffer | null = null
@@ -182,6 +293,15 @@ export class WebGPURenderer {
   private textures = new Map<string, GPUTexture>()
   /** Bind groups resolved lazily at execute time against the CURRENT uniform buffer. */
   private textureBindGroups = new Map<string, GPUBindGroup>()
+
+  // Effect layers (rebuilt each bake)
+  private fxLayers: FxLayerSpec[] = []
+  private fxKeyCounter = 0
+  private fxTextures = new Map<string, GPUTexture>()
+  private fxBindGroups = new Map<string, GPUBindGroup>()
+  /** Per background-blur segment: per-frame blur uniforms + bind groups. */
+  private frameFx = new Map<number, { uH: GPUBuffer; uV: GPUBuffer }>()
+  private frameFxBindGroups = new Map<number, { h: GPUBindGroup; v: GPUBindGroup }>()
 
   private constructor(canvas: HTMLCanvasElement, device: GPUDevice, context: GPUCanvasContext) {
     this.canvas = canvas
@@ -203,12 +323,23 @@ export class WebGPURenderer {
   dispose(): void {
     this.msaa?.destroy()
     this.depthStencil?.destroy()
+    this.resolveTex?.destroy()
+    this.backdropTex?.destroy()
+    this.pingA?.destroy()
+    this.pingB?.destroy()
+    this.dummyTex?.destroy()
     for (const t of this.textures.values()) t.destroy()
+    for (const t of this.fxTextures.values()) t.destroy()
+    for (const f of this.frameFx.values()) {
+      f.uH.destroy()
+      f.uV.destroy()
+    }
     this.arenaGpu?.destroy()
     this.arenaIndexGpu?.destroy()
     this.localGpu?.destroy()
     this.localIndexGpu?.destroy()
     this.uniformGpu?.destroy()
+    this.blitUniform?.destroy()
     this.device.destroy()
   }
 
@@ -225,7 +356,7 @@ export class WebGPURenderer {
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
-    const cameraLayout = device.createBindGroupLayout({
+    this.cameraLayout = device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -235,7 +366,7 @@ export class WebGPURenderer {
       ],
     })
     this.cameraBindGroup = device.createBindGroup({
-      layout: cameraLayout,
+      layout: this.cameraLayout,
       entries: [{ binding: 0, resource: { buffer: this.cameraBuffer } }],
     })
 
@@ -259,16 +390,65 @@ export class WebGPURenderer {
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
       ],
     })
+    this.fxLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true },
+        },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+      ],
+    })
+    this.blurLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+      ],
+    })
+    this.blitLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+      ],
+    })
     this.sampler = device.createSampler({
       magFilter: 'linear',
       minFilter: 'linear',
       mipmapFilter: 'linear',
     })
+    this.blitUniform = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    })
+    device.queue.writeBuffer(this.blitUniform, 0, new Float32Array([0, 0, 1, 0]))
+    this.dummyTex = device.createTexture({
+      size: [1, 1],
+      format: this.format,
+      usage: GPUTextureUsage.TEXTURE_BINDING,
+    })
 
-    const premultiplied: GPUBlendState = {
-      color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-    }
+    // Fixed-function blend variants against the opaque scene target:
+    // 0 = premultiplied source-over, 1 = MULTIPLY, 2 = SCREEN.
+    const blendStates: GPUBlendState[] = [
+      {
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+      },
+      {
+        color: { srcFactor: 'dst', dstFactor: 'one-minus-src-alpha' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+      },
+      {
+        color: { srcFactor: 'one', dstFactor: 'one-minus-src' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+      },
+    ]
     const stencilKeep = (compare: GPUCompareFunction, passOp: GPUStencilOperation) =>
       ({
         format: 'depth24plus-stencil8',
@@ -279,34 +459,36 @@ export class WebGPURenderer {
       }) satisfies GPUDepthStencilState
 
     const solidModule = device.createShaderModule({ code: SOLID_WGSL })
-    this.solidPipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [cameraLayout] }),
-      vertex: {
-        module: solidModule,
-        entryPoint: 'vs',
-        buffers: [
-          {
-            arrayStride: 12,
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: 'float32x2' },
-              { shaderLocation: 1, offset: 8, format: 'unorm8x4' },
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: solidModule,
-        entryPoint: 'fs',
-        targets: [{ format: this.format, blend: premultiplied }],
-      },
-      multisample: { count: 4 },
-      depthStencil: stencilKeep('equal', 'keep'),
-    })
+    this.solidPipelines = blendStates.map((blend) =>
+      device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [this.cameraLayout] }),
+        vertex: {
+          module: solidModule,
+          entryPoint: 'vs',
+          buffers: [
+            {
+              arrayStride: 12,
+              attributes: [
+                { shaderLocation: 0, offset: 0, format: 'float32x2' },
+                { shaderLocation: 1, offset: 8, format: 'unorm8x4' },
+              ],
+            },
+          ],
+        },
+        fragment: {
+          module: solidModule,
+          entryPoint: 'fs',
+          targets: [{ format: this.format, blend }],
+        },
+        multisample: { count: 4 },
+        depthStencil: stencilKeep('equal', 'keep'),
+      }),
+    )
 
     const stencilModule = device.createShaderModule({ code: STENCIL_WGSL })
     const stencilPipeline = (passOp: GPUStencilOperation, compare: GPUCompareFunction) =>
       device.createRenderPipeline({
-        layout: device.createPipelineLayout({ bindGroupLayouts: [cameraLayout] }),
+        layout: device.createPipelineLayout({ bindGroupLayouts: [this.cameraLayout] }),
         vertex: {
           module: stencilModule,
           entryPoint: 'vs',
@@ -329,12 +511,64 @@ export class WebGPURenderer {
     this.stencilPopPipeline = stencilPipeline('decrement-clamp', 'equal')
 
     const gradientModule = device.createShaderModule({ code: GRADIENT_WGSL })
-    this.gradientPipeline = device.createRenderPipeline({
+    this.gradientPipelines = blendStates.map((blend) =>
+      device.createRenderPipeline({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.cameraLayout, this.gradientLayout],
+        }),
+        vertex: {
+          module: gradientModule,
+          entryPoint: 'vs',
+          buffers: [
+            {
+              arrayStride: 8,
+              attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+            },
+          ],
+        },
+        fragment: {
+          module: gradientModule,
+          entryPoint: 'fs',
+          targets: [{ format: this.format, blend }],
+        },
+        multisample: { count: 4 },
+        depthStencil: stencilKeep('equal', 'keep'),
+      }),
+    )
+
+    const textureModule = device.createShaderModule({ code: TEXTURE_WGSL })
+    this.texturePipelines = blendStates.map((blend) =>
+      device.createRenderPipeline({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.cameraLayout, this.textureLayout],
+        }),
+        vertex: {
+          module: textureModule,
+          entryPoint: 'vs',
+          buffers: [
+            {
+              arrayStride: 8,
+              attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+            },
+          ],
+        },
+        fragment: {
+          module: textureModule,
+          entryPoint: 'fs',
+          targets: [{ format: this.format, blend }],
+        },
+        multisample: { count: 4 },
+        depthStencil: stencilKeep('equal', 'keep'),
+      }),
+    )
+
+    const fxModule = device.createShaderModule({ code: FX_WGSL })
+    this.fxPipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({
-        bindGroupLayouts: [cameraLayout, this.gradientLayout],
+        bindGroupLayouts: [this.cameraLayout, this.fxLayout],
       }),
       vertex: {
-        module: gradientModule,
+        module: fxModule,
         entryPoint: 'vs',
         buffers: [
           {
@@ -344,46 +578,45 @@ export class WebGPURenderer {
         ],
       },
       fragment: {
-        module: gradientModule,
+        module: fxModule,
         entryPoint: 'fs',
-        targets: [{ format: this.format, blend: premultiplied }],
+        targets: [{ format: this.format, blend: blendStates[0] }],
       },
       multisample: { count: 4 },
       depthStencil: stencilKeep('equal', 'keep'),
     })
 
-    const textureModule = device.createShaderModule({ code: TEXTURE_WGSL })
-    this.texturePipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({
-        bindGroupLayouts: [cameraLayout, this.textureLayout],
-      }),
-      vertex: {
-        module: textureModule,
-        entryPoint: 'vs',
-        buffers: [
-          {
-            arrayStride: 8,
-            attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
-          },
-        ],
-      },
+    const blurModule = device.createShaderModule({ code: BLUR_WGSL })
+    this.blurPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.blurLayout] }),
+      vertex: { module: blurModule, entryPoint: 'vs' },
       fragment: {
-        module: textureModule,
+        module: blurModule,
         entryPoint: 'fs',
-        targets: [{ format: this.format, blend: premultiplied }],
+        targets: [{ format: this.format }],
       },
-      multisample: { count: 4 },
-      depthStencil: stencilKeep('equal', 'keep'),
+    })
+
+    const blitModule = device.createShaderModule({ code: COMPOSITE_WGSL })
+    this.blitPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.blitLayout] }),
+      vertex: { module: blitModule, entryPoint: 'vs' },
+      fragment: {
+        module: blitModule,
+        entryPoint: 'fs',
+        targets: [{ format: this.format }],
+      },
     })
   }
 
   // -------------------------------------------------------------------------
-  // Bake: scene -> arenas + segments
+  // Bake: scene -> arenas + segments (+ effect layer specs)
   // -------------------------------------------------------------------------
 
   private bakeOpts!: RenderOptions
   private bakeScene!: SceneGraph
   private currentBatchStart = -1
+  private currentBatchBlend = 0
 
   private bake(scene: SceneGraph, opts: RenderOptions): void {
     this.bakeScene = scene
@@ -395,19 +628,25 @@ export class WebGPURenderer {
     this.uniformLen = 0
     this.segments = []
     this.currentBatchStart = -1
+    this.currentBatchBlend = 0
+    this.fxLayers = []
+    this.fxKeyCounter = 0
     this.meshCache.prune(scene)
 
     for (const id of scene.rootIds()) {
-      this.bakeNode(id, IDENTITY, 1)
+      this.bakeNode(id, IDENTITY, 1, 0, false)
     }
     this.endBatch()
+    this.hasBackdropFx = this.segments.some((s) => s.kind === 'fxQuad' && s.needsBackdrop)
     this.uploadArenas()
+    this.preRenderFxLayers()
   }
 
   private endBatch(): void {
     if (this.currentBatchStart >= 0 && this.arenaIndices.len > this.currentBatchStart) {
       this.segments.push({
         kind: 'batch',
+        blend: this.currentBatchBlend,
         firstIndex: this.currentBatchStart,
         indexCount: this.arenaIndices.len - this.currentBatchStart,
       })
@@ -420,9 +659,14 @@ export class WebGPURenderer {
     indices: Uint32Array,
     m: Mat,
     color: [number, number, number, number],
+    blend: number,
   ): void {
     if (indices.length === 0) return
-    if (this.currentBatchStart < 0) this.currentBatchStart = this.arenaIndices.len
+    if (this.currentBatchStart >= 0 && this.currentBatchBlend !== blend) this.endBatch()
+    if (this.currentBatchStart < 0) {
+      this.currentBatchStart = this.arenaIndices.len
+      this.currentBatchBlend = blend
+    }
     const vertCount = positions.length / 2
     const base = this.arena.len / 3
     this.arena.ensure(vertCount * 3)
@@ -519,6 +763,7 @@ export class WebGPURenderer {
     mesh: { positions: Float32Array; indices: Uint32Array },
     m: Mat,
     opacity: number,
+    blend: number,
   ): void {
     if (mesh.indices.length === 0 || paint.stops.length === 0) return
     this.endBatch()
@@ -547,7 +792,7 @@ export class WebGPURenderer {
       const s = stops[Math.min(i, stops.length - 1)]
       f.set([s.color.r, s.color.g, s.color.b, s.color.a], 24 + i * 4)
     }
-    this.segments.push({ kind: 'gradient', uniformOffset: offset, ...loc })
+    this.segments.push({ kind: 'gradient', blend, uniformOffset: offset, ...loc })
   }
 
   /** Upload a texture for a segment key if not present. */
@@ -591,11 +836,12 @@ export class WebGPURenderer {
     mesh: { positions: Float32Array; indices: Uint32Array },
     m: Mat,
     opacity: number,
+    blend: number,
   ): void {
     const bitmap = this.bakeOpts.assets.getBitmap(paint.assetHash)
     if (!bitmap) {
       // Same placeholder the Canvas2D backend paints.
-      this.appendSolid(mesh.positions, mesh.indices, m, [0.5, 0.5, 0.5, 0.35 * opacity])
+      this.appendSolid(mesh.positions, mesh.indices, m, [0.5, 0.5, 0.5, 0.35 * opacity], blend)
       return
     }
     if (mesh.indices.length === 0) return
@@ -658,10 +904,10 @@ export class WebGPURenderer {
       [clamp01(adj?.exposure ?? 0), clamp01(adj?.contrast ?? 0), clamp01(adj?.saturation ?? 0), tile],
       12,
     )
-    this.segments.push({ kind: 'texture', uniformOffset: offset, texKey, ...loc })
+    this.segments.push({ kind: 'texture', blend, uniformOffset: offset, texKey, ...loc })
   }
 
-  private bakeText(node: Extract<SceneNode, { type: 'TEXT' }>, m: Mat, opacity: number): void {
+  private bakeText(node: Extract<SceneNode, { type: 'TEXT' }>, m: Mat, opacity: number, blend: number): void {
     const paint = node.fills.find((f) => f.visible)
     if (!paint || node.width <= 0 || node.height <= 0) return
     const bucket = zoomBucket(this.bakeOpts.camera.zoom)
@@ -698,7 +944,7 @@ export class WebGPURenderer {
     f.set([m.a, m.b, m.c, m.d, m.e, m.f, opacity, 0], 0)
     f.set([1 / node.width, 1 / node.height, 0, 0], 8)
     f.set([1, 1, 1, 0], 12)
-    this.segments.push({ kind: 'texture', uniformOffset: offset, texKey, ...loc })
+    this.segments.push({ kind: 'texture', blend, uniformOffset: offset, texKey, ...loc })
   }
 
   private paintColor(paint: Extract<Paint, { type: 'SOLID' }>, opacity: number): [number, number, number, number] {
@@ -710,20 +956,31 @@ export class WebGPURenderer {
     ]
   }
 
-  private bakeFills(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number): void {
-    for (const paint of node.fills) {
-      if (!paint.visible) continue
-      if (paint.type === 'SOLID') {
-        this.appendSolid(mesh.fillPositions, mesh.fillIndices, m, this.paintColor(paint, opacity))
-      } else if (paint.type === 'IMAGE') {
-        this.bakeImage(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity)
-      } else {
-        this.bakeGradient(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity)
-      }
+  private bakeFillPaint(
+    node: SceneNode,
+    paint: Paint,
+    mesh: NodeMesh,
+    m: Mat,
+    opacity: number,
+    blend: number,
+  ): void {
+    if (paint.type === 'SOLID') {
+      this.appendSolid(mesh.fillPositions, mesh.fillIndices, m, this.paintColor(paint, opacity), blend)
+    } else if (paint.type === 'IMAGE') {
+      this.bakeImage(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity, blend)
+    } else {
+      this.bakeGradient(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity, blend)
     }
   }
 
-  private bakeStrokes(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number): void {
+  private bakeFills(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
+    for (const paint of node.fills) {
+      if (!paint.visible) continue
+      this.bakeFillPaint(node, paint, mesh, m, opacity, blend)
+    }
+  }
+
+  private bakeStrokes(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
     if (node.strokeWeight <= 0 || mesh.strokeIndices.length === 0) return
     if (!node.strokes.some((s) => s.visible && s.type !== 'IMAGE')) return
     const needsClip = mesh.strokeAlignCode !== 0 && mesh.fillIndices.length > 0
@@ -737,9 +994,9 @@ export class WebGPURenderer {
     for (const paint of node.strokes) {
       if (!paint.visible || paint.type === 'IMAGE') continue
       if (paint.type === 'SOLID') {
-        this.appendSolid(mesh.strokePositions, mesh.strokeIndices, m, this.paintColor(paint, opacity))
+        this.appendSolid(mesh.strokePositions, mesh.strokeIndices, m, this.paintColor(paint, opacity), blend)
       } else {
-        this.bakeGradient(node, paint, { positions: mesh.strokePositions, indices: mesh.strokeIndices }, m, opacity)
+        this.bakeGradient(node, paint, { positions: mesh.strokePositions, indices: mesh.strokeIndices }, m, opacity, blend)
       }
     }
     if (needsClip) {
@@ -748,7 +1005,13 @@ export class WebGPURenderer {
     }
   }
 
-  private bakeChildren(children: readonly NodeId[], parentMat: Mat, opacity: number): void {
+  private bakeChildren(
+    children: readonly NodeId[],
+    parentMat: Mat,
+    opacity: number,
+    blend: number,
+    inLayer: boolean,
+  ): void {
     const scene = this.bakeScene
     let maskDepth = 0
     for (const cid of children) {
@@ -761,7 +1024,7 @@ export class WebGPURenderer {
         maskDepth++
         continue
       }
-      this.bakeNode(cid, parentMat, opacity)
+      this.bakeNode(cid, parentMat, opacity, blend, inLayer)
     }
     while (maskDepth-- > 0) {
       // Pop reuses its paired push's mesh range (resolved at execute time).
@@ -770,21 +1033,308 @@ export class WebGPURenderer {
     }
   }
 
-  private bakeNode(id: NodeId, parentMat: Mat, parentOpacity: number): void {
+  // -------------------------------------------------------------------------
+  // Effect layer plumbing
+  // -------------------------------------------------------------------------
+
+  /** World AABB of a node incl. unclipped descendants (isolation bounds). */
+  private subtreeBounds(id: NodeId): AABB {
+    const scene = this.bakeScene
+    const node = scene.getNode(id)
+    const own = scene.worldAABB(id)
+    if (!node) return own
+    const kids = (node as { children?: readonly NodeId[] }).children
+    if (!kids || kids.length === 0) return own
+    if (isFrameLike(node) && node.clipsContent) return own
+    let minX = own.minX
+    let minY = own.minY
+    let maxX = own.maxX
+    let maxY = own.maxY
+    for (const cid of kids) {
+      const c = this.subtreeBounds(cid)
+      minX = Math.min(minX, c.minX)
+      minY = Math.min(minY, c.minY)
+      maxX = Math.max(maxX, c.maxX)
+      maxY = Math.max(maxY, c.maxY)
+    }
+    return { minX, minY, maxX, maxY }
+  }
+
+  private layerGeom(bb: AABB, padWorld: number): {
+    originX: number
+    originY: number
+    scale: number
+    texW: number
+    texH: number
+    x1: number
+    y1: number
+  } {
+    const x0 = bb.minX - padWorld
+    const y0 = bb.minY - padWorld
+    const x1 = bb.maxX + padWorld
+    const y1 = bb.maxY + padWorld
+    const w = Math.max(1e-3, x1 - x0)
+    const h = Math.max(1e-3, y1 - y0)
+    let scale = Math.min(4, Math.max(0.125, zoomBucket(this.bakeOpts.camera.zoom) * this.bakeOpts.dpr))
+    scale = Math.min(scale, MAX_LAYER_TEX / w, MAX_LAYER_TEX / h)
+    const texW = Math.max(2, Math.min(MAX_LAYER_TEX, Math.ceil(w * scale)))
+    const texH = Math.max(2, Math.min(MAX_LAYER_TEX, Math.ceil(h * scale)))
+    return { originX: x0, originY: y0, scale, texW, texH, x1, y1 }
+  }
+
+  private emitFxQuad(args: {
+    mode: number
+    layerKey: string | null
+    geom:
+      | { kind: 'quad'; x0: number; y0: number; x1: number; y1: number }
+      | { kind: 'mesh'; positions: Float32Array; indices: Uint32Array; m: Mat }
+    opacity: number
+    origin: [number, number]
+    uvScale: [number, number]
+    radiusWorld?: number
+    needsBackdrop: boolean
+    fallback?: boolean
+  }): void {
+    this.endBatch()
+    let loc: { firstVertex: number; firstIndex: number; indexCount: number }
+    let m: Mat = IDENTITY
+    if (args.geom.kind === 'quad') {
+      const { x0, y0, x1, y1 } = args.geom
+      loc = this.appendLocalMesh(
+        new Float32Array([x0, y0, x1, y0, x1, y1, x0, y1]),
+        new Uint32Array([0, 1, 2, 0, 2, 3]),
+      )
+    } else {
+      loc = this.appendLocalMesh(args.geom.positions, args.geom.indices)
+      m = args.geom.m
+    }
+    const writeUniform = (mode: number): number => {
+      const offset = this.allocUniform(FX_UNIFORM_SIZE)
+      const f = new Float32Array(this.uniformData.buffer, offset, FX_UNIFORM_SIZE / 4)
+      f.set([m.a, m.b, m.c, m.d, m.e, m.f, args.opacity, mode], 0)
+      f.set([args.origin[0], args.origin[1], args.uvScale[0], args.uvScale[1]], 8)
+      return offset
+    }
+    const uniformOffset = writeUniform(args.mode)
+    const fallbackUniformOffset = args.fallback ? writeUniform(0) : -1
+    this.segments.push({
+      kind: 'fxQuad',
+      mode: args.mode,
+      layerKey: args.layerKey,
+      uniformOffset,
+      fallbackUniformOffset,
+      needsBackdrop: args.needsBackdrop,
+      radiusWorld: args.radiusWorld ?? 0,
+      ...loc,
+    })
+  }
+
+  private bakeNode(
+    id: NodeId,
+    parentMat: Mat,
+    parentOpacity: number,
+    parentBlend: number,
+    inLayer: boolean,
+  ): void {
     const scene = this.bakeScene
     const node = scene.getNode(id)
     if (!node || !node.visible || node.opacity <= 0) return
     const m = matMultiply(parentMat, scene.localMatrix(node))
     const opacity = parentOpacity * node.opacity
-    const zoom = this.bakeOpts.camera.zoom
 
-    switch (node.type) {
-      case 'FRAME':
-      case 'COMPONENT':
-      case 'INSTANCE': {
-        const wantStroke = node.strokes.some((s) => s.visible && s.type !== 'IMAGE')
-        const mesh = this.meshCache.get(scene, node, zoom, true, wantStroke)
-        this.bakeFills(node, mesh, m, opacity)
+    // Effective blend: inherited like the Canvas2D reference (a NORMAL child
+    // draws with its ancestor's composite op).
+    let blend = parentBlend
+    let fxBlendMode = -1
+    if (node.blendMode !== 'NORMAL') {
+      const fixed = FIXED_BLEND[node.blendMode]
+      if (fixed !== undefined) blend = fixed
+      else {
+        blend = 0
+        fxBlendMode = FX_BLEND_MODE[node.blendMode] ?? -1
+        // Documented fallback: exotic blends inside an isolated layer render NORMAL.
+        if (inLayer) fxBlendMode = -1
+      }
+    }
+
+    const effects = node.effects.filter((e) => e.visible)
+    let drop: DropShadowEffect | null = null
+    let layerBlurRadius = 0
+    for (const fx of effects) {
+      // Last-one-wins mirrors applyEffectsBeforeDraw overwriting ctx state.
+      if (fx.type === 'DROP_SHADOW') drop = fx
+      else if (fx.type === 'LAYER_BLUR' && fx.radius > 0) layerBlurRadius = fx.radius
+    }
+    const inners = effects.filter((e) => e.type === 'INNER_SHADOW')
+    const bgBlur = effects.find((e) => e.type === 'BACKGROUND_BLUR' && e.radius > 0)
+
+    // The reference applies inner/background effects only to shape-painting
+    // node types, and drop shadows only to nodes that paint themselves
+    // (frames additionally never cast from strokes — quirk preserved).
+    const geometric = node.type !== 'GROUP' && node.type !== 'TEXT' && node.type !== 'LINE'
+    const hasFillPaint = node.fills.some((f) => f.visible)
+    const hasStrokePaint = node.strokes.some((s) => s.visible)
+    let shadowCaster: 'fill' | 'stroke' | 'self' | null = null
+    if (drop) {
+      if (node.type === 'TEXT') shadowCaster = hasFillPaint ? 'self' : null
+      else if (node.type === 'GROUP') shadowCaster = null
+      else if (hasFillPaint) shadowCaster = 'fill'
+      else if (hasStrokePaint && !isFrameLike(node)) shadowCaster = 'stroke'
+    }
+    const isolate = layerBlurRadius > 0 || fxBlendMode >= 0
+
+    if (!shadowCaster && inners.length === 0 && !isolate && (!bgBlur || !geometric || inLayer)) {
+      this.bakeNodePlain(node, m, opacity, blend, inLayer)
+      return
+    }
+
+    // ---- Effect path -------------------------------------------------------
+    const zoom = this.bakeOpts.camera.zoom
+    this.endBatch()
+    const wantStroke = node.strokes.some((s) => s.visible && s.type !== 'IMAGE')
+    const mesh =
+      node.type !== 'GROUP' && node.type !== 'TEXT'
+        ? this.meshCache.get(scene, node, zoom, true, wantStroke)
+        : null
+
+    // 1. Background blur beneath everything of this node (reference order).
+    if (bgBlur && !inLayer && geometric && mesh && mesh.fillIndices.length > 0) {
+      this.emitFxQuad({
+        mode: 1,
+        layerKey: null,
+        geom: { kind: 'mesh', positions: mesh.fillPositions, indices: mesh.fillIndices, m },
+        opacity: 1,
+        origin: [0, 0],
+        uvScale: [0, 0],
+        radiusWorld: bgBlur.type === 'BACKGROUND_BLUR' ? bgBlur.radius : 0,
+        needsBackdrop: true,
+      })
+    }
+
+    // 2. Drop shadow composite (layer range patched after the caster bakes).
+    let shadowSpec: FxLayerSpec | null = null
+    if (drop && shadowCaster) {
+      const bb = scene.worldAABB(node.id)
+      const pad = drop.blur * 1.5 + Math.max(Math.abs(drop.offset.x), Math.abs(drop.offset.y)) + 2
+      const lay = this.layerGeom(bb, pad)
+      const key = `fx${this.fxKeyCounter++}`
+      shadowSpec = {
+        key,
+        segStart: -1,
+        segEnd: -1,
+        originX: lay.originX,
+        originY: lay.originY,
+        scale: lay.scale,
+        texW: lay.texW,
+        texH: lay.texH,
+        blurRadiusPx: drop.blur * lay.scale,
+        sampleOffX: -drop.offset.x * lay.scale,
+        sampleOffY: -drop.offset.y * lay.scale,
+        tint: [
+          drop.color.r * drop.color.a,
+          drop.color.g * drop.color.a,
+          drop.color.b * drop.color.a,
+          drop.color.a,
+        ],
+        invert: false,
+        mask: false,
+      }
+      // Caster colors already carry paint + cumulative opacity.
+      this.emitFxQuad({
+        mode: 0,
+        layerKey: key,
+        geom: { kind: 'quad', x0: lay.originX, y0: lay.originY, x1: lay.x1, y1: lay.y1 },
+        opacity: 1,
+        origin: [lay.originX, lay.originY],
+        uvScale: [lay.scale / lay.texW, lay.scale / lay.texH],
+        needsBackdrop: false,
+      })
+    }
+
+    // 3. Isolated content (layer blur / exotic blend) is skipped by the scene
+    //    pass and composited from its pre-rendered layer texture instead.
+    let skipSeg: Extract<Segment, { kind: 'skip' }> | null = null
+    if (isolate) {
+      skipSeg = { kind: 'skip', to: -1 }
+      this.segments.push(skipSeg)
+    }
+    const contentStart = this.segments.length
+
+    // 4. The node's own content, in reference order.
+    if (node.type === 'GROUP') {
+      this.bakeChildren(node.children, m, opacity, blend, inLayer || isolate)
+      this.endBatch()
+    } else if (node.type === 'TEXT') {
+      if (this.bakeOpts.editingTextId !== node.id) this.bakeText(node, m, opacity, blend)
+    } else if (mesh) {
+      // Fills — the first visible fill is sealed into its own segment range
+      // so it can double as the drop-shadow caster.
+      const casterStart = this.segments.length
+      const fills = node.fills.filter((p) => p.visible)
+      if (fills.length > 0) {
+        this.bakeFillPaint(node, fills[0], mesh, m, opacity, blend)
+        this.endBatch()
+      }
+      const casterEnd = this.segments.length
+      for (let i = 1; i < fills.length; i++) this.bakeFillPaint(node, fills[i], mesh, m, opacity, blend)
+      this.endBatch()
+      if (shadowSpec && shadowCaster === 'fill') {
+        shadowSpec.segStart = casterStart
+        shadowSpec.segEnd = casterEnd
+      }
+
+      // Inner shadows: tint × blur(1 − α) masked by α, from a white caster
+      // mesh the scene pass skips.
+      if (geometric && mesh.fillIndices.length > 0) {
+        for (const fx of inners) {
+          if (fx.type !== 'INNER_SHADOW') continue
+          const bb = scene.worldAABB(node.id)
+          const pad = fx.blur * 1.5 + Math.max(Math.abs(fx.offset.x), Math.abs(fx.offset.y)) + 2
+          const lay = this.layerGeom(bb, pad)
+          const key = `fx${this.fxKeyCounter++}`
+          const casterSkip: Extract<Segment, { kind: 'skip' }> = { kind: 'skip', to: -1 }
+          this.segments.push(casterSkip)
+          const cStart = this.segments.length
+          this.appendSolid(mesh.fillPositions, mesh.fillIndices, m, [1, 1, 1, 1], 0)
+          this.endBatch()
+          const cEnd = this.segments.length
+          casterSkip.to = cEnd
+          this.fxLayers.push({
+            key,
+            segStart: cStart,
+            segEnd: cEnd,
+            originX: lay.originX,
+            originY: lay.originY,
+            scale: lay.scale,
+            texW: lay.texW,
+            texH: lay.texH,
+            blurRadiusPx: fx.blur * lay.scale,
+            sampleOffX: -fx.offset.x * lay.scale,
+            sampleOffY: -fx.offset.y * lay.scale,
+            tint: [
+              fx.color.r * fx.color.a,
+              fx.color.g * fx.color.a,
+              fx.color.b * fx.color.a,
+              fx.color.a,
+            ],
+            invert: true,
+            mask: true,
+          })
+          // The white caster carries no opacity — apply the cumulative here.
+          this.emitFxQuad({
+            mode: 0,
+            layerKey: key,
+            geom: { kind: 'quad', x0: lay.originX, y0: lay.originY, x1: lay.x1, y1: lay.y1 },
+            opacity,
+            origin: [lay.originX, lay.originY],
+            uvScale: [lay.scale / lay.texW, lay.scale / lay.texH],
+            needsBackdrop: false,
+          })
+        }
+      }
+
+      // Children (frames), mirroring the plain path's clip logic.
+      if (isFrameLike(node)) {
         if (node.clipsContent) {
           const r = node.cornerRadius
           const axisAligned = Math.abs(m.b) < 1e-9 && Math.abs(m.c) < 1e-9 && m.a > 0 && m.d > 0
@@ -801,32 +1351,124 @@ export class WebGPURenderer {
                 maxY: m.f + node.height * m.d,
               },
             })
-            this.bakeChildren(node.children, m, opacity)
+            this.bakeChildren(node.children, m, opacity, blend, inLayer || isolate)
             this.endBatch()
             this.segments.push({ kind: 'scissor', op: 'pop' })
           } else {
             this.appendStencil(mesh.fillPositions, mesh.fillIndices, m, 'push')
-            this.bakeChildren(node.children, m, opacity)
+            this.bakeChildren(node.children, m, opacity, blend, inLayer || isolate)
             this.appendStencil(mesh.fillPositions, mesh.fillIndices, m, 'pop')
           }
         } else {
-          this.bakeChildren(node.children, m, opacity)
+          this.bakeChildren(node.children, m, opacity, blend, inLayer || isolate)
         }
-        this.bakeStrokes(node, mesh, m, opacity)
+      }
+
+      // Strokes.
+      const strokeStart = this.segments.length
+      this.bakeStrokes(node, mesh, m, opacity, blend)
+      this.endBatch()
+      if (shadowSpec && shadowCaster === 'stroke') {
+        shadowSpec.segStart = strokeStart
+        shadowSpec.segEnd = this.segments.length
+      }
+    }
+    const contentEnd = this.segments.length
+    if (shadowSpec && shadowCaster === 'self') {
+      shadowSpec.segStart = contentStart
+      shadowSpec.segEnd = contentEnd
+    }
+    // Push after child specs so replay order satisfies dependencies.
+    if (shadowSpec && shadowSpec.segStart >= 0) this.fxLayers.push(shadowSpec)
+
+    if (isolate && skipSeg) {
+      skipSeg.to = contentEnd
+      const bb = this.subtreeBounds(id)
+      const pad = layerBlurRadius * 1.5 + 2
+      const lay = this.layerGeom(bb, pad)
+      const key = `fx${this.fxKeyCounter++}`
+      this.fxLayers.push({
+        key,
+        segStart: contentStart,
+        segEnd: contentEnd,
+        originX: lay.originX,
+        originY: lay.originY,
+        scale: lay.scale,
+        texW: lay.texW,
+        texH: lay.texH,
+        blurRadiusPx: layerBlurRadius * lay.scale,
+        sampleOffX: 0,
+        sampleOffY: 0,
+        tint: null,
+        invert: false,
+        mask: false,
+      })
+      this.emitFxQuad({
+        mode: fxBlendMode >= 0 ? fxBlendMode : 0,
+        layerKey: key,
+        geom: { kind: 'quad', x0: lay.originX, y0: lay.originY, x1: lay.x1, y1: lay.y1 },
+        opacity: 1,
+        origin: [lay.originX, lay.originY],
+        uvScale: [lay.scale / lay.texW, lay.scale / lay.texH],
+        needsBackdrop: fxBlendMode >= 0,
+        fallback: fxBlendMode >= 0,
+      })
+    }
+  }
+
+  private bakeNodePlain(node: SceneNode, m: Mat, opacity: number, blend: number, inLayer: boolean): void {
+    const scene = this.bakeScene
+    const zoom = this.bakeOpts.camera.zoom
+
+    switch (node.type) {
+      case 'FRAME':
+      case 'COMPONENT':
+      case 'INSTANCE': {
+        const wantStroke = node.strokes.some((s) => s.visible && s.type !== 'IMAGE')
+        const mesh = this.meshCache.get(scene, node, zoom, true, wantStroke)
+        this.bakeFills(node, mesh, m, opacity, blend)
+        if (node.clipsContent) {
+          const r = node.cornerRadius
+          const axisAligned = Math.abs(m.b) < 1e-9 && Math.abs(m.c) < 1e-9 && m.a > 0 && m.d > 0
+          const sharp = r.tl === 0 && r.tr === 0 && r.br === 0 && r.bl === 0
+          if (axisAligned && sharp) {
+            this.endBatch()
+            this.segments.push({
+              kind: 'scissor',
+              op: 'push',
+              rect: {
+                minX: m.e,
+                minY: m.f,
+                maxX: m.e + node.width * m.a,
+                maxY: m.f + node.height * m.d,
+              },
+            })
+            this.bakeChildren(node.children, m, opacity, blend, inLayer)
+            this.endBatch()
+            this.segments.push({ kind: 'scissor', op: 'pop' })
+          } else {
+            this.appendStencil(mesh.fillPositions, mesh.fillIndices, m, 'push')
+            this.bakeChildren(node.children, m, opacity, blend, inLayer)
+            this.appendStencil(mesh.fillPositions, mesh.fillIndices, m, 'pop')
+          }
+        } else {
+          this.bakeChildren(node.children, m, opacity, blend, inLayer)
+        }
+        this.bakeStrokes(node, mesh, m, opacity, blend)
         break
       }
       case 'GROUP':
-        this.bakeChildren(node.children, m, opacity)
+        this.bakeChildren(node.children, m, opacity, blend, inLayer)
         break
       case 'TEXT':
-        if (this.bakeOpts.editingTextId !== node.id) this.bakeText(node, m, opacity)
+        if (this.bakeOpts.editingTextId !== node.id) this.bakeText(node, m, opacity, blend)
         break
       default: {
         // RECTANGLE / ELLIPSE / LINE / POLYGON / STAR / VECTOR / BOOLEAN
         const wantStroke = node.strokes.some((s) => s.visible && s.type !== 'IMAGE')
         const mesh = this.meshCache.get(scene, node, zoom, true, wantStroke)
-        this.bakeFills(node, mesh, m, opacity)
-        this.bakeStrokes(node, mesh, m, opacity)
+        this.bakeFills(node, mesh, m, opacity, blend)
+        this.bakeStrokes(node, mesh, m, opacity, blend)
         break
       }
     }
@@ -884,6 +1526,7 @@ export class WebGPURenderer {
       })
       this.textureBindGroups.clear()
       this.gradientBindGroup = null
+      this.fxBindGroups.clear()
     }
     if (this.uniformLen > 0) {
       device.queue.writeBuffer(this.uniformGpu, 0, this.uniformData.buffer, 0, this.uniformLen)
@@ -899,6 +1542,195 @@ export class WebGPURenderer {
   }
 
   // -------------------------------------------------------------------------
+  // Effect layer pre-render (bake time — view-independent)
+  // -------------------------------------------------------------------------
+
+  private blurBindGroup(uniform: GPUBuffer, src: GPUTexture, mask: GPUTexture): GPUBindGroup {
+    return this.device.createBindGroup({
+      layout: this.blurLayout,
+      entries: [
+        { binding: 0, resource: { buffer: uniform } },
+        { binding: 1, resource: this.sampler },
+        { binding: 2, resource: src.createView() },
+        { binding: 3, resource: mask.createView() },
+      ],
+    })
+  }
+
+  private blurPass(
+    encoder: GPUCommandEncoder,
+    bindGroup: GPUBindGroup,
+    dst: GPUTexture,
+  ): void {
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: dst.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
+    })
+    pass.setPipeline(this.blurPipeline)
+    pass.setBindGroup(0, bindGroup)
+    pass.draw(3)
+    pass.end()
+  }
+
+  private preRenderFxLayers(): void {
+    const device = this.device
+    // Reset per-bake effect resources.
+    for (const t of this.fxTextures.values()) t.destroy()
+    this.fxTextures.clear()
+    this.fxBindGroups.clear()
+    for (const f of this.frameFx.values()) {
+      f.uH.destroy()
+      f.uV.destroy()
+    }
+    this.frameFx.clear()
+    this.frameFxBindGroups.clear()
+
+    // Per-frame blur uniforms for background-blur segments (radius depends on
+    // the live zoom, so they are written every frame).
+    for (let i = 0; i < this.segments.length; i++) {
+      const seg = this.segments[i]
+      if (seg.kind === 'fxQuad' && seg.mode === 1) {
+        const mk = () =>
+          device.createBuffer({
+            size: BLUR_UNIFORM_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          })
+        this.frameFx.set(i, { uH: mk(), uV: mk() })
+      }
+    }
+
+    if (this.fxLayers.length === 0) return
+    const transient: (GPUBuffer | GPUTexture)[] = []
+    const encoder = device.createCommandEncoder()
+    for (const spec of this.fxLayers) {
+      const size: [number, number] = [spec.texW, spec.texH]
+      const target = device.createTexture({
+        size,
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      })
+      this.fxTextures.set(spec.key, target)
+      const needBlur = spec.blurRadiusPx > 0 || spec.tint !== null || spec.invert
+      const msaaT = device.createTexture({
+        size,
+        sampleCount: 4,
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      })
+      const dsT = device.createTexture({
+        size,
+        sampleCount: 4,
+        format: 'depth24plus-stencil8',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      })
+      const tempA = needBlur
+        ? device.createTexture({
+            size,
+            format: this.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          })
+        : null
+      transient.push(msaaT, dsT)
+      if (tempA) transient.push(tempA)
+
+      // Replay the segment range with a layer-local camera.
+      const camBuf = device.createBuffer({
+        size: 32,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      })
+      transient.push(camBuf)
+      device.queue.writeBuffer(
+        camBuf,
+        0,
+        new Float32Array([spec.originX, spec.originY, spec.scale, 0, spec.texW, spec.texH, 0, 0]),
+      )
+      const camBG = device.createBindGroup({
+        layout: this.cameraLayout,
+        entries: [{ binding: 0, resource: { buffer: camBuf } }],
+      })
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: msaaT.createView(),
+            resolveTarget: (tempA ?? target).createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: 'clear',
+            storeOp: 'discard',
+          },
+        ],
+        depthStencilAttachment: {
+          view: dsT.createView(),
+          depthLoadOp: 'clear',
+          depthStoreOp: 'discard',
+          depthClearValue: 1,
+          stencilLoadOp: 'clear',
+          stencilStoreOp: 'discard',
+          stencilClearValue: 0,
+        },
+      })
+      pass.setBindGroup(0, camBG)
+      const ctx: ExecCtx = {
+        dw: spec.texW,
+        dh: spec.texH,
+        camX: spec.originX,
+        camY: spec.originY,
+        zoomDpr: spec.scale,
+        scissors: [],
+        stencilPops: [],
+        stencilDepth: 0,
+        refDelta: 0,
+        replay: true,
+      }
+      this.applyScissorTo(pass, ctx)
+      this.execRange(pass, spec.segStart, spec.segEnd, ctx)
+      pass.end()
+
+      if (needBlur && tempA) {
+        const tempB = device.createTexture({
+          size,
+          format: this.format,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        })
+        transient.push(tempB)
+        const mkUniform = (data: number[]): GPUBuffer => {
+          const buf = device.createBuffer({
+            size: BLUR_UNIFORM_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          })
+          device.queue.writeBuffer(buf, 0, new Float32Array(data))
+          transient.push(buf)
+          return buf
+        }
+        // H: invert (inner) + sample offset; V: tint + mask.
+        const uH = mkUniform([
+          1, 0, spec.blurRadiusPx, spec.invert ? 1 : 0,
+          spec.sampleOffX, spec.sampleOffY, 0, 0,
+          0, 0, 0, 0,
+        ])
+        const flagsV = (spec.tint ? 2 : 0) | (spec.mask ? 4 : 0)
+        const t = spec.tint ?? [0, 0, 0, 0]
+        const uV = mkUniform([
+          0, 1, spec.blurRadiusPx, flagsV,
+          0, 0, 0, 0,
+          t[0], t[1], t[2], t[3],
+        ])
+        this.blurPass(encoder, this.blurBindGroup(uH, tempA, tempA), tempB)
+        this.blurPass(encoder, this.blurBindGroup(uV, tempB, tempA), target)
+      }
+    }
+    device.queue.submit([encoder.finish()])
+    // Deallocation of in-flight resources is deferred by WebGPU until the
+    // submitted work completes — safe to destroy immediately.
+    for (const r of transient) r.destroy()
+  }
+
+  // -------------------------------------------------------------------------
   // Frame execution
   // -------------------------------------------------------------------------
 
@@ -906,6 +1738,10 @@ export class WebGPURenderer {
     if (this.targetW === w && this.targetH === h && this.msaa && this.depthStencil) return
     this.msaa?.destroy()
     this.depthStencil?.destroy()
+    this.resolveTex?.destroy()
+    this.backdropTex?.destroy()
+    this.pingA?.destroy()
+    this.pingB?.destroy()
     this.msaa = this.device.createTexture({
       size: [w, h],
       sampleCount: 4,
@@ -918,8 +1754,167 @@ export class WebGPURenderer {
       format: 'depth24plus-stencil8',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     })
+    this.resolveTex = this.device.createTexture({
+      size: [w, h],
+      format: this.format,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+    })
+    this.backdropTex = this.device.createTexture({
+      size: [w, h],
+      format: this.format,
+      usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
+    })
+    this.pingA = this.device.createTexture({
+      size: [w, h],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    })
+    this.pingB = this.device.createTexture({
+      size: [w, h],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    })
+    this.blitBindGroup = null
+    this.fxBindGroups.clear()
+    this.frameFxBindGroups.clear()
     this.targetW = w
     this.targetH = h
+  }
+
+  private applyScissorTo(pass: GPURenderPassEncoder, ctx: ExecCtx): void {
+    let x0 = 0
+    let y0 = 0
+    let x1 = ctx.dw
+    let y1 = ctx.dh
+    for (const r of ctx.scissors) {
+      x0 = Math.max(x0, (r.minX - ctx.camX) * ctx.zoomDpr)
+      y0 = Math.max(y0, (r.minY - ctx.camY) * ctx.zoomDpr)
+      x1 = Math.min(x1, (r.maxX - ctx.camX) * ctx.zoomDpr)
+      y1 = Math.min(y1, (r.maxY - ctx.camY) * ctx.zoomDpr)
+    }
+    const x = Math.max(0, Math.min(ctx.dw, Math.floor(x0)))
+    const y = Math.max(0, Math.min(ctx.dh, Math.floor(y0)))
+    const wpx = Math.max(0, Math.min(ctx.dw - x, Math.ceil(x1) - x))
+    const hpx = Math.max(0, Math.min(ctx.dh - y, Math.ceil(y1) - y))
+    pass.setScissorRect(x, y, wpx, hpx)
+  }
+
+  private fxQuadBindGroup(seg: Extract<Segment, { kind: 'fxQuad' }>): GPUBindGroup | null {
+    const cacheKey = `${seg.mode}:${seg.layerKey ?? ''}`
+    const cached = this.fxBindGroups.get(cacheKey)
+    if (cached) return cached
+    if (!this.uniformGpu) return null
+    const layerTex = seg.layerKey ? this.fxTextures.get(seg.layerKey) : null
+    if (seg.layerKey && !layerTex) return null
+    const backdrop =
+      seg.mode === 1 ? this.pingB : seg.mode >= 2 ? this.backdropTex : this.dummyTex
+    const bg = this.device.createBindGroup({
+      layout: this.fxLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformGpu, size: FX_UNIFORM_SIZE } },
+        { binding: 1, resource: this.sampler },
+        { binding: 2, resource: (layerTex ?? this.dummyTex).createView() },
+        { binding: 3, resource: (backdrop ?? this.dummyTex).createView() },
+      ],
+    })
+    this.fxBindGroups.set(cacheKey, bg)
+    return bg
+  }
+
+  /** Draw one segment. 'skip' is handled by callers (needs the loop index). */
+  private drawSeg(pass: GPURenderPassEncoder, seg: Segment, ctx: ExecCtx): void {
+    switch (seg.kind) {
+      case 'batch': {
+        pass.setPipeline(this.solidPipelines[seg.blend])
+        pass.setStencilReference(ctx.stencilDepth + ctx.refDelta)
+        pass.setVertexBuffer(0, this.arenaGpu!)
+        pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
+        pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
+        break
+      }
+      case 'setRef': {
+        ctx.refDelta += seg.delta
+        break
+      }
+      case 'stencil': {
+        if (seg.op === 'push') {
+          pass.setPipeline(this.stencilPushPipeline)
+          pass.setStencilReference(ctx.stencilDepth)
+          pass.setVertexBuffer(0, this.arenaGpu!)
+          pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
+          if (seg.indexCount > 0) pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
+          ctx.stencilPops.push(seg)
+          ctx.stencilDepth++
+        } else {
+          const pushSeg = ctx.stencilPops.pop()
+          ctx.stencilDepth--
+          const first = seg.firstIndex >= 0 ? seg.firstIndex : (pushSeg as { firstIndex: number })?.firstIndex ?? 0
+          const count = seg.indexCount >= 0 ? seg.indexCount : (pushSeg as { indexCount: number })?.indexCount ?? 0
+          pass.setPipeline(this.stencilPopPipeline)
+          pass.setStencilReference(ctx.stencilDepth + 1)
+          pass.setVertexBuffer(0, this.arenaGpu!)
+          pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
+          if (count > 0) pass.drawIndexed(count, 1, first)
+        }
+        break
+      }
+      case 'scissor': {
+        if (seg.op === 'push') ctx.scissors.push(seg.rect!)
+        else ctx.scissors.pop()
+        this.applyScissorTo(pass, ctx)
+        break
+      }
+      case 'gradient': {
+        pass.setPipeline(this.gradientPipelines[seg.blend])
+        pass.setStencilReference(ctx.stencilDepth + ctx.refDelta)
+        pass.setBindGroup(1, this.gradientBindGroup!, [seg.uniformOffset])
+        pass.setVertexBuffer(0, this.localGpu!)
+        pass.setIndexBuffer(this.localIndexGpu!, 'uint32')
+        pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
+        break
+      }
+      case 'texture': {
+        const bg = this.bindGroupFor(seg.texKey)
+        if (!bg) break
+        pass.setPipeline(this.texturePipelines[seg.blend])
+        pass.setStencilReference(ctx.stencilDepth + ctx.refDelta)
+        pass.setBindGroup(1, bg, [seg.uniformOffset])
+        pass.setVertexBuffer(0, this.localGpu!)
+        pass.setIndexBuffer(this.localIndexGpu!, 'uint32')
+        pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
+        break
+      }
+      case 'fxQuad': {
+        // Backdrop-dependent draws cannot run inside a replay: background
+        // blur is skipped; exotic blends composite via their mode-0 twin.
+        if (ctx.replay && seg.mode === 1) break
+        const useFallback = ctx.replay && seg.needsBackdrop && seg.fallbackUniformOffset >= 0
+        const bg = this.fxQuadBindGroup(seg)
+        if (!bg) break
+        pass.setPipeline(this.fxPipeline)
+        pass.setStencilReference(ctx.stencilDepth + ctx.refDelta)
+        pass.setBindGroup(1, bg, [useFallback ? seg.fallbackUniformOffset : seg.uniformOffset])
+        pass.setVertexBuffer(0, this.localGpu!)
+        pass.setIndexBuffer(this.localIndexGpu!, 'uint32')
+        pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
+        break
+      }
+      case 'skip':
+        break
+    }
+  }
+
+  /** Execute a segment range into an already-configured pass (fx replays). */
+  private execRange(pass: GPURenderPassEncoder, from: number, to: number, ctx: ExecCtx): void {
+    for (let i = from; i < to; i++) {
+      const seg = this.segments[i]
+      if (seg.kind === 'skip') {
+        i = seg.to - 1
+        continue
+      }
+      this.drawSeg(pass, seg, ctx)
+    }
   }
 
   render(scene: SceneGraph, opts: RenderOptions): void {
@@ -949,129 +1944,131 @@ export class WebGPURenderer {
     cam.set([opts.camera.x, opts.camera.y, opts.camera.zoom * opts.dpr, 0, dw, dh, 0, 0])
     this.device.queue.writeBuffer(this.cameraBuffer, 0, cam)
 
+    // Per-frame blur uniforms for background-blur segments (device-px radius
+    // tracks the live zoom). Queued writes land before the submit below.
+    const zoomDpr = opts.camera.zoom * opts.dpr
+    for (const [i, f] of this.frameFx) {
+      const seg = this.segments[i]
+      if (!seg || seg.kind !== 'fxQuad') continue
+      const r = seg.radiusWorld * zoomDpr
+      this.device.queue.writeBuffer(f.uH, 0, new Float32Array([1, 0, r, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
+      this.device.queue.writeBuffer(f.uV, 0, new Float32Array([0, 1, r, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
+    }
+
     const bg = parseColor(opts.background ?? '#1e1e1e')
     const tTex = performance.now()
     const currentTexture = this.context.getCurrentTexture()
     this.lastTimings.texture = performance.now() - tTex
     const tEnc = performance.now()
     const encoder = this.device.createCommandEncoder()
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: this.msaa!.createView(),
-          resolveTarget: currentTexture.createView(),
-          clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
-          loadOp: 'clear',
-          storeOp: 'discard',
+    const keepScene = this.hasBackdropFx
+    const beginScene = (first: boolean): GPURenderPassEncoder => {
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: this.msaa!.createView(),
+            resolveTarget: this.resolveTex!.createView(),
+            clearValue: { r: bg[0], g: bg[1], b: bg[2], a: 1 },
+            loadOp: first ? 'clear' : 'load',
+            storeOp: keepScene ? 'store' : 'discard',
+          },
+        ],
+        depthStencilAttachment: {
+          view: this.depthStencil!.createView(),
+          depthLoadOp: first ? 'clear' : 'load',
+          depthStoreOp: keepScene ? 'store' : 'discard',
+          depthClearValue: 1,
+          stencilLoadOp: first ? 'clear' : 'load',
+          stencilStoreOp: keepScene ? 'store' : 'discard',
+          stencilClearValue: 0,
         },
-      ],
-      depthStencilAttachment: {
-        view: this.depthStencil!.createView(),
-        depthLoadOp: 'clear',
-        depthStoreOp: 'discard',
-        depthClearValue: 1,
-        stencilLoadOp: 'clear',
-        stencilStoreOp: 'discard',
-        stencilClearValue: 0,
-      },
-    })
+      })
+      pass.setBindGroup(0, this.cameraBindGroup)
+      return pass
+    }
+
+    let pass = beginScene(true)
     this.lastTimings.begin = performance.now() - tEnc
     const tLoop = performance.now()
-    pass.setBindGroup(0, this.cameraBindGroup)
 
-    // Execute segments.
-    const scissors: ScissorRect[] = []
-    const stencilPops: Segment[] = [] // stack of push segments for '-1' pops
-    let stencilDepth = 0
-    let refDelta = 0
-    const zoomDpr = opts.camera.zoom * opts.dpr
-
-    const applyScissor = () => {
-      let x0 = 0
-      let y0 = 0
-      let x1 = dw
-      let y1 = dh
-      for (const r of scissors) {
-        x0 = Math.max(x0, (r.minX - opts.camera.x) * zoomDpr)
-        y0 = Math.max(y0, (r.minY - opts.camera.y) * zoomDpr)
-        x1 = Math.min(x1, (r.maxX - opts.camera.x) * zoomDpr)
-        y1 = Math.min(y1, (r.maxY - opts.camera.y) * zoomDpr)
-      }
-      const x = Math.max(0, Math.min(dw, Math.floor(x0)))
-      const y = Math.max(0, Math.min(dh, Math.floor(y0)))
-      const wpx = Math.max(0, Math.min(dw - x, Math.ceil(x1) - x))
-      const hpx = Math.max(0, Math.min(dh - y, Math.ceil(y1) - y))
-      pass.setScissorRect(x, y, wpx, hpx)
+    const ctx: ExecCtx = {
+      dw,
+      dh,
+      camX: opts.camera.x,
+      camY: opts.camera.y,
+      zoomDpr,
+      scissors: [],
+      stencilPops: [],
+      stencilDepth: 0,
+      refDelta: 0,
+      replay: false,
     }
-    applyScissor()
+    this.applyScissorTo(pass, ctx)
 
-    for (const seg of this.segments) {
-      switch (seg.kind) {
-        case 'batch': {
-          pass.setPipeline(this.solidPipeline)
-          pass.setStencilReference(stencilDepth + refDelta)
-          pass.setVertexBuffer(0, this.arenaGpu!)
-          pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
-          pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
-          break
-        }
-        case 'setRef': {
-          refDelta += seg.delta
-          break
-        }
-        case 'stencil': {
-          if (seg.op === 'push') {
-            pass.setPipeline(this.stencilPushPipeline)
-            pass.setStencilReference(stencilDepth)
-            pass.setVertexBuffer(0, this.arenaGpu!)
-            pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
-            if (seg.indexCount > 0) pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
-            stencilPops.push(seg)
-            stencilDepth++
-          } else {
-            const pushSeg = stencilPops.pop()
-            stencilDepth--
-            const first = seg.firstIndex >= 0 ? seg.firstIndex : (pushSeg as { firstIndex: number })?.firstIndex ?? 0
-            const count = seg.indexCount >= 0 ? seg.indexCount : (pushSeg as { indexCount: number })?.indexCount ?? 0
-            pass.setPipeline(this.stencilPopPipeline)
-            pass.setStencilReference(stencilDepth + 1)
-            pass.setVertexBuffer(0, this.arenaGpu!)
-            pass.setIndexBuffer(this.arenaIndexGpu!, 'uint32')
-            if (count > 0) pass.drawIndexed(count, 1, first)
-          }
-          break
-        }
-        case 'scissor': {
-          if (seg.op === 'push') scissors.push(seg.rect!)
-          else scissors.pop()
-          applyScissor()
-          break
-        }
-        case 'gradient': {
-          pass.setPipeline(this.gradientPipeline)
-          pass.setStencilReference(stencilDepth + refDelta)
-          pass.setBindGroup(1, this.gradientBindGroup!, [seg.uniformOffset])
-          pass.setVertexBuffer(0, this.localGpu!)
-          pass.setIndexBuffer(this.localIndexGpu!, 'uint32')
-          pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
-          break
-        }
-        case 'texture': {
-          const bg = this.bindGroupFor(seg.texKey)
-          if (!bg) break
-          pass.setPipeline(this.texturePipeline)
-          pass.setStencilReference(stencilDepth + refDelta)
-          pass.setBindGroup(1, bg, [seg.uniformOffset])
-          pass.setVertexBuffer(0, this.localGpu!)
-          pass.setIndexBuffer(this.localIndexGpu!, 'uint32')
-          pass.drawIndexed(seg.indexCount, 1, seg.firstIndex)
-          break
-        }
+    for (let i = 0; i < this.segments.length; i++) {
+      const seg = this.segments[i]
+      if (seg.kind === 'skip') {
+        i = seg.to - 1
+        continue
       }
+      if (seg.kind === 'fxQuad' && seg.needsBackdrop) {
+        // Split the scene pass: resolve what is painted so far, snapshot it,
+        // (for background blur) blur it, then resume and composite.
+        pass.end()
+        encoder.copyTextureToTexture(
+          { texture: this.resolveTex! },
+          { texture: this.backdropTex! },
+          [dw, dh],
+        )
+        if (seg.mode === 1) {
+          const f = this.frameFx.get(i)
+          if (f) {
+            let bgs = this.frameFxBindGroups.get(i)
+            if (!bgs) {
+              bgs = {
+                h: this.blurBindGroup(f.uH, this.backdropTex!, this.dummyTex),
+                v: this.blurBindGroup(f.uV, this.pingA!, this.dummyTex),
+              }
+              this.frameFxBindGroups.set(i, bgs)
+            }
+            this.blurPass(encoder, bgs.h, this.pingA!)
+            this.blurPass(encoder, bgs.v, this.pingB!)
+          }
+        }
+        pass = beginScene(false)
+        this.applyScissorTo(pass, ctx)
+      }
+      this.drawSeg(pass, seg, ctx)
     }
     this.lastTimings.loop = performance.now() - tLoop
     const tEnd = performance.now()
     pass.end()
+
+    // Final blit: intermediate resolve target -> canvas.
+    if (!this.blitBindGroup) {
+      this.blitBindGroup = this.device.createBindGroup({
+        layout: this.blitLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.blitUniform } },
+          { binding: 1, resource: this.sampler },
+          { binding: 2, resource: this.resolveTex!.createView() },
+        ],
+      })
+    }
+    const blitPass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: currentTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
+    })
+    blitPass.setPipeline(this.blitPipeline)
+    blitPass.setBindGroup(0, this.blitBindGroup)
+    blitPass.draw(3)
+    blitPass.end()
     this.lastTimings.end = performance.now() - tEnd
     this.lastTimings.segments = this.segments.length
     this.lastTimings.indices = this.arenaIndices.len
