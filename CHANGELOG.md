@@ -2,6 +2,14 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
+## Unreleased — 0.4.0 "Performance Core", Sprint A (2026-08-01)
+
+- **Rust engine core lands** (`crates/polyform-core`, ADR-015): `geometry`, `shapes` (outline generation + vector-network chain walking + SVG path data), and the spatial index ported to Rust and compiled to WASM (163 KB), per [docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md).
+- **Per-module backend switch** (`engine/backend.ts`): TS and WASM implementations live behind unchanged function signatures; flags flip per module, persist in `localStorage`, and are console-tweakable via `__polyformEngine`. If WASM fails to load, everything stays on TS.
+- **Spatial index runs on Rust by default**: rstar bulk-load measured **2.23x faster** than rbush at 10k nodes (the rebuild runs on every edit; queries are µs-scale either way). `shapes` stays TS by default — per-call boundary crossing costs 3–5x more than the math until Sprint B moves its consumers (booleans, hit-test) into Rust too.
+- **Differential parity gate**: 13-test fuzz suite (1,000 seeded cases per function) holds TS and WASM byte-identical on all pure-IEEE arithmetic and within 1e-12 on libm transcendentals; runs in `npm test` and in CI against a freshly built WASM binary. `npm run bench` reproduces the perf gate.
+- CSP now includes `'wasm-unsafe-eval'` (WASM compilation only — JS eval stays blocked). New scripts: `build:wasm`, `test:rust`, `bench`. CI builds and tests the Rust crate on every push; installer builds use the committed WASM pkg and need no Rust toolchain.
+
 ## 0.3.0 — Systems (2026-08-01)
 
 - **Components & instances** (schema v3, auto-migrates): create components with `Ctrl+Alt+K` (or convert a frame in place); instances are materialized subtrees kept in sync by the engine, with stable child ids, a cycle guard, and orphan GC. Property edits inside instances are journaled as per-instance **overrides** that survive component edits, undo, and restarts. Swap, reset overrides, and detach (`Ctrl+Alt+B`) in the inspector. Structural edits inside instances are locked.

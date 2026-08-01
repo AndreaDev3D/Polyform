@@ -7,6 +7,8 @@
 
 import type { CornerRadius, SceneNode, Vec2, VectorNetwork } from './types'
 import { flattenCubic } from './geometry'
+import { useWasm, wasmHandle } from './backend'
+import { decodeRings, decodeSubPaths, encodeNetwork, encodeSubPaths } from './wasm/codec'
 
 export interface Anchor {
   p: Vec2
@@ -202,6 +204,7 @@ export function networkToSubPaths(network: VectorNetwork): SubPath[] {
 // ---------------------------------------------------------------------------
 
 export function nodeOutline(node: SceneNode): SubPath[] {
+  if (useWasm('shapes')) return wasmNodeOutline(node)
   switch (node.type) {
     case 'RECTANGLE':
       return [roundedRectPath(node.width, node.height, node.cornerRadius)]
@@ -236,12 +239,48 @@ export function nodeOutline(node: SceneNode): SubPath[] {
   }
 }
 
+/** Rust twin of the switch above (crates/polyform-core); same outputs per type. */
+function wasmNodeOutline(node: SceneNode): SubPath[] {
+  const w = wasmHandle()
+  switch (node.type) {
+    case 'RECTANGLE':
+    case 'FRAME':
+    case 'COMPONENT':
+    case 'INSTANCE': {
+      const r = node.cornerRadius
+      return decodeSubPaths(w.roundedRectPath(node.width, node.height, r.tl, r.tr, r.br, r.bl))
+    }
+    case 'ELLIPSE':
+      return decodeSubPaths(w.ellipsePath(node.width, node.height))
+    case 'LINE':
+      return decodeSubPaths(w.linePath(node.width))
+    case 'POLYGON':
+      return decodeSubPaths(w.polygonPath(node.width, node.height, node.pointCount))
+    case 'STAR':
+      return decodeSubPaths(w.starPath(node.width, node.height, node.pointCount, node.innerRatio))
+    case 'VECTOR': {
+      const { vertices, edges } = encodeNetwork(node.network)
+      return decodeSubPaths(w.networkToSubPaths(vertices, edges))
+    }
+    case 'TEXT':
+    case 'GROUP':
+    case 'BOOLEAN':
+      // Zero radii take the plain 4-anchor rectangle path in Rust, matching
+      // the inline TS branch above.
+      return decodeSubPaths(w.roundedRectPath(node.width, node.height, 0, 0, 0, 0))
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Flattening & path strings
 // ---------------------------------------------------------------------------
 
 /** Flatten a subpath to a polyline of points (closed rings do not repeat the first point). */
 export function flattenSubPath(sp: SubPath, tolerance = 0.25): Vec2[] {
+  if (useWasm('shapes')) {
+    const rings = decodeRings(wasmHandle().flattenSubPaths(encodeSubPaths([sp]), tolerance))
+    return rings[0] ?? []
+  }
   const out: Vec2[] = []
   const n = sp.anchors.length
   if (n === 0) return out
@@ -264,6 +303,7 @@ export function flattenSubPath(sp: SubPath, tolerance = 0.25): Vec2[] {
 
 /** SVG path `d` string for a list of subpaths. */
 export function subPathsToSvg(paths: SubPath[], precision = 3): string {
+  if (useWasm('shapes')) return wasmHandle().subPathsToSvg(encodeSubPaths(paths), precision)
   const f = (v: number) => Number(v.toFixed(precision))
   let d = ''
   for (const sp of paths) {

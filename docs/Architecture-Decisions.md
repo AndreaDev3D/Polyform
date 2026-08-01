@@ -345,6 +345,21 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-015: WASM engine embedding — inlined binary, committed pkg, per-module flags with measured defaults (v0.4)
+
+**Context.** Sprint A of the [porting plan](V0.4-Porting-Plan.md) delivers the first Rust engine modules (`crates/polyform-core`: geometry, shapes, spatial index). Three embedding questions had to be settled: how the renderer loads the binary, whether generated artifacts are committed, and who decides TS-vs-WASM per call site.
+
+**Decision.**
+1. **Loading**: the `.wasm` is bundled as a base64 `?inline` asset and instantiated asynchronously at app start. Rationale: packaged Electron renderers run on `file://`, where `fetch()` of bundled assets is blocked, and Chromium forbids synchronous compilation of modules > 4 KB on the main thread — inline-plus-async sidesteps both, in dev, prod, and vitest alike. The CSP gains `'wasm-unsafe-eval'` (WASM compilation only; JS `eval` stays blocked). If init fails, every module stays on its TS implementation — WASM is an upgrade, never a dependency.
+2. **Artifacts**: the wasm-pack output (`engine/wasm/pkg/`, ~163 KB binary + glue) is **committed**. Contributors without a Rust toolchain can dev/build/test the app; CI still compiles the crate fresh and runs the parity suite against it, so the committed copy can never drift silently in behavior.
+3. **Dispatch**: a per-module flag in `engine/backend.ts` (persisted in `localStorage`, console-tweakable) decides TS vs WASM behind unchanged function signatures. Defaults are set by measurement, not ideology: `spatial: 'wasm'` (rstar bulk-load 2.23x faster; rebuilds run on every edit), `shapes: 'ts'` (per-call boundary encode/decode costs 3–5x the math), geometry has **no runtime flag** (9.5x against; its Rust port is the substrate Sprint B consumes internally). The boundary itself is batch-only Float64Array codecs — no per-node getter chatter (see `wasm.rs` / `codec.ts` for the wire formats).
+
+**Consequences.** The app works identically with or without WASM, flag flips are reversible at runtime, and the parity fuzz suite (1,000 seeded cases per function; exact equality on pure IEEE arithmetic, 1e-12 on libm transcendentals) is the gate that lets a default flip. The committed-pkg policy trades repo hygiene for contributor accessibility — revisited once a release pipeline builds artifacts anyway.
+
+**Revisit when.** Sprint B moves outline consumers (booleans, hit-test) into Rust — `shapes` flips to `wasm` and the flag design gets its first real migration test. The inline-base64 loading gives way to a Worker + SharedArrayBuffer once the renderer reads vertex buffers directly (Technical-Specification §1.1).
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -363,5 +378,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 012 | Materialized instances + journaled overrides | Partially | Rust core replaces hash-based staleness with dirty tracking |
 | 013 | Import-on-use local libraries | No (stable) | Update-review UI in v1.0 |
 | 014 | Unsandboxed plugin preview + consent | Yes | Worker sandbox + typed bridge post-1.0 |
+| 015 | WASM inlined + committed pkg + measured per-module flags | Partially | Worker embedding; pkg decommitted once release pipeline builds it |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

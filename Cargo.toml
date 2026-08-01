@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["crates/polyform-core"]
+
+# Profiles live at the workspace root (member-crate profiles are ignored).
+[profile.release]
+opt-level = 3
+lto = true

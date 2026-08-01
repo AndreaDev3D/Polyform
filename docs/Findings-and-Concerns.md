@@ -25,6 +25,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-14](#f-14) | Library updates can orphan overrides (v0.3) | Med |
 | [F-15](#f-15) | Plugin runner is unsandboxed (v0.3 preview) | High (consent-gated) |
 | [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Med |
+| [F-17](#f-17) | Plugin preview is CSP-blocked in the built app (v0.3) | Med |
 
 ---
 
@@ -362,6 +363,19 @@ Each node with background blur clips to its shape, then redraws the *entire canv
 
 ### Mitigation
 Shipped: the pass runs only for nodes actually carrying the effect, and only within their clip. Documented in the matrix as the expensive effect. Planned: the WebGPU backend (v0.4) renders backdrop blur as a scoped texture sample — this is one of the four listed triggers that make WebGPU stop being optional (F-01).
+
+---
+
+<a id="f-17"></a>
+## F-17. Plugin dev preview is blocked by the renderer CSP
+
+**Severity: Med** — a dev-preview feature silently can't run; no data risk.
+
+### The problem
+Discovered during the v0.4 Sprint A CSP work: the plugin runner executes scripts via `new Function` (actions.ts), but the renderer CSP (`script-src 'self'`) has never included `'unsafe-eval'` — so Chromium refuses the evaluation and the runner's catch block reports the script as failed. The v0.3 preview shipped effectively non-functional under its own CSP. (Sprint A added `'wasm-unsafe-eval'`, which permits **only** WebAssembly compilation — it does not and must not unblock `new Function`.)
+
+### Mitigation
+None shipped — loosening the CSP to `'unsafe-eval'` for the whole renderer is the wrong trade for a preview feature. The correct fix is the already-designed post-1.0 sandbox (worker with its own CSP + typed bridge, ADR-014/Plugin-API.md); pulling a minimal version of it forward is the recommended path if plugins matter before then. Until fixed, the feature matrix marks plugins accordingly.
 
 ---
 

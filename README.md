@@ -4,7 +4,7 @@
 
 Polyform is a Figma-style design editor that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
-> Status: **v0.3.0** — "Systems". Adds components & instances (with overrides, swap, detach), local-file libraries (attach any `.poly`, import components/styles), a version-history browser over the SQLite journal, and a plugin-API dev preview ([docs/Plugin-API.md](docs/Plugin-API.md)) — on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
+> Status: **v0.3.0 + v0.4 Sprint A in progress** — "Systems" shipped components & instances (with overrides, swap, detach), local-file libraries, a version-history browser over the SQLite journal, and a plugin-API dev preview ([docs/Plugin-API.md](docs/Plugin-API.md)) — on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. The v0.4 "Performance Core" phase has begun: the first Rust/WASM engine modules are live ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
 
 ## Highlights
 
@@ -13,12 +13,13 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 - **Components & instances** — materialized instances with journaled overrides, swap, and detach; a design system can live entirely in local files.
 - **Real design tools** — multi-page documents, frames with auto layout + constraints, shapes, pen paths with a vector-edit mode, text with system fonts, image fills (crop/adjust), gradients with a stop editor, effects (drop/inner shadow, layer/background blur), masks, boolean operations, rulers + guides, snapping with smart + spacing guides, align/distribute, SVG import, PNG/SVG export.
 - **Canvas-rendered scene** — shapes are never DOM or SVG nodes; everything paints through a GPU-composited canvas pipeline behind a renderer interface (WebGPU backend is the v0.4 track).
+- **Rust/WASM engine core (growing)** — geometry, outline generation, and the R-tree spatial index are ported to Rust (`crates/polyform-core`), proven bit-equivalent to the TypeScript engine by a 1,000-case differential fuzz suite, and switched per module at runtime; the spatial index runs on Rust by default. The TS engine remains the reference implementation and automatic fallback.
 - **R-tree spatial indexing** for fast hit-testing and viewport culling.
 - **Open format** — the scene schema is documented ([docs/schema.fbs](docs/schema.fbs)); the `.poly` bundle is inspectable with standard tools. A plugin-API dev preview ships behind the Plugins menu.
 
 ## Getting started
 
-Requirements: Node.js 20+ (22 recommended) and npm.
+Requirements: Node.js 20+ (22 recommended) and npm. A Rust toolchain is **optional** — the compiled WASM engine pkg is committed, so you only need Rust (stable + `wasm32-unknown-unknown` + [wasm-pack](https://github.com/rustwasm/wasm-pack)) if you change `crates/`.
 
 ```bash
 git clone https://github.com/polyform/polyform
@@ -34,8 +35,11 @@ Then: **New Project…**, pick where to save the `.poly` folder, and draw. Press
 | Command             | What it does                                    |
 | ------------------- | ----------------------------------------------- |
 | `npm run dev`       | Run the app in development with hot reload      |
-| `npm test`          | Engine unit tests (vitest)                      |
+| `npm test`          | Engine unit tests + TS↔WASM parity fuzz (vitest)|
 | `npm run typecheck` | Strict TypeScript across main/preload/renderer  |
+| `npm run test:rust` | Rust engine-core unit tests (cargo)             |
+| `npm run build:wasm`| Rebuild the WASM engine pkg from `crates/`      |
+| `npm run bench`     | TS vs WASM micro-benchmarks (perf gates)        |
 | `npm run build`     | Production build to `out/`                      |
 | `npm run dist:win`  | Windows installer + portable exe (`release/`)   |
 | `npm run dist:mac`  | macOS dmg                                       |
@@ -70,7 +74,7 @@ Copying the folder copies the entire project — shapes, history, and assets inc
 | [Product-Overview.md](docs/Product-Overview.md) | Original product vision (historical) |
 | [Technical-Specification.md](docs/Technical-Specification.md) | Original architecture spec (historical) |
 
-## Architecture (v0.1)
+## Architecture
 
 ```
 Electron main ──ipc── preload bridge ──── React UI chrome (panels, inspector)
@@ -78,9 +82,13 @@ Electron main ──ipc── preload bridge ──── React UI chrome (panel
   │  SQLite journal (sql.js)                  ├── DocumentStore (scene graph, history,
   │  fonts, dialogs, assets                   │    R-tree index — outside React)
   └───────────────────────────────────────────┴── Canvas2D renderer + overlays
+                                               │
+                    crates/polyform-core (Rust→WASM) — geometry, outlines,
+                    spatial index today; booleans, scene graph, text next.
+                    Per-module TS/WASM switch in engine/backend.ts (ADR-015).
 ```
 
-The engine (scene graph, geometry, commands, booleans, layout, serialization) is dependency-light TypeScript with no DOM access, deliberately shaped like the future Rust/WASM core so it can be ported module-by-module (ADR-002).
+The engine (scene graph, geometry, commands, booleans, layout, serialization) is dependency-light TypeScript with no DOM access, deliberately shaped so the Rust core can replace it module-by-module behind unchanged interfaces (ADR-002). That port is underway: each Rust module ships only after a differential fuzz suite proves it equivalent to its TS twin ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)).
 
 ## Contributing
 

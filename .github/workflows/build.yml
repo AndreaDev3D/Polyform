@@ -11,18 +11,32 @@ on:
     branches: [main]
 
 jobs:
+  # Rust engine core: cargo tests, then a fresh wasm build that the JS
+  # test suite (incl. the TS<->WASM parity fuzz) runs against. The committed
+  # pkg under src/renderer/src/engine/wasm/pkg is NOT diffed against the
+  # fresh build (toolchain drift churns bytes); parity tests are the gate.
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: cargo test --workspace
+      - run: npm run build:wasm
       - run: npm run typecheck
       - run: npm test
 
+  # Installer builds use the committed wasm pkg — no Rust toolchain needed
+  # in the platform matrix.
   build:
     needs: test
     strategy:

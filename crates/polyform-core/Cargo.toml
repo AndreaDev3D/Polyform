@@ -1,0 +1,19 @@
+[package]
+name = "polyform-core"
+version = "0.4.0"
+edition = "2021"
+description = "Polyform engine core — Rust ports of the TypeScript engine modules (ADR-002, docs/V0.4-Porting-Plan.md)"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+rstar = "0.12"
+
+# wasm-opt needs a binaryen download; keep builds hermetic for now and
+# revisit when tuning size/speed (V0.4-Porting-Plan verification gates).
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

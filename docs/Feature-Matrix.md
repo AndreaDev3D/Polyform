@@ -30,10 +30,10 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Export & Import](#export--import) | 4 | 1 | 6 | 0 | 11 |
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
-| [Performance & Rendering](#performance--rendering) | 5 | 1 | 4 | 0 | 10 |
+| [Performance & Rendering](#performance--rendering) | 5 | 2 | 3 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 1 | 1 | 1 | 4 | 7 |
-| **Total** | **125** | **22** | **61** | **23** | **231** |
+| **Total** | **125** | **23** | **60** | **23** | **231** |
 
 ---
 
@@ -312,11 +312,11 @@ This document tracks Polyform's feature parity against Figma, section by section
 | :--- | :--- | :---: | :--- |
 | GPU-accelerated rendering | Custom WebGL/WebGPU tile renderer | 🟡 | GPU-composited HTML5 Canvas2D today; WebGPU (CanvasKit/Vello-style) backend planned behind `IRenderer` |
 | No DOM/SVG shapes | Canvas is never built from DOM nodes | ✅ | Shapes render to canvas only; DOM is reserved for editor chrome |
-| Spatial-index hit testing | Fast picking on huge scenes | ✅ | rbush R-tree over AABBs |
+| Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
 | WebGPU backend | Hardware rasterization pipeline | 📋 | Planned behind the existing `IRenderer` interface |
-| Rust/WASM core engine | C++/WASM core in Figma's case | 📋 | Engine is TypeScript behind clean interfaces; the v0.4 port is scoped in V0.4-Porting-Plan.md |
+| Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
 | 100k+ object documents | Smooth editing on massive files | 📋 | Spec target for the v0.4 Rust/WASM phase; TS engine targets typical documents |
 | Swappable render backends | Single internal engine (not swappable) | ✅ | `IRenderer` abstraction is a Polyform architectural feature |
@@ -340,7 +340,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
-| Plugin API | JS plugin runtime with typed API | 🟡 | Dev-preview script runner + design doc (docs/Plugin-API.md); sandboxed API post-1.0 |
+| Plugin API | JS plugin runtime with typed API | 🟡 | Dev-preview script runner + design doc (docs/Plugin-API.md); currently CSP-blocked in built apps (F-17) — sandboxed API post-1.0 |
 | Widget API | Interactive collaborative canvas objects | ❌ | Built for multiplayer canvases |
 | REST API | Cloud API for files, nodes, images | ❌ | No cloud service; the file format is the API |
 | Webhooks | Server-side event notifications | ❌ | No server |
@@ -350,4 +350,4 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above (mechanically recounted each release). Statuses reflect the actual implementation as of **v0.3.0** — approximations (boolean flattening, stroke-align clipping, Canvas2D text shaping and blend-mode subset, shape-clip masks, nearest-instance override capture) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above (mechanically recounted each release). Statuses reflect the actual implementation as of **v0.3.0 plus the v0.4 Sprint A engine work** (Rust/WASM geometry/shapes/spatial core) — approximations (boolean flattening, stroke-align clipping, Canvas2D text shaping and blend-mode subset, shape-clip masks, nearest-instance override capture) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

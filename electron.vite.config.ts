@@ -16,5 +16,9 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
+    // Vite special-cases .wasm (no default asset handling); the engine core
+    // is imported with ?inline as a data: URI (packaged file:// pages cannot
+    // fetch assets), which needs .wasm registered as a plain asset type.
+    assetsInclude: ['**/*.wasm'],
   },
 })

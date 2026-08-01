@@ -1,0 +1,31 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_spatialindex_free: (a: number, b: number) => void;
+export const aabbOfPoints: (a: number, b: number) => [number, number];
+export const applyMat: (a: number, b: number, c: number, d: number) => [number, number];
+export const distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+export const ellipsePath: (a: number, b: number) => [number, number];
+export const flattenCubic: (a: number, b: number, c: number) => [number, number];
+export const flattenSubPaths: (a: number, b: number, c: number) => [number, number];
+export const linePath: (a: number) => [number, number];
+export const matInvert: (a: number, b: number) => [number, number];
+export const matMultiply: (a: number, b: number, c: number, d: number) => [number, number];
+export const matRotateDeg: (a: number) => [number, number];
+export const networkToSubPaths: (a: number, b: number, c: number, d: number) => [number, number];
+export const nodeLocalMatrix: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const pointInEllipse: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+export const pointInPolygonRings: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+export const pointInRoundedRect: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+export const polygonPath: (a: number, b: number, c: number) => [number, number];
+export const roundedRectPath: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+export const spatialindex_load: (a: number, b: number, c: number) => void;
+export const spatialindex_new: () => number;
+export const spatialindex_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const starPath: (a: number, b: number, c: number, d: number) => [number, number];
+export const subPathsToSvg: (a: number, b: number, c: number) => [number, number];
+export const transformedRectAabb: (a: number, b: number, c: number, d: number) => [number, number];
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

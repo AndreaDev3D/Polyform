@@ -1,0 +1,17 @@
+{
+  "name": "polyform-core",
+  "type": "module",
+  "description": "Polyform engine core — Rust ports of the TypeScript engine modules (ADR-002, docs/V0.4-Porting-Plan.md)",
+  "version": "0.4.0",
+  "license": "MIT",
+  "files": [
+    "polyform_core_bg.wasm",
+    "polyform_core.js",
+    "polyform_core.d.ts"
+  ],
+  "main": "polyform_core.js",
+  "types": "polyform_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
