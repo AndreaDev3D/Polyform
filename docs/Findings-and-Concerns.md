@@ -26,6 +26,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-15](#f-15) | Plugin runner is unsandboxed (v0.3 preview) | High (consent-gated) |
 | [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Low (resolved in GPU mode, ADR-017; Canvas2D default unchanged) |
 | [F-17](#f-17) | Plugin preview is CSP-blocked in the built app (v0.3) | Med |
+| [F-18](#f-18) | Add-text deleted its own node via a mid-gesture focus bounce (≤v0.3, fixed v0.4) | Fixed (High while live) |
 
 ---
 
@@ -398,6 +399,23 @@ Discovered during the v0.4 Sprint A CSP work: the plugin runner executes scripts
 
 ### Mitigation
 None shipped — loosening the CSP to `'unsafe-eval'` for the whole renderer is the wrong trade for a preview feature. The correct fix is the already-designed post-1.0 sandbox (worker with its own CSP + typed bridge, ADR-014/Plugin-API.md); pulling a minimal version of it forward is the recommended path if plugins matter before then. Until fixed, the feature matrix marks plugins accordingly.
+
+---
+
+<a id="f-18"></a>
+## F-18. Add-text deleted its own node via a mid-gesture focus bounce
+
+**Severity: Fixed (was High — blocked a core workflow)** — user-reported during v0.4; present since at least v0.3 in built/preview mode.
+
+### The problem
+Placing a text node (T + click) opens the DOM textarea overlay, which focuses itself in a mount effect and commits on blur — deleting the node when the text is still empty ("Remove Empty Text"). Chromium can bounce focus straight off a textarea that is focused while a pointer gesture is active: a **trusted** `focusout` with `relatedTarget: null` fires ~1ms after `focus()`, with the window focused and no code calling `blur()`. The blur handler committed the empty node and deleted it before the user could type a character. Every freshly placed text node died instantly; the same one-shot bounce did not recur on manual refocus.
+
+Bisection (CDP-automated: real key/mouse events against built apps at v0.3, Sprint D, and HEAD) showed the bug at **every** commit tested — this was not a v0.4 regression but a survivor of the v0.1.1 StrictMode-era fix, invisible to all existing gates because no engine test or render fixture exercises DOM focus.
+
+### Mitigation
+Fixed: a blur that lands **nowhere** (`relatedTarget === null`) while the window still has focus is never a deliberate end-of-edit — the overlay re-arms focus instead of committing. All real exits keep committing: focusing another control (relatedTarget set), clicking the canvas (the controller clears `editingTextId` → unmount commit), window deactivation (`document.hasFocus()` false), Escape/Ctrl+Enter.
+
+**New gate:** `npm run test:e2e` boots the built app under the DevTools protocol, simulates the real gesture (T, timed click, typing, Escape), and asserts the text survives and no "Remove Empty Text" entry appears. This is the register's reminder that focus/DOM interplay needs end-to-end coverage — unit and pixel gates cannot see it.
 
 ---
 

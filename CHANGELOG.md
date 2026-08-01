@@ -4,6 +4,10 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.4.0 "Performance Core", Sprints A–E (2026-08-01)
 
+### Fixed
+
+- **Adding text works again** (F-18): freshly placed text nodes were instantly deleted by a spurious Chromium focus bounce off the just-mounted edit textarea (present since at least v0.3 in built apps; user-reported). The overlay now re-arms focus on a blur that lands nowhere while the window is focused, and only commits on real exits. New `npm run test:e2e` gate drives the built app through the actual gesture (T, click, type, Escape) over the DevTools protocol.
+
 ### Sprint E — the HarfBuzz text stack (ADR-018)
 
 - **Text now shapes in the engine**: rustybuzz (the pure-Rust HarfBuzz port) runs in the WASM core behind the `text` backend flag (default on) — real kerning and ligatures from the font's own tables, letter-spacing applied per shaped cluster, and **deterministic layout** that no longer re-flows across Electron upgrades (closes F-02's fidelity/stability core). Font bytes come straight from Chromium's Local Font Access API (`queryLocalFonts().blob()`) — no native module; missing families resolve through sensible installed fallbacks, and every text node falls back to the legacy Canvas2D path until its font's bytes arrive.

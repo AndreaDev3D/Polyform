@@ -83,7 +83,24 @@ export function TextEditOverlay({ nodeId }: { nodeId: NodeId }) {
         documentStore.scene.updateNode(nodeId, { characters: e.target.value })
         documentStore.transient()
       }}
-      onBlur={commit}
+      onBlur={(e) => {
+        // Chromium can bounce focus straight off a textarea that was
+        // focused during an active pointer gesture (trusted blur with no
+        // relatedTarget ~1ms after mount) — committing on that blur
+        // deleted every freshly placed text node before the user could
+        // type. A blur that lands NOWHERE while the window stays focused
+        // is never a deliberate end-of-edit: re-arm focus instead. Real
+        // exits still commit — focusing another control sets
+        // relatedTarget, clicking the canvas clears editingTextId (unmount
+        // commit), and window deactivation drops document.hasFocus().
+        if (document.hasFocus() && !e.relatedTarget && !committedRef.current) {
+          requestAnimationFrame(() => {
+            if (!committedRef.current) ref.current?.focus()
+          })
+          return
+        }
+        commit()
+      }}
       onKeyDown={(e) => {
         e.stopPropagation()
         if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
