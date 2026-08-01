@@ -46,13 +46,29 @@ export function listComponents(scene: SceneGraph): ComponentNode[] {
   return Object.values(scene.doc.nodes).filter((n): n is ComponentNode => n.type === 'COMPONENT')
 }
 
-/** Cheap stable hash (djb2 over JSON). */
+/** Cheap stable hash (djb2 over canonical JSON). */
 function hashString(s: string): string {
   let h = 5381
   for (let i = 0; i < s.length; i++) {
     h = ((h << 5) + h + s.charCodeAt(i)) | 0
   }
   return (h >>> 0).toString(36)
+}
+
+/**
+ * Canonical JSON: object keys sorted, undefined-valued keys skipped. The
+ * sync hash must be REPRESENTATION-independent so the TS and Rust engines
+ * compute identical staleness (key insertion order is an implementation
+ * detail that differs across the boundary).
+ */
+export function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null'
+  if (Array.isArray(v)) return `[${v.map((x) => stableStringify(x)).join(',')}]`
+  const obj = v as Record<string, unknown>
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort()
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`
 }
 
 export function instanceSyncHash(scene: SceneGraph, inst: InstanceNode, comp: ComponentNode): string {
@@ -65,7 +81,7 @@ export function instanceSyncHash(scene: SceneGraph, inst: InstanceNode, comp: Co
   }
   parts.push(comp)
   for (const cid of comp.children) walk(cid)
-  return hashString(JSON.stringify(parts))
+  return hashString(stableStringify(parts))
 }
 
 /**
@@ -80,6 +96,16 @@ function wouldCycle(scene: SceneGraph, instId: NodeId, componentId: NodeId): boo
     if (a.type === 'INSTANCE' && a.id !== instId && a.componentId === componentId) return true
   }
   return false
+}
+
+/**
+ * Materialized-node id source. Injectable (V0.4-Porting-Plan: "newId stays
+ * host-side") so differential tests — and later the worker embedding — can
+ * mint deterministic ids on both engines.
+ */
+let mintId: () => NodeId = newId
+export function setMaterializeIdFactory(factory: (() => NodeId) | null): void {
+  mintId = factory ?? newId
 }
 
 function materializeInstance(scene: SceneGraph, inst: InstanceNode, comp: ComponentNode): void {
@@ -101,7 +127,7 @@ function materializeInstance(scene: SceneGraph, inst: InstanceNode, comp: Compon
     const src = scene.getNode(srcId)
     if (!src) return
     const copy = cloneNode(src)
-    copy.id = existingBySource.get(srcId) ?? newId()
+    copy.id = existingBySource.get(srcId) ?? mintId()
     copy.sourceId = srcId
     if (isContainer(copy)) copy.children = []
     if (copy.type === 'COMPONENT') {

@@ -2,7 +2,13 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.4.0 "Performance Core", Sprints A–B (2026-08-01)
+## Unreleased — 0.4.0 "Performance Core", Sprints A–C (2026-08-01)
+
+### Sprint C — the engine-port track is complete
+
+- **Every P1–P3 engine module now has a fuzz-proven Rust twin**: constraints (bit-exact, 500-case matrix), serialization (**byte-identical** PFRM/msgpack output vs @msgpack/msgpack, cross-decoding interop, v1→v3 migration), hit-testing (`hitTestAll`/`nodesInRect`/`findDropFrame` agree exactly incl. z-order; BOOLEAN nodes evaluate through exact CSG fully inside Rust), and the derived-pass fixpoint (instance sync → auto-layout → group/boolean normalize → orphan GC) reaching identical fixpoints with identical materialized ids.
+- **Cross-engine determinism hardening** (permanent contract improvements): the instance sync hash now uses canonical JSON (sorted keys — existing documents resync once, no visual change); materialized-node ids come from an injectable host-side factory; `encodeScene` accepts an injectable `savedAt` timestamp.
+- Text auto-resize remains host-side by design until the HarfBuzz stack (Sprint E). Remaining v0.4 work is the renderer track: WebGPU backend (Sprint D), text + 100k-shape exit test (Sprint E), and the engine flip onto the Rust SceneGraph (worker + msgpack boundary).
 
 ### Sprint B
 

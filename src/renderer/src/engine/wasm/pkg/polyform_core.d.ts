@@ -5,11 +5,21 @@ export class SceneHandle {
     free(): void;
     [Symbol.dispose](): void;
     applyOps(ops_json: string): void;
+    booleanRingsOf(id: string): Float64Array;
     docJson(): string;
+    findDropFrame(x: number, y: number, exclude_json: string): string | undefined;
+    hitTestAll(x: number, y: number, tolerance_px: number, zoom: number, include_locked: boolean, exclude_json: string): string;
     constructor(doc_json: string);
+    nodesInRect(min_x: number, min_y: number, max_x: number, max_y: number, tolerance_px: number, zoom: number, include_locked: boolean, exclude_json: string): string;
     parentOf(id: string): string | undefined;
     renderOrder(): string;
     rootIds(): string;
+    /**
+     * Run instance sync + auto-layout + normalize + GC to fixpoint (text
+     * auto-resize stays host-side). Materialized ids mint as
+     * `{prefix}{counter}` — the host owns id uniqueness.
+     */
+    runDerivedPasses(id_prefix: string): boolean;
     undoOps(ops_json: string): void;
     version(): number;
     worldAabb(id: string): Float64Array;
@@ -41,9 +51,15 @@ export function applyMat(m: Float64Array, x: number, y: number): Float64Array;
  */
 export function booleanOp(data: Float64Array, op: number, accuracy: number, flatten_tolerance: number): Float64Array;
 
+export function constrainChildJson(child_json: string, snap_x: number, snap_y: number, snap_w: number, snap_h: number, old_w: number, old_h: number, new_w: number, new_h: number): string;
+
+export function decodeSceneJson(bytes: Uint8Array): string;
+
 export function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number;
 
 export function ellipsePath(w: number, h: number): Float64Array;
+
+export function encodeSceneBytes(doc_json: string, saved_at: string): Uint8Array;
 
 export function flattenCubic(coords: Float64Array, tolerance: number): Float64Array;
 
@@ -58,6 +74,8 @@ export function matInvert(m: Float64Array): Float64Array;
 export function matMultiply(m1: Float64Array, m2: Float64Array): Float64Array;
 
 export function matRotateDeg(deg: number): Float64Array;
+
+export function migrateDocumentJson(doc_json: string): string;
 
 export function networkToSubPaths(vertices: Float64Array, edges: Float64Array): Float64Array;
 
@@ -88,8 +106,11 @@ export interface InitOutput {
     readonly aabbOfPoints: (a: number, b: number) => [number, number];
     readonly applyMat: (a: number, b: number, c: number, d: number) => [number, number];
     readonly booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly constrainChildJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
+    readonly decodeSceneJson: (a: number, b: number) => [number, number, number, number];
     readonly distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly ellipsePath: (a: number, b: number) => [number, number];
+    readonly encodeSceneBytes: (a: number, b: number, c: number, d: number) => [number, number];
     readonly flattenCubic: (a: number, b: number, c: number) => [number, number];
     readonly flattenSubPaths: (a: number, b: number, c: number) => [number, number];
     readonly invertOpJson: (a: number, b: number) => [number, number];
@@ -97,6 +118,7 @@ export interface InitOutput {
     readonly matInvert: (a: number, b: number) => [number, number];
     readonly matMultiply: (a: number, b: number, c: number, d: number) => [number, number];
     readonly matRotateDeg: (a: number) => [number, number];
+    readonly migrateDocumentJson: (a: number, b: number) => [number, number];
     readonly networkToSubPaths: (a: number, b: number, c: number, d: number) => [number, number];
     readonly nodeLocalMatrix: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly pointInEllipse: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
@@ -105,11 +127,16 @@ export interface InitOutput {
     readonly polygonPath: (a: number, b: number, c: number) => [number, number];
     readonly roundedRectPath: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly scenehandle_applyOps: (a: number, b: number, c: number) => void;
+    readonly scenehandle_booleanRingsOf: (a: number, b: number, c: number) => [number, number];
     readonly scenehandle_docJson: (a: number) => [number, number];
+    readonly scenehandle_findDropFrame: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly scenehandle_hitTestAll: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
     readonly scenehandle_new: (a: number, b: number) => number;
+    readonly scenehandle_nodesInRect: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
     readonly scenehandle_parentOf: (a: number, b: number, c: number) => [number, number];
     readonly scenehandle_renderOrder: (a: number) => [number, number];
     readonly scenehandle_rootIds: (a: number) => [number, number];
+    readonly scenehandle_runDerivedPasses: (a: number, b: number, c: number) => number;
     readonly scenehandle_undoOps: (a: number, b: number, c: number) => void;
     readonly scenehandle_version: (a: number) => number;
     readonly scenehandle_worldAabb: (a: number, b: number, c: number) => [number, number];
@@ -124,6 +151,7 @@ export interface InitOutput {
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

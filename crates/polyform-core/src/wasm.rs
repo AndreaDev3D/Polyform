@@ -310,6 +310,7 @@ pub fn boolean_op(data: &[f64], op: u32, accuracy: f64, flatten_tolerance: f64) 
 #[wasm_bindgen(js_name = SceneHandle)]
 pub struct WasmSceneHandle {
     inner: crate::scene::SceneGraph,
+    mint_counter: u64,
 }
 
 #[wasm_bindgen(js_class = SceneHandle)]
@@ -317,7 +318,21 @@ impl WasmSceneHandle {
     #[wasm_bindgen(constructor)]
     pub fn new(doc_json: &str) -> WasmSceneHandle {
         let doc: serde_json::Value = serde_json::from_str(doc_json).expect("valid document JSON");
-        WasmSceneHandle { inner: crate::scene::SceneGraph::new(doc) }
+        WasmSceneHandle { inner: crate::scene::SceneGraph::new(doc), mint_counter: 0 }
+    }
+
+    /// Run instance sync + auto-layout + normalize + GC to fixpoint (text
+    /// auto-resize stays host-side). Materialized ids mint as
+    /// `{prefix}{counter}` — the host owns id uniqueness.
+    #[wasm_bindgen(js_name = runDerivedPasses)]
+    pub fn run_derived_passes(&mut self, id_prefix: &str) -> bool {
+        let counter = &mut self.mint_counter;
+        let prefix = id_prefix.to_string();
+        let mut mint = move || {
+            *counter += 1;
+            format!("{prefix}{counter}")
+        };
+        crate::layout::run_derived_passes(&mut self.inner, &mut mint)
     }
 
     #[wasm_bindgen(js_name = applyOps)]
@@ -371,6 +386,141 @@ impl WasmSceneHandle {
 pub fn invert_op_json(op_json: &str) -> String {
     let op: serde_json::Value = serde_json::from_str(op_json).expect("valid op JSON");
     serde_json::to_string(&crate::scene::invert_op(&op)).expect("op serializes")
+}
+
+// ---------------------------------------------------------------------------
+// Hit-testing over the Rust scene (hit-test.ts twin, test/flip surface)
+// ---------------------------------------------------------------------------
+
+fn hit_opts(tolerance_px: f64, zoom: f64, include_locked: bool, exclude_json: &str) -> crate::hit_test::HitOptions {
+    let exclude: Vec<String> = if exclude_json.is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(exclude_json).unwrap_or_default()
+    };
+    crate::hit_test::HitOptions {
+        tolerance_px,
+        zoom,
+        exclude: exclude.into_iter().collect(),
+        include_locked,
+    }
+}
+
+#[wasm_bindgen(js_class = SceneHandle)]
+impl WasmSceneHandle {
+    #[wasm_bindgen(js_name = hitTestAll)]
+    pub fn hit_test_all(
+        &self,
+        x: f64,
+        y: f64,
+        tolerance_px: f64,
+        zoom: f64,
+        include_locked: bool,
+        exclude_json: &str,
+    ) -> String {
+        let opts = hit_opts(tolerance_px, zoom, include_locked, exclude_json);
+        let hits = crate::hit_test::hit_test_all(&self.inner, crate::geometry::vec2(x, y), &opts);
+        serde_json::to_string(&hits).expect("hits serialize")
+    }
+
+    #[wasm_bindgen(js_name = nodesInRect)]
+    pub fn nodes_in_rect(
+        &self,
+        min_x: f64,
+        min_y: f64,
+        max_x: f64,
+        max_y: f64,
+        tolerance_px: f64,
+        zoom: f64,
+        include_locked: bool,
+        exclude_json: &str,
+    ) -> String {
+        let opts = hit_opts(tolerance_px, zoom, include_locked, exclude_json);
+        let rect = crate::geometry::Aabb { min_x, min_y, max_x, max_y };
+        let ids = crate::hit_test::nodes_in_rect(&self.inner, rect, &opts);
+        serde_json::to_string(&ids).expect("ids serialize")
+    }
+
+    #[wasm_bindgen(js_name = findDropFrame)]
+    pub fn find_drop_frame(&self, x: f64, y: f64, exclude_json: &str) -> Option<String> {
+        let exclude: Vec<String> = if exclude_json.is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(exclude_json).unwrap_or_default()
+        };
+        crate::hit_test::find_drop_frame(
+            &self.inner,
+            crate::geometry::vec2(x, y),
+            &exclude.into_iter().collect(),
+        )
+    }
+
+    #[wasm_bindgen(js_name = booleanRingsOf)]
+    pub fn boolean_rings_of(&self, id: &str) -> Vec<f64> {
+        let rings = crate::hit_test::boolean_rings(&self.inner, id);
+        let mut out = vec![rings.len() as f64];
+        for ring in &rings {
+            out.push(ring.len() as f64);
+            for p in ring {
+                out.push(p.x);
+                out.push(p.y);
+            }
+        }
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Serialization (serialization.ts twin)
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = encodeSceneBytes)]
+pub fn encode_scene_bytes(doc_json: &str, saved_at: &str) -> Vec<u8> {
+    let doc: serde_json::Value = serde_json::from_str(doc_json).expect("valid document JSON");
+    crate::serialization::encode_scene(&doc, saved_at)
+}
+
+#[wasm_bindgen(js_name = decodeSceneJson)]
+pub fn decode_scene_json(bytes: &[u8]) -> Result<String, JsError> {
+    match crate::serialization::decode_scene(bytes) {
+        Ok(doc) => Ok(serde_json::to_string(&doc).expect("document serializes")),
+        Err(e) => Err(JsError::new(&e.to_string())),
+    }
+}
+
+#[wasm_bindgen(js_name = migrateDocumentJson)]
+pub fn migrate_document_json(doc_json: &str) -> String {
+    let doc: serde_json::Value = serde_json::from_str(doc_json).expect("valid document JSON");
+    serde_json::to_string(&crate::serialization::migrate_document(doc)).expect("doc serializes")
+}
+
+// ---------------------------------------------------------------------------
+// Constraints (constraints.ts twin, parity surface)
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = constrainChildJson)]
+pub fn constrain_child_json(
+    child_json: &str,
+    snap_x: f64,
+    snap_y: f64,
+    snap_w: f64,
+    snap_h: f64,
+    old_w: f64,
+    old_h: f64,
+    new_w: f64,
+    new_h: f64,
+) -> String {
+    let mut child: serde_json::Value = serde_json::from_str(child_json).expect("valid child JSON");
+    let obj = child.as_object_mut().expect("child is an object");
+    crate::constraints::constrain_child(
+        obj,
+        crate::constraints::ChildRect { x: snap_x, y: snap_y, width: snap_w, height: snap_h },
+        old_w,
+        old_h,
+        new_w,
+        new_h,
+    );
+    serde_json::to_string(&child).expect("child serializes")
 }
 
 // ---------------------------------------------------------------------------

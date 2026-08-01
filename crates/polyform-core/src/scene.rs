@@ -148,6 +148,10 @@ impl SceneGraph {
         self.doc.get("nodes")?.get(id)?.as_object()
     }
 
+    pub fn get_node_mut(&mut self, id: &str) -> Option<&mut Obj> {
+        self.doc.get_mut("nodes")?.get_mut(id)?.as_object_mut()
+    }
+
     pub fn parent_of(&self, id: &str) -> Option<String> {
         self.parents.get(id).cloned().flatten()
     }
@@ -194,6 +198,39 @@ impl SceneGraph {
                 .unwrap_or_default();
         }
         self.get_node(&resolved).map(|n| children_ids(n)).unwrap_or_default()
+    }
+
+    /// All ancestor NODE ids from the direct parent up to a page root.
+    pub fn ancestors(&self, id: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut cur = self.parent_of(id);
+        while let Some(pid) = cur {
+            if self.is_page(&pid) {
+                break;
+            }
+            out.push(pid.clone());
+            cur = self.parent_of(&pid);
+        }
+        out
+    }
+
+    pub fn is_ancestor_of(&self, maybe_ancestor: &str, id: &str) -> bool {
+        self.ancestors(id).iter().any(|a| a == maybe_ancestor)
+    }
+
+    /// The page-root-level ancestor of a node (the node itself if at root).
+    pub fn top_level_ancestor(&self, id: &str) -> String {
+        let mut cur = id.to_string();
+        loop {
+            match self.parent_of(&cur) {
+                Some(pid) if !self.is_page(&pid) => cur = pid,
+                _ => return cur,
+            }
+        }
+    }
+
+    pub(crate) fn local_matrix_of(node: &Obj) -> Mat {
+        Self::local_matrix(node)
     }
 
     // -----------------------------------------------------------------------

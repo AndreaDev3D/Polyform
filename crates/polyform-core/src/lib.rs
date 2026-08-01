@@ -6,8 +6,13 @@
 //! native build; `wasm.rs` is the boundary layer.
 
 pub mod booleans;
+pub mod components;
+pub mod constraints;
 pub mod geometry;
+pub mod hit_test;
+pub mod layout;
 pub mod scene;
+pub mod serialization;
 pub mod shapes;
 pub mod spatial;
 

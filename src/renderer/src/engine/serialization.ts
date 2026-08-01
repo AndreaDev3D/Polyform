@@ -9,10 +9,10 @@ import { SCHEMA_VERSION, createPage, emptyStyles } from './types'
 const MAGIC = [0x50, 0x46, 0x52, 0x4d] // "PFRM"
 const FORMAT_MSGPACK = 1
 
-export function encodeScene(doc: PolyformDocument): Uint8Array {
+export function encodeScene(doc: PolyformDocument, savedAt?: string): Uint8Array {
   const payload = encode({
     schemaVersion: SCHEMA_VERSION,
-    savedAt: new Date().toISOString(),
+    savedAt: savedAt ?? new Date().toISOString(),
     doc,
   })
   const out = new Uint8Array(5 + payload.byteLength)

@@ -20,6 +20,18 @@ export class SceneHandle {
         wasm.scenehandle_applyOps(this.__wbg_ptr, ptr0, len0);
     }
     /**
+     * @param {string} id
+     * @returns {Float64Array}
+     */
+    booleanRingsOf(id) {
+        const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.scenehandle_booleanRingsOf(this.__wbg_ptr, ptr0, len0);
+        var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+        return v2;
+    }
+    /**
      * @returns {string}
      */
     docJson() {
@@ -35,6 +47,46 @@ export class SceneHandle {
         }
     }
     /**
+     * @param {number} x
+     * @param {number} y
+     * @param {string} exclude_json
+     * @returns {string | undefined}
+     */
+    findDropFrame(x, y, exclude_json) {
+        const ptr0 = passStringToWasm0(exclude_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.scenehandle_findDropFrame(this.__wbg_ptr, x, y, ptr0, len0);
+        let v2;
+        if (ret[0] !== 0) {
+            v2 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v2;
+    }
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} tolerance_px
+     * @param {number} zoom
+     * @param {boolean} include_locked
+     * @param {string} exclude_json
+     * @returns {string}
+     */
+    hitTestAll(x, y, tolerance_px, zoom, include_locked, exclude_json) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ptr0 = passStringToWasm0(exclude_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.scenehandle_hitTestAll(this.__wbg_ptr, x, y, tolerance_px, zoom, include_locked, ptr0, len0);
+            deferred2_0 = ret[0];
+            deferred2_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
      * @param {string} doc_json
      */
     constructor(doc_json) {
@@ -44,6 +96,31 @@ export class SceneHandle {
         this.__wbg_ptr = ret;
         SceneHandleFinalization.register(this, this.__wbg_ptr, this);
         return this;
+    }
+    /**
+     * @param {number} min_x
+     * @param {number} min_y
+     * @param {number} max_x
+     * @param {number} max_y
+     * @param {number} tolerance_px
+     * @param {number} zoom
+     * @param {boolean} include_locked
+     * @param {string} exclude_json
+     * @returns {string}
+     */
+    nodesInRect(min_x, min_y, max_x, max_y, tolerance_px, zoom, include_locked, exclude_json) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ptr0 = passStringToWasm0(exclude_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.scenehandle_nodesInRect(this.__wbg_ptr, min_x, min_y, max_x, max_y, tolerance_px, zoom, include_locked, ptr0, len0);
+            deferred2_0 = ret[0];
+            deferred2_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
     }
     /**
      * @param {string} id
@@ -89,6 +166,19 @@ export class SceneHandle {
         } finally {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * Run instance sync + auto-layout + normalize + GC to fixpoint (text
+     * auto-resize stays host-side). Materialized ids mint as
+     * `{prefix}{counter}` — the host owns id uniqueness.
+     * @param {string} id_prefix
+     * @returns {boolean}
+     */
+    runDerivedPasses(id_prefix) {
+        const ptr0 = passStringToWasm0(id_prefix, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.scenehandle_runDerivedPasses(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
     }
     /**
      * @param {string} ops_json
@@ -223,6 +313,58 @@ export function booleanOp(data, op, accuracy, flatten_tolerance) {
 }
 
 /**
+ * @param {string} child_json
+ * @param {number} snap_x
+ * @param {number} snap_y
+ * @param {number} snap_w
+ * @param {number} snap_h
+ * @param {number} old_w
+ * @param {number} old_h
+ * @param {number} new_w
+ * @param {number} new_h
+ * @returns {string}
+ */
+export function constrainChildJson(child_json, snap_x, snap_y, snap_w, snap_h, old_w, old_h, new_w, new_h) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(child_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.constrainChildJson(ptr0, len0, snap_x, snap_y, snap_w, snap_h, old_w, old_h, new_w, new_h);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+export function decodeSceneJson(bytes) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.decodeSceneJson(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * @param {number} px
  * @param {number} py
  * @param {number} ax
@@ -246,6 +388,22 @@ export function ellipsePath(w, h) {
     var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
     return v1;
+}
+
+/**
+ * @param {string} doc_json
+ * @param {string} saved_at
+ * @returns {Uint8Array}
+ */
+export function encodeSceneBytes(doc_json, saved_at) {
+    const ptr0 = passStringToWasm0(doc_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(saved_at, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.encodeSceneBytes(ptr0, len0, ptr1, len1);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
 }
 
 /**
@@ -344,6 +502,25 @@ export function matRotateDeg(deg) {
     var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
     return v1;
+}
+
+/**
+ * @param {string} doc_json
+ * @returns {string}
+ */
+export function migrateDocumentJson(doc_json) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(doc_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.migrateDocumentJson(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
 }
 
 /**
@@ -504,6 +681,10 @@ export function transformedRectAabb(m, w, h) {
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
+        __wbg_Error_92b29b0548f8b746: function(arg0, arg1) {
+            const ret = Error(getStringFromWasm0(arg0, arg1));
+            return ret;
+        },
         __wbg___wbindgen_throw_344f42d3211c4765: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
@@ -540,6 +721,11 @@ function getArrayU32FromWasm0(ptr, len) {
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
 let cachedFloat64ArrayMemory0 = null;
 function getFloat64ArrayMemory0() {
     if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
@@ -571,6 +757,13 @@ function getUint8ArrayMemory0() {
 function passArray32ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 4, 4) >>> 0;
     getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
@@ -617,6 +810,12 @@ function passStringToWasm0(arg, malloc, realloc) {
 
     WASM_VECTOR_LEN = offset;
     return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
 }
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
