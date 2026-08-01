@@ -299,6 +299,81 @@ pub fn boolean_op(data: &[f64], op: u32, accuracy: f64, flatten_tolerance: f64) 
 }
 
 // ---------------------------------------------------------------------------
+// SceneGraph + PatchOp engine (scene.ts / commands.ts twins)
+// ---------------------------------------------------------------------------
+//
+// JSON-string boundary: this surface exists for differential testing and as
+// the substrate for the Sprint C/worker embedding — the runtime app still
+// runs the TS SceneGraph. Bulk msgpack replaces the JSON strings when
+// serialization.rs lands.
+
+#[wasm_bindgen(js_name = SceneHandle)]
+pub struct WasmSceneHandle {
+    inner: crate::scene::SceneGraph,
+}
+
+#[wasm_bindgen(js_class = SceneHandle)]
+impl WasmSceneHandle {
+    #[wasm_bindgen(constructor)]
+    pub fn new(doc_json: &str) -> WasmSceneHandle {
+        let doc: serde_json::Value = serde_json::from_str(doc_json).expect("valid document JSON");
+        WasmSceneHandle { inner: crate::scene::SceneGraph::new(doc) }
+    }
+
+    #[wasm_bindgen(js_name = applyOps)]
+    pub fn apply_ops(&mut self, ops_json: &str) {
+        let ops: Vec<serde_json::Value> = serde_json::from_str(ops_json).expect("valid ops JSON");
+        self.inner.apply_ops(&ops);
+    }
+
+    #[wasm_bindgen(js_name = undoOps)]
+    pub fn undo_ops(&mut self, ops_json: &str) {
+        let ops: Vec<serde_json::Value> = serde_json::from_str(ops_json).expect("valid ops JSON");
+        self.inner.undo_ops(&ops);
+    }
+
+    #[wasm_bindgen(js_name = docJson)]
+    pub fn doc_json(&self) -> String {
+        serde_json::to_string(&self.inner.doc).expect("document serializes")
+    }
+
+    #[wasm_bindgen(js_name = worldMatrix)]
+    pub fn world_matrix(&self, id: &str) -> Vec<f64> {
+        mat_out(self.inner.world_matrix(id))
+    }
+
+    #[wasm_bindgen(js_name = worldAabb)]
+    pub fn world_aabb(&self, id: &str) -> Vec<f64> {
+        aabb_out(self.inner.world_aabb(id))
+    }
+
+    #[wasm_bindgen(js_name = renderOrder)]
+    pub fn render_order(&self) -> String {
+        serde_json::to_string(&self.inner.render_order()).expect("render order serializes")
+    }
+
+    #[wasm_bindgen(js_name = parentOf)]
+    pub fn parent_of(&self, id: &str) -> Option<String> {
+        self.inner.parent_of(id)
+    }
+
+    #[wasm_bindgen(js_name = rootIds)]
+    pub fn root_ids(&self) -> String {
+        serde_json::to_string(&self.inner.root_ids()).expect("root ids serialize")
+    }
+
+    pub fn version(&self) -> f64 {
+        self.inner.version as f64
+    }
+}
+
+#[wasm_bindgen(js_name = invertOpJson)]
+pub fn invert_op_json(op_json: &str) -> String {
+    let op: serde_json::Value = serde_json::from_str(op_json).expect("valid op JSON");
+    serde_json::to_string(&crate::scene::invert_op(&op)).expect("op serializes")
+}
+
+// ---------------------------------------------------------------------------
 // Spatial index
 // ---------------------------------------------------------------------------
 

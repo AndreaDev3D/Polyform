@@ -13,6 +13,11 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "0.2"
 rstar = "0.12"
 flo_curves = "0.7"
+# preserve_order: document JSON round-trips keep key order (debuggable diffs,
+# same insertion-order semantics as JS objects).
+# float_roundtrip: serde_json's DEFAULT float parsing is best-effort (can be
+# off by 1 ulp) — bit-exact document round-trips are the whole contract here.
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
 # wasm-opt needs a binaryen download; keep builds hermetic for now and
 # revisit when tuning size/speed (V0.4-Porting-Plan verification gates).

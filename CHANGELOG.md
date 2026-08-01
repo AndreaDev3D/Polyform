@@ -4,10 +4,11 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.4.0 "Performance Core", Sprints A–B (2026-08-01)
 
-### Sprint B (in progress)
+### Sprint B
 
 - **Exact boolean geometry** (closes F-03): union/subtract/intersect/exclude now run exact bezier CSG in the Rust core (flo_curves) by default — intersections are computed on the curves, not on flattened polygons, and the result is **2.02x faster** than the polygon-clipping path on top of being correct at any zoom. The TS implementation stays as an automatic fallback: any WASM runtime failure poisons the engine back to TS for the session, so degenerate geometry can never blank a shape. Verified by a ground-truth fuzz gate (sampled membership vs op semantics — which also exposed that the old TS path silently returns the *first child whole* when polygon-clipping throws).
 - **Journal replay contract fixture**: a deterministic journal touching every PatchOp kind replays to a frozen, committed document snapshot, undoes back to the exact initial state, redoes to the exact final state, and survives JSON round-trips — the acceptance test the Rust `commands.rs` port must pass unchanged.
+- **SceneGraph + PatchOp engine ported to Rust** (`scene.rs`): the full scene/commands surface — add/remove/update/move/page ops/styles, parent tracking, world matrices, padded world AABBs (strokes/effects/VECTOR outlines), render order — proven equivalent by the journal fixture replaying to the identical frozen snapshot through the WASM `SceneHandle`, plus a randomized op fuzz (180 entries) holding documents byte-equal through apply and undo-all. Runs as the test-proven substrate for the Sprint C/D scene-engine flip; the app still runs the TS SceneGraph.
 
 ### Sprint A
 

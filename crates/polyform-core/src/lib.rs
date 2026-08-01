@@ -7,6 +7,7 @@
 
 pub mod booleans;
 pub mod geometry;
+pub mod scene;
 pub mod shapes;
 pub mod spatial;
 

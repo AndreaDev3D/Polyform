@@ -1,6 +1,21 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class SceneHandle {
+    free(): void;
+    [Symbol.dispose](): void;
+    applyOps(ops_json: string): void;
+    docJson(): string;
+    constructor(doc_json: string);
+    parentOf(id: string): string | undefined;
+    renderOrder(): string;
+    rootIds(): string;
+    undoOps(ops_json: string): void;
+    version(): number;
+    worldAabb(id: string): Float64Array;
+    worldMatrix(id: string): Float64Array;
+}
+
 export class SpatialIndex {
     free(): void;
     [Symbol.dispose](): void;
@@ -34,6 +49,8 @@ export function flattenCubic(coords: Float64Array, tolerance: number): Float64Ar
 
 export function flattenSubPaths(blob: Float64Array, tolerance: number): Float64Array;
 
+export function invertOpJson(op_json: string): string;
+
 export function linePath(w: number): Float64Array;
 
 export function matInvert(m: Float64Array): Float64Array;
@@ -66,13 +83,16 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_scenehandle_free: (a: number, b: number) => void;
     readonly __wbg_spatialindex_free: (a: number, b: number) => void;
     readonly aabbOfPoints: (a: number, b: number) => [number, number];
     readonly applyMat: (a: number, b: number, c: number, d: number) => [number, number];
     readonly booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly ellipsePath: (a: number, b: number) => [number, number];
     readonly flattenCubic: (a: number, b: number, c: number) => [number, number];
     readonly flattenSubPaths: (a: number, b: number, c: number) => [number, number];
+    readonly invertOpJson: (a: number, b: number) => [number, number];
     readonly linePath: (a: number) => [number, number];
     readonly matInvert: (a: number, b: number) => [number, number];
     readonly matMultiply: (a: number, b: number, c: number, d: number) => [number, number];
@@ -84,16 +104,26 @@ export interface InitOutput {
     readonly pointInRoundedRect: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly polygonPath: (a: number, b: number, c: number) => [number, number];
     readonly roundedRectPath: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly scenehandle_applyOps: (a: number, b: number, c: number) => void;
+    readonly scenehandle_docJson: (a: number) => [number, number];
+    readonly scenehandle_new: (a: number, b: number) => number;
+    readonly scenehandle_parentOf: (a: number, b: number, c: number) => [number, number];
+    readonly scenehandle_renderOrder: (a: number) => [number, number];
+    readonly scenehandle_rootIds: (a: number) => [number, number];
+    readonly scenehandle_undoOps: (a: number, b: number, c: number) => void;
+    readonly scenehandle_version: (a: number) => number;
+    readonly scenehandle_worldAabb: (a: number, b: number, c: number) => [number, number];
+    readonly scenehandle_worldMatrix: (a: number, b: number, c: number) => [number, number];
     readonly spatialindex_load: (a: number, b: number, c: number) => void;
     readonly spatialindex_new: () => number;
     readonly spatialindex_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly starPath: (a: number, b: number, c: number, d: number) => [number, number];
     readonly subPathsToSvg: (a: number, b: number, c: number) => [number, number];
     readonly transformedRectAabb: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_start: () => void;
 }
 

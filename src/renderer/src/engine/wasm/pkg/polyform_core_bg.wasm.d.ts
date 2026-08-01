@@ -1,13 +1,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_scenehandle_free: (a: number, b: number) => void;
 export const __wbg_spatialindex_free: (a: number, b: number) => void;
 export const aabbOfPoints: (a: number, b: number) => [number, number];
 export const applyMat: (a: number, b: number, c: number, d: number) => [number, number];
 export const booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
 export const ellipsePath: (a: number, b: number) => [number, number];
 export const flattenCubic: (a: number, b: number, c: number) => [number, number];
 export const flattenSubPaths: (a: number, b: number, c: number) => [number, number];
+export const invertOpJson: (a: number, b: number) => [number, number];
 export const linePath: (a: number) => [number, number];
 export const matInvert: (a: number, b: number) => [number, number];
 export const matMultiply: (a: number, b: number, c: number, d: number) => [number, number];
@@ -19,14 +22,24 @@ export const pointInPolygonRings: (a: number, b: number, c: number, d: number, e
 export const pointInRoundedRect: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
 export const polygonPath: (a: number, b: number, c: number) => [number, number];
 export const roundedRectPath: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+export const scenehandle_applyOps: (a: number, b: number, c: number) => void;
+export const scenehandle_docJson: (a: number) => [number, number];
+export const scenehandle_new: (a: number, b: number) => number;
+export const scenehandle_parentOf: (a: number, b: number, c: number) => [number, number];
+export const scenehandle_renderOrder: (a: number) => [number, number];
+export const scenehandle_rootIds: (a: number) => [number, number];
+export const scenehandle_undoOps: (a: number, b: number, c: number) => void;
+export const scenehandle_version: (a: number) => number;
+export const scenehandle_worldAabb: (a: number, b: number, c: number) => [number, number];
+export const scenehandle_worldMatrix: (a: number, b: number, c: number) => [number, number];
 export const spatialindex_load: (a: number, b: number, c: number) => void;
 export const spatialindex_new: () => number;
 export const spatialindex_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const starPath: (a: number, b: number, c: number, d: number) => [number, number];
 export const subPathsToSvg: (a: number, b: number, c: number) => [number, number];
 export const transformedRectAabb: (a: number, b: number, c: number, d: number) => [number, number];
-export const distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_start: () => void;
