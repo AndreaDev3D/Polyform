@@ -1,9 +1,9 @@
 # Polyform Roadmap
 
 **Status:** Living document — updated as milestones land.
-**Last updated:** 2026-07-31 (v0.1 ship day)
+**Last updated:** 2026-08-01 (v0.4 Sprints A–E shipped; v0.4.1 / v0.5 / v0.6 phases added)
 
-Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan from the v0.1 release shipping today through the v1.0 distribution milestone, with per-item effort estimates and dependencies.
+Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan with per-item effort estimates and dependencies: **v0.2 ✓ → v0.3 ✓ → v0.4 Performance Core (in progress) → v0.4.1 Background Removal → v0.5 3D Model Import → v0.6 Agent Connectivity (MCP + CLI) → v1.0 Distribution**. The three phases between v0.4 and v1.0 are committed in intent but deliberately unspecified — each opens with a research spike that picks the best implementation and records it as an ADR before code is written. (Item ids are stable labels, not phase order: v1.0 keeps its historical 5.x ids.)
 
 Related documents:
 
@@ -135,6 +135,65 @@ Goal: swap the hot paths of the TypeScript engine for Rust/WASM and upgrade rend
 | 4.6 | **Workers + SharedArrayBuffer** | **L** | 4.3 | WASM core moves into a dedicated worker with SharedArrayBuffer zero-copy access to vertex/index buffers, matching the process model in the Technical Specification. Requires cross-origin-isolation headers in the Electron renderer. |
 
 **Exit criteria:** the perf targets in the Technical Specification hold (sub-millisecond hit tests, 100k+ shape scenes at 60/120 FPS), with byte-compatible document round-tripping verified against v0.3 files.
+
+---
+
+## v0.4.1 — Image Background Removal
+
+> **Research-first, no spec yet (by design).** Nothing below is decided —
+> item 4.7 is a comparison spike whose output is an ADR picking the best
+> implementation, and only then does 4.8 get built. Same rule for v0.5 and
+> v0.6: feature intent is committed here; the digging happens when the
+> phase starts.
+
+Goal: one-click "Remove background" on image fills — **fully offline** (a cloud API would break the local-first contract), non-destructive, and undoable like every other edit.
+
+| # | Item | Effort | Depends on | Notes |
+| :-- | :--- | :---: | :--- | :--- |
+| 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | Candidates to benchmark: the U²-Net / ISNet / BiRefNet / MODNet families via ONNX Runtime Web (WASM + WebGPU execution providers) or native onnxruntime in the main process. Selection criteria, in order: **license compatible with an MIT open-source app** (several popular "remove-bg" checkpoints are research-/non-commercial-only — disqualifying), quality on photos AND product shots, model size vs installer bloat (self-contained principle: bundled or explicit consent-gated download, never silent), CPU vs GPU inference time on mid hardware. Output: written comparison + ADR. |
+| 4.8 | **Remove background on image fills** | **M** | 4.7 | One click in the inspector. Non-destructive: the cutout is written as a NEW SHA-256 content-addressed asset, the original stays in `assets/`, and "Restore original" swaps back; single journal entry; composes with the existing crop/adjust controls. |
+| 4.9 | Edge refinement brush (stretch) | **M** | 4.8 | Restore/erase strokes over the mask for hairlines and soft edges — only if 4.8's model quality proves it necessary. |
+
+**Exit criteria:** subject cutout works with the network cable unplugged, on a license-clean model, and undo restores the original pixel-for-pixel.
+
+---
+
+## v0.5 — 3D Model Import (composition, not modeling)
+
+Goal: place 3D models on the canvas as first-class nodes — orbit them into the right pose, light them, and use the render to make graphics. Polyform stays a 2D tool; this is **render-of-3D-in-2D**, not a 3D editor. Target formats: **GLB** (meshes/PBR) and **PLY / SPZ** (point clouds and gaussian splats, incl. Niantic's compressed SPZ).
+
+> **Research-first.** 6.1 decides the rendering architecture before any
+> node type is committed to the schema.
+
+| # | Item | Effort | Depends on | Notes |
+| :-- | :--- | :---: | :--- | :--- |
+| 6.1 | **Research spike: rendering approach** | **M** | v0.4 WebGPU backend | Candidates: an embedded 3D renderer (three.js/Babylon-class) rendering to texture, vs a bare WebGPU pipeline living beside ADR-016's texture segments; gaussian-splat renderers (the gsplat family) for PLY/SPZ. Decide: live texture in GPU mode with rasterized snapshots for the Canvas2D fallback and exports? Licensing + bundle size, memory ceilings for multi-million-splat captures, splat sort perf. Output: ADR + throwaway prototype. |
+| 6.2 | **MODEL3D node type (schema v4)** | **L** | 6.1 | Node = content-addressed model asset (same `assets/` SHA-256 story as images) + camera orbit/FOV + lighting preset; v3→v4 migration; all edits journaled PatchOps like any node. |
+| 6.3 | **GLB rendering + orbit interaction** | **L** | 6.2 | Double-click to orbit (enter/exit like vector-edit mode), PBR-lite lighting presets; PNG export bakes the render; SVG export embeds the raster. |
+| 6.4 | **PLY / SPZ gaussian splats** | **L** | 6.3 | SPZ decode, splat sorting/perf gates on real captures; documented memory limits. |
+
+**Exit criteria:** drop a GLB and an SPZ into a document, pose them, composite vector/text on top, export a PNG — and reopening the `.poly` bundle reproduces the exact render.
+
+---
+
+## v0.6 — Agent Connectivity (MCP + CLI)
+
+Goal: let AI agents (Claude and others) connect to a **running** Polyform, watch the work happen in realtime, and make edits that land in the same undo journal as human edits. Plus a headless CLI for scripting and CI.
+
+> **Research-first.** MCP (Model Context Protocol) is the leading
+> candidate — it is what Claude-family tools speak natively, and Figma's
+> Dev Mode MCP server is prior art — but 7.1 explicitly evaluates it
+> against a plain local WebSocket/JSON-RPC bridge and a pure-CLI approach
+> before anything is built. "Best tool" is the deliverable of the spike.
+
+| # | Item | Effort | Depends on | Notes |
+| :-- | :--- | :---: | :--- | :--- |
+| 7.1 | **Research spike: protocol & transport** | **M** | — | MCP server inside the Electron main process vs a sidecar `polyform` CLI bridging into the app over a local socket; stdio vs WebSocket/SSE transports; what Claude Code and other agent clients support best today. Security model up front: localhost-only, explicit in-app consent per agent session, visible "agent connected" indicator — the F-15/F-17 lessons say no silent remote control, ever. Output: ADR. |
+| 7.2 | **Read surface: see the work** | **M** | 7.1 | Resources/tools: document JSON (scene graph, styles, components), selection state, viewport + per-node PNG snapshots (the render-to-canvas path exists), and **live change notifications** by subscribing to the op journal — an agent can literally watch edits stream in. |
+| 7.3 | **Write surface: journaled agent edits** | **L** | 7.2 | Agent mutations go through the SAME PatchOp journal (ADR-008): undoable, labeled as agent actions in the history browser, rollback-able as one entry; per-capability consent prompts. |
+| 7.4 | **Headless CLI** | **M** | 7.1 | `polyform` CLI: open/query/export (PNG/SVG/PDF) a `.poly` bundle without the GUI, sharing the engine — useful standalone, in CI, and as the agent bridge if 7.1 lands on the sidecar design. |
+
+**Exit criteria:** an AI session connects with explicit consent, describes the open document, watches a human edit land live, and performs one edit that shows up attributed in the history browser and undoes cleanly.
 
 ---
 

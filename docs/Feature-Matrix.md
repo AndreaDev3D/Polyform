@@ -22,18 +22,18 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Vector Editing](#vector-editing) | 7 | 3 | 5 | 0 | 15 |
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 5 | 4 | 1 | 23 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 5 | 5 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
-| [Export & Import](#export--import) | 4 | 1 | 6 | 0 | 11 |
+| [Export & Import](#export--import) | 4 | 1 | 7 | 0 | 12 |
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
-| [Extensibility](#extensibility) | 1 | 1 | 1 | 4 | 7 |
-| **Total** | **130** | **21** | **57** | **23** | **231** |
+| [Extensibility](#extensibility) | 1 | 1 | 2 | 4 | 8 |
+| **Total** | **130** | **21** | **60** | **23** | **234** |
 
 ---
 
@@ -166,6 +166,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Image fills | Bitmap as a fill paint | ✅ | Content-addressed assets, deduplicated |
 | Image fill modes | Fill / Fit / Crop / Tile scaling modes | 🟡 | FILL, FIT, TILE, STRETCH shipped; Figma-style CROP awaits image crop tooling |
 | Image crop & adjust | Crop plus exposure/contrast/saturation sliders | ✅ | Non-destructive crop rect + exposure/contrast/saturation on image fills |
+| Image background removal | One-click AI subject cutout | 📋 | Roadmap v0.4.1: fully offline on-device model (no cloud APIs), non-destructive new asset + restore-original; research spike picks a license-clean model first |
 | Video fills | Video as a fill paint | ❌ | Out of scope |
 | Stroke color & weight | Per-object stroke paint and thickness | ✅ | |
 | Stroke align: center | Stroke centered on the path | ✅ | |
@@ -267,6 +268,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
 | .fig import | Open Figma's native files | 📋 | |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
+| 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 📋 | Roadmap v0.5: models as composable canvas nodes — orbit/light a render-of-3D-in-2D for graphics, incl. gaussian splats; rendering approach decided by a research spike |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |
 
 ## Files, Data & History
@@ -345,6 +347,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | REST API | Cloud API for files, nodes, images | ❌ | No cloud service; the file format is the API |
 | Webhooks | Server-side event notifications | ❌ | No server |
 | Dev Mode / code inspect | Measurements, tokens, code snippets for devs | 📋 | |
+| Agent connectivity (MCP) + headless CLI | Dev Mode MCP server | 📋 | Roadmap v0.6: AI agents connect to the running app with explicit consent — realtime document/viewport reads, journaled (undoable, attributed) edits, plus a headless CLI; protocol chosen by a research spike (MCP is the lead candidate) |
 | Open-source codebase | Proprietary, closed source | ✅ | Polyform is fully open source |
 | Plugin community / marketplace | Hosted plugin discovery and installs | ❌ | Cloud distribution platform; plugins (when they land) will load locally |
 
