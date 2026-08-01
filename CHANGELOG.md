@@ -2,7 +2,14 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.4.0 "Performance Core", Sprint A (2026-08-01)
+## Unreleased — 0.4.0 "Performance Core", Sprints A–B (2026-08-01)
+
+### Sprint B (in progress)
+
+- **Exact boolean geometry** (closes F-03): union/subtract/intersect/exclude now run exact bezier CSG in the Rust core (flo_curves) by default — intersections are computed on the curves, not on flattened polygons, and the result is **2.02x faster** than the polygon-clipping path on top of being correct at any zoom. The TS implementation stays as an automatic fallback: any WASM runtime failure poisons the engine back to TS for the session, so degenerate geometry can never blank a shape. Verified by a ground-truth fuzz gate (sampled membership vs op semantics — which also exposed that the old TS path silently returns the *first child whole* when polygon-clipping throws).
+- **Journal replay contract fixture**: a deterministic journal touching every PatchOp kind replays to a frozen, committed document snapshot, undoes back to the exact initial state, redoes to the exact final state, and survives JSON round-trips — the acceptance test the Rust `commands.rs` port must pass unchanged.
+
+### Sprint A
 
 - **Rust engine core lands** (`crates/polyform-core`, ADR-015): `geometry`, `shapes` (outline generation + vector-network chain walking + SVG path data), and the spatial index ported to Rust and compiled to WASM (163 KB), per [docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md).
 - **Per-module backend switch** (`engine/backend.ts`): TS and WASM implementations live behind unchanged function signatures; flags flip per module, persist in `localStorage`, and are console-tweakable via `__polyformEngine`. If WASM fails to load, everything stays on TS.

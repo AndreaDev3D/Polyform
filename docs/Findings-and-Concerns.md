@@ -88,6 +88,14 @@ v0.1 shapes and measures text with Canvas2D (`measureText` + `fillText`), which 
 <a id="f-03"></a>
 ## F-03. Boolean precision on curves
 
+> **Status (v0.4 Sprint B): largely resolved.** Boolean evaluation now runs
+> exact bezier CSG in the Rust core by default (flo_curves via WASM, ADR-015)
+> — intersections are computed on the curves and flattening happens only at
+> display output (0.25 vs the old 0.5 input tolerance), measured 2x faster
+> than the polygon-clipping path. The TS approximation below remains as the
+> automatic fallback, and SVG export still emits flattened rings for boolean
+> results (curve-preserving export lands with the Sprint C/D export work).
+
 **Severity: Med** — output is correct in topology, approximate in geometry.
 
 ### The problem

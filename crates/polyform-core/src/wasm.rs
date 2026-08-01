@@ -258,6 +258,47 @@ pub fn sub_paths_to_svg(blob: &[f64], precision: u32) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// booleans.ts exports — exact bezier CSG
+// ---------------------------------------------------------------------------
+
+/// data: [childCount, (blobLen, <SubPath blob of blobLen f64s>)*]
+/// op: 0 union, 1 subtract, 2 intersect, 3 exclude.
+/// Returns a rings blob: [ringCount, (len, (x, y) * len)*].
+#[wasm_bindgen(js_name = booleanOp)]
+pub fn boolean_op(data: &[f64], op: u32, accuracy: f64, flatten_tolerance: f64) -> Vec<f64> {
+    let mut children: Vec<Vec<s::SubPath>> = Vec::new();
+    if !data.is_empty() {
+        let child_count = data[0] as usize;
+        let mut i = 1usize;
+        for _ in 0..child_count {
+            if i >= data.len() {
+                break;
+            }
+            let blob_len = data[i] as usize;
+            i += 1;
+            let end = (i + blob_len).min(data.len());
+            children.push(decode_sub_paths(&data[i..end]));
+            i = end;
+        }
+    }
+    let rings = crate::booleans::boolean_rings(
+        &children,
+        crate::booleans::BoolOp::from_u32(op),
+        accuracy,
+        flatten_tolerance,
+    );
+    let mut out = vec![rings.len() as f64];
+    for ring in &rings {
+        out.push(ring.len() as f64);
+        for p in ring {
+            out.push(p.x);
+            out.push(p.y);
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Spatial index
 // ---------------------------------------------------------------------------
 

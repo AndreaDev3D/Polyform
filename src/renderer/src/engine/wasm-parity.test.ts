@@ -40,8 +40,10 @@ import {
   subPathsToSvg,
   type SubPath,
 } from './shapes'
-import type { SceneNode, Vec2, VectorNetwork } from './types'
+import type { BooleanNode, SceneNode, Vec2, VectorNetwork } from './types'
 import { createNode } from './types'
+import { SceneGraph } from './scene'
+import { booleanRings, clearBooleanCache } from './booleans'
 import { getEngineBackends, initWasmEngine, setEngineBackend, wasmHandle } from './backend'
 import { decodeRings, decodeSubPaths, encodeNetwork, encodeSubPaths } from './wasm/codec'
 import RBush from 'rbush'
@@ -464,6 +466,176 @@ describe('spatial index parity (rbush <-> rstar)', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// booleans: TS polygon-clipping vs WASM exact CSG (flo_curves)
+// ---------------------------------------------------------------------------
+//
+// The outputs are intentionally NOT identical (that's the point — exact
+// curves instead of 0.5-tolerance facets), so the gate is semantic: sampled
+// even-odd membership over the result must agree away from the flattening
+// band, and the WASM engine must survive every case (no traps/poisoning).
+
+function randShapeNode(scene: SceneGraph, parent: string, index: number): void {
+  const kind = ['RECTANGLE', 'ELLIPSE', 'POLYGON', 'STAR'][Math.floor(rand() * 4)]
+  const node = createNode(kind as SceneNode['type'], `s${index}`)
+  node.x = range(-50, 150)
+  node.y = range(-50, 150)
+  node.width = range(30, 220)
+  node.height = range(30, 220)
+  if (rand() < 0.3) node.rotation = range(-90, 90)
+  if (node.type === 'RECTANGLE' && rand() < 0.5) {
+    const r = range(0, 40)
+    node.cornerRadius = { tl: r, tr: r, br: r, bl: r }
+  }
+  scene.addNode(node, parent, index)
+}
+
+describe('boolean CSG parity (WASM vs ground truth, semantic)', () => {
+  // The gate compares the WASM CSG against INDEPENDENT ground truth: each
+  // sample point is classified per child (fine-flattened outlines), then the
+  // op semantics decide membership. Comparing against the TS backend instead
+  // would be misleading — polygon-clipping's throw-fallback returns the
+  // first child whole on degenerate input, i.e. the TS result is sometimes
+  // legitimately wrong where the exact CSG is right.
+  it('WASM result matches op semantics on random scenes; engine never traps', () => {
+    const CASES = Math.max(60, Math.floor(N / 8))
+    for (let c = 0; c < CASES; c++) {
+      const scene = new SceneGraph()
+      const bool = createNode('BOOLEAN', 'Bool') as BooleanNode
+      const op = (['UNION', 'SUBTRACT', 'INTERSECT', 'EXCLUDE'] as const)[Math.floor(rand() * 4)]
+      bool.booleanOp = op
+      scene.addNode(bool, null, 0)
+      const childCount = 2 + Math.floor(rand() * 2)
+      for (let i = 0; i < childCount; i++) randShapeNode(scene, bool.id, i)
+
+      // Ground truth: per-child fine-flattened rings in bool-local space.
+      const childRings: Vec2[][][] = bool.children.map((cid) => {
+        const child = scene.getNode(cid)!
+        const m = scene.localMatrix(child)
+        return nodeOutline(child)
+          .filter((sp) => sp.closed)
+          .map((sp) => flattenSubPath(sp, 0.05).map((p) => applyMat(m, p)))
+          .filter((r) => r.length >= 3)
+      })
+      const truth = (p: Vec2): boolean => {
+        const inside = childRings.map((rings) => pointInPolygonRings(p, rings, false))
+        switch (op) {
+          case 'UNION':
+            return inside.some(Boolean)
+          case 'SUBTRACT':
+            return inside[0] && !inside.slice(1).some(Boolean)
+          case 'INTERSECT':
+            return inside.every(Boolean)
+          case 'EXCLUDE':
+            return inside.filter(Boolean).length % 2 === 1
+        }
+      }
+
+      setEngineBackend('booleans', 'wasm')
+      clearBooleanCache()
+      const wasmRings = booleanRings(scene, bool)
+      expect(getEngineBackends().wasmLoaded, `case ${c}: engine poisoned`).toBe(true)
+
+      const allPts = childRings.flat(2)
+      if (allPts.length === 0) continue
+      const box = aabbOfPoints(allPts)
+      const SAMPLES = 400
+      let agree = 0
+      let counted = 0
+      for (let s = 0; s < SAMPLES; s++) {
+        const p = {
+          x: box.minX + rand() * Math.max(1e-9, box.maxX - box.minX),
+          y: box.minY + rand() * Math.max(1e-9, box.maxY - box.minY),
+        }
+        // Skip the flattening band around any child edge — classification
+        // there is tolerance noise in every implementation.
+        if (childRings.some((rings) => nearAnyEdge(p, rings, 1.0))) continue
+        counted++
+        if (pointInPolygonRings(p, wasmRings, true) === truth(p)) agree++
+      }
+      if (counted === 0) continue
+      const ratio = agree / counted
+      if (ratio < 0.99) {
+        console.log(
+          `CASE ${c} op=${op} children=` +
+            JSON.stringify(
+              bool.children.map((cid) => {
+                const n = scene.getNode(cid)! as SceneNode & {
+                  cornerRadius?: unknown
+                  pointCount?: number
+                  innerRatio?: number
+                }
+                return {
+                  type: n.type,
+                  x: n.x,
+                  y: n.y,
+                  w: n.width,
+                  h: n.height,
+                  rot: n.rotation,
+                  r: n.cornerRadius,
+                  pc: n.pointCount,
+                  ir: n.innerRatio,
+                }
+              }),
+            ) +
+            ` wasmRings=${wasmRings.length}`,
+        )
+      }
+      expect(
+        ratio,
+        `case ${c} (${op}, ${childCount} children): WASM vs truth agreement ${ratio}`,
+      ).toBeGreaterThanOrEqual(0.99)
+    }
+    setEngineBackend('booleans', 'wasm')
+  })
+
+  it('touching and coincident edges do not trap the engine', () => {
+    for (const op of ['UNION', 'SUBTRACT', 'INTERSECT', 'EXCLUDE'] as const) {
+      const scene = new SceneGraph()
+      const bool = createNode('BOOLEAN', 'Bool') as BooleanNode
+      bool.booleanOp = op
+      scene.addNode(bool, null, 0)
+      // exactly edge-sharing rects, then an exactly coincident pair
+      const a = createNode('RECTANGLE', 'A')
+      a.x = 0
+      a.y = 0
+      a.width = 100
+      a.height = 100
+      scene.addNode(a, bool.id, 0)
+      const b = createNode('RECTANGLE', 'B')
+      b.x = 100
+      b.y = 0
+      b.width = 100
+      b.height = 100
+      scene.addNode(b, bool.id, 1)
+      const cNode = createNode('RECTANGLE', 'C')
+      cNode.x = 0
+      cNode.y = 0
+      cNode.width = 100
+      cNode.height = 100
+      scene.addNode(cNode, bool.id, 2)
+
+      setEngineBackend('booleans', 'wasm')
+      clearBooleanCache()
+      const rings = booleanRings(scene, bool)
+      expect(getEngineBackends().wasmLoaded, `${op}: engine poisoned`).toBe(true)
+      expect(Array.isArray(rings)).toBe(true)
+    }
+  })
+})
+
+function nearAnyEdge(p: Vec2, rings: Vec2[][], dist: number): boolean {
+  for (const ring of rings) {
+    const n = ring.length
+    for (let i = 0; i < n; i++) {
+      const a = ring[i]
+      const b = ring[(i + 1) % n]
+      if (distToSegment(p, a, b) <= dist) return true
+    }
+  }
+  return false
+}
 
 // ---------------------------------------------------------------------------
 // Backend switch: run representative shape behavior with shapes='wasm'

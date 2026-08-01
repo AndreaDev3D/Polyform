@@ -19,6 +19,13 @@ export function aabbOfPoints(pts: Float64Array): Float64Array;
 
 export function applyMat(m: Float64Array, x: number, y: number): Float64Array;
 
+/**
+ * data: [childCount, (blobLen, <SubPath blob of blobLen f64s>)*]
+ * op: 0 union, 1 subtract, 2 intersect, 3 exclude.
+ * Returns a rings blob: [ringCount, (len, (x, y) * len)*].
+ */
+export function booleanOp(data: Float64Array, op: number, accuracy: number, flatten_tolerance: number): Float64Array;
+
 export function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number;
 
 export function ellipsePath(w: number, h: number): Float64Array;
@@ -62,7 +69,7 @@ export interface InitOutput {
     readonly __wbg_spatialindex_free: (a: number, b: number) => void;
     readonly aabbOfPoints: (a: number, b: number) => [number, number];
     readonly applyMat: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly ellipsePath: (a: number, b: number) => [number, number];
     readonly flattenCubic: (a: number, b: number, c: number) => [number, number];
     readonly flattenSubPaths: (a: number, b: number, c: number) => [number, number];
@@ -83,6 +90,7 @@ export interface InitOutput {
     readonly starPath: (a: number, b: number, c: number, d: number) => [number, number];
     readonly subPathsToSvg: (a: number, b: number, c: number) => [number, number];
     readonly transformedRectAabb: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

@@ -13,7 +13,7 @@ import { isContainer } from './types'
 import type { SceneGraph } from './scene'
 import type { AABB } from './geometry'
 import { aabbIsEmpty } from './geometry'
-import { useWasm, wasmHandle } from './backend'
+import { poisonWasmEngine, useWasm, wasmHandle } from './backend'
 import type { SpatialIndex as WasmTree } from './wasm/pkg/polyform_core'
 
 interface IndexEntry {
@@ -77,10 +77,18 @@ export class SpatialIndex {
 
   search(box: AABB): NodeId[] {
     if (this.backend === 'wasm' && this.wasmTree) {
-      const hits = this.wasmTree.search(box.minX, box.minY, box.maxX, box.maxY)
-      const out: NodeId[] = new Array(hits.length)
-      for (let i = 0; i < hits.length; i++) out[i] = this.ids[hits[i]]
-      return out
+      try {
+        const hits = this.wasmTree.search(box.minX, box.minY, box.maxX, box.maxY)
+        const out: NodeId[] = new Array(hits.length)
+        for (let i = 0; i < hits.length; i++) out[i] = this.ids[hits[i]]
+        return out
+      } catch (err) {
+        // Engine poisoned elsewhere (or trapped here): next sync() rebuilds
+        // on rbush; miss one query rather than throw into the render loop.
+        poisonWasmEngine(err)
+        this.builtVersion = -1
+        return []
+      }
     }
     return this.tree.search(box).map((e) => e.id)
   }

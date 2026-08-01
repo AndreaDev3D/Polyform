@@ -5,6 +5,7 @@
 //! modules carry no wasm-bindgen types so they stay reusable for a future
 //! native build; `wasm.rs` is the boundary layer.
 
+pub mod booleans;
 pub mod geometry;
 pub mod shapes;
 pub mod spatial;

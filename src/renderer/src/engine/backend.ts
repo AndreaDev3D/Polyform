@@ -14,17 +14,23 @@
 
 type WasmModule = typeof import('./wasm/pkg/polyform_core')
 
-export type SwitchableModule = 'shapes' | 'spatial'
+export type SwitchableModule = 'shapes' | 'spatial' | 'booleans'
 export type BackendKind = 'ts' | 'wasm'
 
-// Defaults per the Sprint A benchmarks (docs/V0.4-Porting-Plan.md):
+const ALL_MODULES = ['shapes', 'spatial', 'booleans'] as const
+
+// Defaults per the Sprint A/B gates (docs/V0.4-Porting-Plan.md):
 // - shapes: TS. Per-call encode/decode across the boundary outweighs the
-//   Rust win for single-path calls; flips with Sprint B's batch consumers.
+//   Rust win for single-path calls; flips when batch consumers move.
 // - spatial: WASM. rstar bulk-load + query beats rbush and the win grows
 //   with node count.
+// - booleans: WASM. Exact bezier CSG (flo_curves) replaces the polygon
+//   flattening approximation — a quality win, not just perf (closes F-03).
+//   Any WASM runtime failure poisons the engine back to TS for the session.
 const flags: Record<SwitchableModule, BackendKind> = {
   shapes: 'ts',
   spatial: 'wasm',
+  booleans: 'wasm',
 }
 
 const STORAGE_KEY = 'polyform.engineBackends'
@@ -45,6 +51,18 @@ export function useWasm(m: SwitchableModule): boolean {
 export function wasmHandle(): WasmModule {
   if (!mod) throw new Error('WASM engine not initialized')
   return mod
+}
+
+/**
+ * Disable the WASM engine for the rest of the session after a runtime
+ * failure (e.g. a trap inside CSG on degenerate geometry). A trapped
+ * instance may hold inconsistent internal state, so every module falls
+ * back to its TS implementation; a fresh process re-initializes cleanly.
+ */
+export function poisonWasmEngine(err?: unknown): void {
+  if (!mod) return
+  console.warn('[polyform] WASM engine disabled after a runtime error — TS fallback active.', err)
+  mod = null
 }
 
 export function setEngineBackend(m: SwitchableModule, kind: BackendKind): void {
@@ -70,7 +88,7 @@ function readStoredOverrides(): void {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return
     const parsed = JSON.parse(raw) as Partial<Record<SwitchableModule, BackendKind>>
-    for (const k of ['shapes', 'spatial'] as const) {
+    for (const k of ALL_MODULES) {
       const v = parsed[k]
       if (v === 'ts' || v === 'wasm') flags[k] = v
     }

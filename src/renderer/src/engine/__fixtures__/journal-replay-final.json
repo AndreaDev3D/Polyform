@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 3,
+  "nodes": {
+    "f1": {
+      "id": "f1",
+      "type": "FRAME",
+      "name": "Frame 1",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "blendMode": "NORMAL",
+      "x": 40,
+      "y": 32,
+      "width": 400,
+      "height": 300,
+      "rotation": 0,
+      "fills": [
+        {
+          "type": "SOLID",
+          "visible": true,
+          "opacity": 1,
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          }
+        }
+      ],
+      "strokes": [],
+      "strokeWeight": 1,
+      "strokeAlign": "INSIDE",
+      "strokeDash": [],
+      "effects": [],
+      "children": [],
+      "clipsContent": true,
+      "cornerRadius": {
+        "tl": 0,
+        "tr": 0,
+        "br": 0,
+        "bl": 0
+      },
+      "layout": {
+        "mode": "NONE",
+        "gap": 10,
+        "paddingTop": 10,
+        "paddingRight": 10,
+        "paddingBottom": 10,
+        "paddingLeft": 10,
+        "counterAlign": "MIN",
+        "primarySizing": "FIXED",
+        "counterSizing": "FIXED"
+      }
+    },
+    "e1": {
+      "id": "e1",
+      "type": "ELLIPSE",
+      "name": "Ellipse 1",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "blendMode": "NORMAL",
+      "x": 150,
+      "y": 40,
+      "width": 90,
+      "height": 90,
+      "rotation": 0,
+      "fills": [
+        {
+          "type": "SOLID",
+          "visible": true,
+          "opacity": 1,
+          "color": {
+            "r": 0.85,
+            "g": 0.85,
+            "b": 0.85,
+            "a": 1
+          }
+        }
+      ],
+      "strokes": [],
+      "strokeWeight": 1,
+      "strokeAlign": "INSIDE",
+      "strokeDash": [],
+      "effects": []
+    }
+  },
+  "pages": [
+    {
+      "id": "p1",
+      "name": "Page 1",
+      "rootIds": [
+        "e1",
+        "f1"
+      ],
+      "guides": [],
+      "viewport": null
+    }
+  ],
+  "activePageId": "p1",
+  "styles": {
+    "colors": [
+      {
+        "id": "st1",
+        "name": "Brand/Primary",
+        "paint": {
+          "type": "SOLID",
+          "color": {
+            "r": 0.4,
+            "g": 0.2,
+            "b": 0.9,
+            "a": 1
+          },
+          "visible": true,
+          "opacity": 1
+        }
+      }
+    ],
+    "texts": [],
+    "effects": []
+  }
+}

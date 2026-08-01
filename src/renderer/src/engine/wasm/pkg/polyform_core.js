@@ -72,6 +72,25 @@ export function applyMat(m, x, y) {
 }
 
 /**
+ * data: [childCount, (blobLen, <SubPath blob of blobLen f64s>)*]
+ * op: 0 union, 1 subtract, 2 intersect, 3 exclude.
+ * Returns a rings blob: [ringCount, (len, (x, y) * len)*].
+ * @param {Float64Array} data
+ * @param {number} op
+ * @param {number} accuracy
+ * @param {number} flatten_tolerance
+ * @returns {Float64Array}
+ */
+export function booleanOp(data, op, accuracy, flatten_tolerance) {
+    const ptr0 = passArrayF64ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.booleanOp(ptr0, len0, op, accuracy, flatten_tolerance);
+    var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v2;
+}
+
+/**
  * @param {number} px
  * @param {number} py
  * @param {number} ax

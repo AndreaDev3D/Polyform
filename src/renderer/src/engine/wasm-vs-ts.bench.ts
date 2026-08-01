@@ -7,10 +7,13 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import RBush from 'rbush'
 
-import { initWasmEngine, wasmHandle } from './backend'
+import { initWasmEngine, setEngineBackend, wasmHandle } from './backend'
 import { encodeSubPaths, decodeRings, decodeSubPaths } from './wasm/codec'
 import { flattenSubPath, roundedRectPath, subPathsToSvg } from './shapes'
 import { matMultiply, type Mat } from './geometry'
+import { SceneGraph } from './scene'
+import { booleanRings, clearBooleanCache } from './booleans'
+import { createNode, type BooleanNode } from './types'
 
 const wasmPath = fileURLToPath(new URL('./wasm/pkg/polyform_core_bg.wasm', import.meta.url))
 await initWasmEngine(readFileSync(wasmPath))
@@ -123,6 +126,38 @@ describe('shapes: SVG path data for 50 subpaths', () => {
   })
   bench('WASM subPathsToSvg (incl. encode)', () => {
     w.subPathsToSvg(encodeSubPaths(manyPaths), 3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// booleans: polygon-clipping (TS) vs exact CSG (WASM)
+// ---------------------------------------------------------------------------
+
+const boolScene = new SceneGraph()
+const boolNode = createNode('BOOLEAN', 'B') as BooleanNode
+boolNode.booleanOp = 'UNION'
+boolScene.addNode(boolNode, null, 0)
+for (let i = 0; i < 4; i++) {
+  const kind = i % 2 === 0 ? 'ELLIPSE' : 'RECTANGLE'
+  const n = createNode(kind, `c${i}`)
+  n.x = i * 60
+  n.y = (i % 2) * 40
+  n.width = 120
+  n.height = 100
+  if (n.type === 'RECTANGLE') n.cornerRadius = { tl: 16, tr: 16, br: 16, bl: 16 }
+  boolScene.addNode(n, boolNode.id, i)
+}
+
+describe('booleans: union of 4 overlapping shapes', () => {
+  bench('TS polygon-clipping (flattened)', () => {
+    setEngineBackend('booleans', 'ts')
+    clearBooleanCache()
+    booleanRings(boolScene, boolNode)
+  })
+  bench('WASM exact CSG (flo_curves)', () => {
+    setEngineBackend('booleans', 'wasm')
+    clearBooleanCache()
+    booleanRings(boolScene, boolNode)
   })
 })
 
