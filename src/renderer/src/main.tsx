@@ -21,6 +21,19 @@ if (bootParams.has('gpu')) {
   void import('./state/editor').then((m) => m.editor.get().setGpuRender(true))
 }
 
+// Debug/automation handle (local desktop app; also used by dev tooling).
+void Promise.all([
+  import('./state/document'),
+  import('./state/editor'),
+  import('./interactions/controller'),
+]).then(([d, e, i]) => {
+  ;(globalThis as Record<string, unknown>).__polyform = {
+    documentStore: d.documentStore,
+    editor: e.editor,
+    interactionController: i.interactionController,
+  }
+})
+
 // No StrictMode: its dev-only effect double-invocation would fire the
 // TextEditOverlay's commit-on-unmount during mount, instantly closing (and
 // for new nodes, deleting) every text edit session. App state lives in
