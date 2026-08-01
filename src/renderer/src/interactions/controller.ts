@@ -8,7 +8,7 @@ import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, 
 import { documentStore } from '../state/document'
 import { editor, type Tool } from '../state/editor'
 import { OpRecorder, guidesChanged, setSelection, topSelection } from '../state/actions'
-import { findDropFrame, hitTestAll, resolveClickTarget, nodesInRect } from '../engine/hit-test'
+import { findDropFrame, hitTestAll, nearestInstanceAncestor, resolveClickTarget, nodesInRect } from '../engine/hit-test'
 import { constrainFrameChildren } from '../engine/constraints'
 import type { PatchOp } from '../engine/commands'
 import { removeSubtreeOps } from '../engine/commands'
@@ -358,7 +358,11 @@ export class InteractionController {
 
   private beginMove(ids: NodeId[], world: Vec2, _mods: PointerMods, suppressedClickTarget: NodeId | null): void {
     if (ids.length === 0) return
-    const locked = ids.filter((id) => !this.scene.getNode(id)?.locked)
+    // Instance internals cannot be dragged — drag the instance instead.
+    const redirected = [
+      ...new Set(ids.map((id) => nearestInstanceAncestor(this.scene, id) ?? id)),
+    ]
+    const locked = redirected.filter((id) => !this.scene.getNode(id)?.locked)
     if (locked.length === 0) return
     this.mode = {
       kind: 'move',
@@ -371,7 +375,7 @@ export class InteractionController {
   }
 
   private startResize(handle: Handle): void {
-    const ids = topSelection()
+    const ids = topSelection().filter((id) => nearestInstanceAncestor(this.scene, id) === null)
     if (ids.length === 0) return
     const single = ids.length === 1 ? ids[0] : null
     this.mode = {
@@ -386,7 +390,7 @@ export class InteractionController {
   }
 
   private startRotate(handle: Handle): void {
-    const ids = topSelection()
+    const ids = topSelection().filter((id) => nearestInstanceAncestor(this.scene, id) === null)
     if (ids.length === 0) return
     const box = this.selectionWorldBox(ids)
     const center = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }

@@ -153,7 +153,7 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
     return `<g${tf}${common}>${inner}</g>`
   }
 
-  if (node.type === 'FRAME') {
+  if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE') {
     const d = subPathsToSvg(nodeOutline(node))
     let inner = await fillElements(ctx, node, d, 'nonzero')
     let clipAttr = ''

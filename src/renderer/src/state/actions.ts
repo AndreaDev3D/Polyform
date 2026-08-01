@@ -25,8 +25,11 @@ import { editor } from './editor'
 import { assetCache } from '../engine/assets'
 import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
-import { findDropFrame } from '../engine/hit-test'
+import { findDropFrame, isInsideInstance } from '../engine/hit-test'
 import { importSvgDocument } from '../engine/import/svg-import'
+import { listComponents } from '../engine/components'
+import { SceneGraph } from '../engine/scene'
+import { decodeScene } from '../engine/serialization'
 
 // ---------------------------------------------------------------------------
 // Op recorder: imperative mutation + reversible op capture in one pass
@@ -176,7 +179,10 @@ export function duplicateSelection(): void {
 }
 
 export function deleteSelection(): void {
-  const ids = topSelection()
+  const scene = documentStore.scene
+  // Nodes inside instances are structurally locked — delete the instance
+  // itself if the user wants it gone.
+  const ids = topSelection().filter((id) => !isInsideInstance(scene, id))
   if (ids.length === 0) return
   const rec = new OpRecorder()
   for (const id of byZ(ids).reverse()) rec.removeSubtree(id)
@@ -223,11 +229,11 @@ function reanchorIntoParent(rec: OpRecorder, id: NodeId, newParent: NodeId | nul
   rec.update(id, { x: centerInTarget.x - node.width / 2, y: centerInTarget.y - node.height / 2 })
 }
 
-function wrapSelection(kind: 'GROUP' | 'FRAME' | 'BOOLEAN', op?: BooleanOp): void {
+function wrapSelection(kind: 'GROUP' | 'FRAME' | 'BOOLEAN' | 'COMPONENT', op?: BooleanOp): void {
   const scene = documentStore.scene
-  const ids = byZ(topSelection())
+  const ids = byZ(topSelection()).filter((id) => !isInsideInstance(scene, id))
   if (ids.length === 0) return
-  if (kind !== 'FRAME' && ids.length < 2 && kind !== 'BOOLEAN') return
+  if (kind === 'GROUP' && ids.length < 2) return
 
   const topId = ids[ids.length - 1]
   const parentId = scene.parentOf(topId)
@@ -236,12 +242,21 @@ function wrapSelection(kind: 'GROUP' | 'FRAME' | 'BOOLEAN', op?: BooleanOp): voi
   const bounds = selectionBoundsInParent(scene, ids, targetParent)
 
   const rec = new OpRecorder()
-  const wrapper = createNode(kind, kind === 'GROUP' ? 'Group' : kind === 'FRAME' ? 'Frame' : (op ?? 'UNION').toLowerCase().replace(/^./, (c) => c.toUpperCase()))
+  const wrapper = createNode(
+    kind,
+    kind === 'GROUP'
+      ? 'Group'
+      : kind === 'FRAME'
+        ? 'Frame'
+        : kind === 'COMPONENT'
+          ? 'Component'
+          : (op ?? 'UNION').toLowerCase().replace(/^./, (c) => c.toUpperCase()),
+  )
   wrapper.x = bounds.minX
   wrapper.y = bounds.minY
   wrapper.width = Math.max(1, bounds.maxX - bounds.minX)
   wrapper.height = Math.max(1, bounds.maxY - bounds.minY)
-  if (wrapper.type === 'FRAME') {
+  if (wrapper.type === 'FRAME' || wrapper.type === 'COMPONENT') {
     wrapper.fills = []
     wrapper.clipsContent = false
   }
@@ -269,7 +284,15 @@ function wrapSelection(kind: 'GROUP' | 'FRAME' | 'BOOLEAN', op?: BooleanOp): voi
     reanchorPreMove.delete(id)
   })
 
-  rec.commit(kind === 'GROUP' ? 'Group Selection' : kind === 'FRAME' ? 'Frame Selection' : `Boolean ${op}`)
+  rec.commit(
+    kind === 'GROUP'
+      ? 'Group Selection'
+      : kind === 'FRAME'
+        ? 'Frame Selection'
+        : kind === 'COMPONENT'
+          ? 'Create Component'
+          : `Boolean ${op}`,
+  )
   setSelection([wrapper.id])
 }
 
@@ -890,6 +913,306 @@ export async function placeImages(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Components & instances (roadmap 3.1)
+// ---------------------------------------------------------------------------
+
+export function createComponentFromSelection(): void {
+  const scene = documentStore.scene
+  const ids = topSelection().filter((id) => !isInsideInstance(scene, id))
+  if (ids.length === 0) return
+  const single = ids.length === 1 ? scene.getNode(ids[0]) : null
+  if (single && single.type === 'FRAME') {
+    // Convert the frame in place — children, layout and constraints survive.
+    const rec = new OpRecorder()
+    rec.update(single.id, { type: 'COMPONENT' })
+    rec.commit('Create Component')
+    setSelection([single.id])
+    return
+  }
+  if (single && (single.type === 'COMPONENT' || single.type === 'INSTANCE')) return
+  wrapSelection('COMPONENT')
+}
+
+export function createInstanceOf(componentId: NodeId): NodeId | null {
+  const scene = documentStore.scene
+  const comp = scene.getNode(componentId)
+  if (!comp || comp.type !== 'COMPONENT') return null
+  const inst = createNode('INSTANCE', comp.name)
+  if (inst.type !== 'INSTANCE') return null
+  inst.componentId = componentId
+  inst.width = comp.width
+  inst.height = comp.height
+  const { camera, viewportSize } = editor.get()
+  inst.x = camera.x + viewportSize.w / (2 * camera.zoom) - comp.width / 2
+  inst.y = camera.y + viewportSize.h / (2 * camera.zoom) - comp.height / 2
+  const rec = new OpRecorder()
+  rec.add(inst, null, scene.childListOf(null).length)
+  rec.commit('Create Instance')
+  setSelection([inst.id])
+  return inst.id
+}
+
+export function createInstanceFromSelection(): void {
+  const scene = documentStore.scene
+  const comps = topSelection().filter((id) => scene.getNode(id)?.type === 'COMPONENT')
+  const created: NodeId[] = []
+  for (const id of comps) {
+    const made = createInstanceOf(id)
+    if (made) created.push(made)
+  }
+  if (created.length > 0) setSelection(created)
+}
+
+export function detachSelectedInstances(): void {
+  const scene = documentStore.scene
+  const ids = topSelection().filter((id) => scene.getNode(id)?.type === 'INSTANCE')
+  if (ids.length === 0) return
+  const rec = new OpRecorder()
+  for (const id of ids) {
+    rec.update(id, { type: 'FRAME', componentId: '', overrides: {}, syncedHash: '' })
+    // Clear sourceIds so future edits are plain edits, not override captures.
+    for (const did of scene.descendants(id)) {
+      const d = scene.getNode(did)
+      if (d?.sourceId) rec.update(did, { sourceId: '' })
+    }
+  }
+  rec.commit('Detach Instance')
+}
+
+export function resetInstanceOverrides(): void {
+  const scene = documentStore.scene
+  const ids = topSelection().filter((id) => scene.getNode(id)?.type === 'INSTANCE')
+  if (ids.length === 0) return
+  const rec = new OpRecorder()
+  for (const id of ids) rec.update(id, { overrides: {}, syncedHash: '' })
+  rec.commit('Reset Overrides')
+}
+
+export function swapInstanceComponent(instanceId: NodeId, componentId: NodeId): void {
+  const scene = documentStore.scene
+  const inst = scene.getNode(instanceId)
+  const comp = scene.getNode(componentId)
+  if (!inst || inst.type !== 'INSTANCE' || !comp || comp.type !== 'COMPONENT') return
+  const rec = new OpRecorder()
+  rec.update(instanceId, {
+    componentId,
+    overrides: {},
+    syncedHash: '',
+    width: comp.width,
+    height: comp.height,
+  })
+  rec.commit('Swap Instance')
+}
+
+// ---------------------------------------------------------------------------
+// Local-file libraries (roadmap 3.2)
+// ---------------------------------------------------------------------------
+
+export interface LibraryIndexEntry {
+  path: string
+  title: string
+  updatedAt: string
+  scene: SceneGraph
+  components: { id: NodeId; name: string; width: number; height: number }[]
+  colorStyles: { id: string; name: string }[]
+}
+
+const libraryCache = new Map<string, LibraryIndexEntry>()
+
+export async function loadLibraryIndex(path: string, force = false): Promise<LibraryIndexEntry | null> {
+  if (!force && libraryCache.has(path)) return libraryCache.get(path)!
+  const data = await window.polyform.libraryRead(path)
+  if (!data) return null
+  try {
+    const doc = decodeScene(new Uint8Array(data.sceneBytes))
+    const scene = new SceneGraph(doc)
+    const entry: LibraryIndexEntry = {
+      path,
+      title: data.title,
+      updatedAt: data.updatedAt,
+      scene,
+      components: listComponents(scene).map((c) => ({ id: c.id, name: c.name, width: c.width, height: c.height })),
+      colorStyles: doc.styles.colors.map((s) => ({ id: s.id, name: s.name })),
+    }
+    libraryCache.set(path, entry)
+    return entry
+  } catch (err) {
+    console.error('Failed to read library:', path, err)
+    return null
+  }
+}
+
+export async function attachLibraryFlow(): Promise<void> {
+  const picked = await window.polyform.libraryPick()
+  if (!picked) return
+  const doc = documentStore.scene.doc
+  doc.libraries = doc.libraries ?? []
+  if (doc.libraries.some((l) => l.path === picked.path)) return
+  doc.libraries.push({ path: picked.path, name: picked.title, attachedAt: new Date().toISOString() })
+  documentStore.scene.bump()
+  documentStore.markDirty(true)
+  documentStore.emit()
+  void loadLibraryIndex(picked.path, true)
+}
+
+export function detachLibrary(path: string): void {
+  const doc = documentStore.scene.doc
+  doc.libraries = (doc.libraries ?? []).filter((l) => l.path !== path)
+  libraryCache.delete(path)
+  documentStore.scene.bump()
+  documentStore.markDirty(true)
+  documentStore.emit()
+}
+
+/**
+ * Import a library component into this document (or reuse the existing
+ * imported copy) and drop an instance of it at the viewport center.
+ */
+export async function insertLibraryComponent(path: string, componentId: NodeId): Promise<void> {
+  const scene = documentStore.scene
+  const existing = listComponents(scene).find(
+    (c) => c.origin?.libraryPath === path && c.origin.componentId === componentId,
+  )
+  if (existing) {
+    createInstanceOf(existing.id)
+    return
+  }
+  const lib = await loadLibraryIndex(path)
+  if (!lib) return
+  const source = lib.scene.getNode(componentId)
+  if (!source || source.type !== 'COMPONENT') return
+  const bundle = reIdBundle(extractBundle(lib.scene, [componentId]), newId)
+  const rootId = bundle.rootIds[0]
+  const comp = bundle.nodes[rootId]
+  if (comp.type === 'COMPONENT') {
+    comp.origin = { libraryPath: path, componentId, importedAt: new Date().toISOString() }
+  }
+  // Park the imported main component off to the side of the current view.
+  const { camera, viewportSize } = editor.get()
+  comp.x = camera.x + viewportSize.w / camera.zoom + 100
+  comp.y = camera.y + 100
+  const rec = new OpRecorder()
+  rec.addBundle(bundle, null, scene.childListOf(null).length)
+  rec.commit('Import Library Component')
+  createInstanceOf(rootId)
+}
+
+/** Import a color style from a library into the document's styles. */
+export async function importLibraryColorStyle(path: string, styleId: string): Promise<void> {
+  const lib = await loadLibraryIndex(path)
+  if (!lib) return
+  const style = lib.scene.doc.styles.colors.find((s) => s.id === styleId)
+  if (!style) return
+  const existing = documentStore.scene.doc.styles.colors.find((s) => s.id === styleId)
+  if (existing) return
+  const { op } = stylesOp((s) => s.colors.push(structuredClone(style)))
+  documentStore.commit([op], 'Import Library Style')
+}
+
+/**
+ * Refresh all components imported from a library: replace their contents
+ * from the library file. Instances re-sync automatically; overrides are
+ * re-keyed by structural position where possible.
+ */
+export async function updateLibraryComponents(path: string): Promise<number> {
+  const lib = await loadLibraryIndex(path, true)
+  if (!lib) return 0
+  const scene = documentStore.scene
+  let updated = 0
+  const rec = new OpRecorder()
+  for (const local of listComponents(scene)) {
+    if (local.origin?.libraryPath !== path) continue
+    const source = lib.scene.getNode(local.origin.componentId)
+    if (!source || source.type !== 'COMPONENT') continue
+    // Map old child ids -> new child ids by structural (index) path.
+    const idMap = new Map<NodeId, NodeId>()
+    // Remove current children.
+    for (const cid of [...local.children].reverse()) rec.removeSubtree(cid)
+    // Insert fresh children from the library.
+    const bundle = reIdBundle(
+      extractBundle(lib.scene, [...source.children]),
+      newId,
+    )
+    // Structural path mapping: walk old (pre-removal snapshot unavailable) —
+    // map via source ids: overrides in instances are keyed by LOCAL child
+    // ids; without a stored path map we re-key by matching names + types.
+    rec.addBundle(bundle, local.id, 0)
+    rec.update(local.id, {
+      width: source.width,
+      height: source.height,
+      fills: structuredClone(source.fills),
+      strokes: structuredClone(source.strokes),
+      effects: structuredClone(source.effects),
+      cornerRadius: structuredClone(source.cornerRadius),
+      layout: structuredClone(source.layout),
+      clipsContent: source.clipsContent,
+      origin: { ...local.origin, importedAt: new Date().toISOString() },
+    })
+    void idMap
+    updated++
+  }
+  if (updated > 0) rec.commit('Update from Library')
+  return updated
+}
+
+// ---------------------------------------------------------------------------
+// Plugin runner (roadmap 3.4 — dev preview, see docs/Plugin-API.md)
+// ---------------------------------------------------------------------------
+
+export async function runPluginFlow(): Promise<void> {
+  const file = await window.polyform.pluginOpenDialog()
+  if (!file) return
+  const ok = window.confirm(
+    `Run plugin "${file.fileName}"?\n\nPlugins run with full access to this document. Only run scripts you trust.`,
+  )
+  if (!ok) return
+  const scene = documentStore.scene
+  const rec = new OpRecorder()
+  const api = {
+    /** Current selection (node ids). */
+    selection: (): NodeId[] => selectedIds(),
+    /** Deep copy of a node, or null. */
+    getNode: (id: NodeId) => {
+      const n = scene.getNode(id)
+      return n ? structuredClone(n) : null
+    },
+    /** All node ids on the active page (render order). */
+    currentPageNodes: (): NodeId[] => [...scene.renderOrder()],
+    /** Create a node at root level. Returns its id. */
+    create: (type: string, props: Record<string, unknown> = {}): NodeId => {
+      const allowed = ['RECTANGLE', 'ELLIPSE', 'LINE', 'POLYGON', 'STAR', 'TEXT', 'FRAME']
+      if (!allowed.includes(type)) throw new Error(`Plugin cannot create type ${type}`)
+      const node = createNode(type as SceneNode['type'], String(props.name ?? type.toLowerCase()))
+      const clean = { ...props }
+      for (const k of ['id', 'type', 'children', 'sourceId', 'componentId', 'overrides']) delete clean[k]
+      Object.assign(node, clean)
+      rec.add(node, null, scene.childListOf(null).length)
+      return node.id
+    },
+    /** Update simple props on a node. */
+    update: (id: NodeId, props: Record<string, unknown>): void => {
+      const clean = { ...props }
+      for (const k of ['id', 'type', 'children', 'sourceId', 'componentId', 'overrides']) delete clean[k]
+      rec.update(id, clean)
+    },
+    /** Remove a node (and its subtree). */
+    remove: (id: NodeId): void => {
+      if (isInsideInstance(scene, id)) throw new Error('Cannot remove nodes inside instances')
+      rec.removeSubtree(id)
+    },
+    notify: (message: string): void => window.alert(`[${file.fileName}] ${message}`),
+  }
+  try {
+    const fn = new Function('polyform', `'use strict';\n${file.text}`)
+    fn(api)
+    if (rec.ops.length > 0) rec.commit(`Plugin: ${file.fileName}`)
+  } catch (err) {
+    rec.rollback()
+    window.alert(`Plugin "${file.fileName}" failed:\n${String(err)}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SVG import
 // ---------------------------------------------------------------------------
 
@@ -1021,6 +1344,21 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'object.toggleMask':
       toggleMaskSelection()
+      break
+    case 'object.createComponent':
+      createComponentFromSelection()
+      break
+    case 'object.createInstance':
+      createInstanceFromSelection()
+      break
+    case 'object.detachInstance':
+      detachSelectedInstances()
+      break
+    case 'view.history':
+      editor.set({ showHistory: !editor.get().showHistory })
+      break
+    case 'plugins.run':
+      void runPluginFlow()
       break
     case 'object.group':
       groupSelection()

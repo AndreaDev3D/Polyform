@@ -4,9 +4,11 @@
 
 import { useSyncExternalStore } from 'react'
 import { SceneGraph } from '../engine/scene'
-import { History, type PatchOp } from '../engine/commands'
+import { History, applyOps, type PatchOp } from '../engine/commands'
 import { SpatialIndex } from '../engine/spatial-index'
 import { runDerivedPasses } from '../engine/layout'
+import { ROOT_INHERITED_KEYS, sanitizeOverride } from '../engine/components'
+import type { NodeId, SceneNode } from '../engine/types'
 import { decodeScene, encodeScene } from '../engine/serialization'
 import { assetCache } from '../engine/assets'
 import { renderThumbnail } from '../engine/export/png'
@@ -59,7 +61,78 @@ class DocumentStore {
   /** Commit ops through history (applied=true when scene already mutated). */
   commit(ops: PatchOp[], label: string, applied = false): void {
     if (ops.length === 0) return
-    this.history.commit(this.scene, ops, label, applied)
+    if (!applied) applyOps(this.scene, ops)
+    // Edits inside instances also update the instance's override map so the
+    // change survives component re-syncs (same journal entry, same undo).
+    const extra = this.captureInstanceOverrides(ops)
+    this.history.commit(this.scene, extra.length > 0 ? [...ops, ...extra] : ops, label, true)
+    this.afterMutation()
+  }
+
+  private captureInstanceOverrides(ops: PatchOp[]): PatchOp[] {
+    const scene = this.scene
+    const touched = new Map<NodeId, Map<NodeId, Record<string, unknown>>>()
+    const record = (instId: NodeId, sourceId: NodeId, props: Record<string, unknown>) => {
+      if (Object.keys(props).length === 0) return
+      let m = touched.get(instId)
+      if (!m) {
+        m = new Map()
+        touched.set(instId, m)
+      }
+      m.set(sourceId, { ...(m.get(sourceId) ?? {}), ...structuredClone(props) })
+    }
+    for (const op of ops) {
+      if (op.kind !== 'update') continue
+      const node = scene.getNode(op.id)
+      if (!node) continue
+      if (node.type === 'INSTANCE' && node.componentId) {
+        // Direct edits of inherited root props become root overrides.
+        const rootProps: Record<string, unknown> = {}
+        for (const key of Object.keys(op.after)) {
+          if ((ROOT_INHERITED_KEYS as readonly string[]).includes(key)) rootProps[key] = op.after[key]
+        }
+        record(node.id, node.componentId, rootProps)
+      } else if (node.sourceId) {
+        let instId: NodeId | null = null
+        for (const aid of scene.ancestors(op.id)) {
+          if (scene.getNode(aid)?.type === 'INSTANCE') {
+            instId = aid
+            break
+          }
+        }
+        if (instId) record(instId, node.sourceId, sanitizeOverride(op.after))
+      }
+    }
+    const extra: PatchOp[] = []
+    for (const [instId, sources] of touched) {
+      const inst = scene.getNode(instId)
+      if (!inst || inst.type !== 'INSTANCE') continue
+      const before = structuredClone(inst.overrides ?? {})
+      const after = structuredClone(before)
+      for (const [sourceId, props] of sources) {
+        after[sourceId] = { ...(after[sourceId] ?? {}), ...props }
+      }
+      if (JSON.stringify(before) === JSON.stringify(after)) continue
+      scene.updateNode(instId, { overrides: after } as Partial<SceneNode>)
+      extra.push({
+        kind: 'update',
+        id: instId,
+        before: { overrides: before },
+        after: { overrides: structuredClone(after) },
+      })
+    }
+    return extra
+  }
+
+  /** Time travel: jump to a history position (0..applied+pending length). */
+  jumpTo(target: number): void {
+    let steps = 0
+    while (this.history.cursor > target && this.history.canUndo && steps++ < 10_000) {
+      this.history.undo(this.scene)
+    }
+    while (this.history.cursor < target && this.history.canRedo && steps++ < 10_000) {
+      this.history.redo(this.scene)
+    }
     this.afterMutation()
   }
 
@@ -117,7 +190,7 @@ class DocumentStore {
     // Restore session-spanning undo/redo from the SQLite journal.
     const entries = result.journal.entries.flatMap((e) => {
       try {
-        return [{ label: e.label, ops: JSON.parse(e.ops) as PatchOp[] }]
+        return [{ label: e.label, ops: JSON.parse(e.ops) as PatchOp[], at: e.created_at }]
       } catch {
         return []
       }

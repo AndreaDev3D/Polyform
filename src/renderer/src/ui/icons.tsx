@@ -195,6 +195,22 @@ export const VectorIcon = (p: P) => (
     <rect x="12.5" y="11" width="2.5" height="2.5" fill="currentColor" stroke="none" />
   </I>
 )
+export const ComponentIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 1.5L11 4.5 8 7.5 5 4.5zM11.5 8l3 3-3 3-3-3zM4.5 8l3 3-3 3-3-3zM8 8.5L11 11.5 8 14.5 5 11.5z" fill="currentColor" stroke="none" transform="scale(0.72) translate(3.1 3.1)" />
+  </I>
+)
+export const InstanceIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 2.5L13.5 8 8 13.5 2.5 8z" />
+  </I>
+)
+export const HistoryIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8.5" cy="8" r="5.5" />
+    <path d="M8.5 5v3l2.2 1.8M3 8H1m1.2-2.5L1 4.5m1.2 6L1 11.5" />
+  </I>
+)
 export const ImageIcon = (p: P) => (
   <I {...p}>
     <rect x="2" y="2.5" width="12" height="11" rx="1" />

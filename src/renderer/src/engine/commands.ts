@@ -197,6 +197,8 @@ export function reIdBundle(bundle: NodeBundle, makeId: () => NodeId): NodeBundle
 export interface HistoryEntry {
   label: string
   ops: PatchOp[]
+  /** ISO timestamp (from the journal for restored sessions). */
+  at?: string
 }
 
 export interface HistoryHooks {
@@ -240,11 +242,20 @@ export class History {
   commit(scene: SceneGraph, ops: PatchOp[], label: string, applied = false): void {
     if (ops.length === 0) return
     if (!applied) applyOps(scene, ops)
-    const entry: HistoryEntry = { label, ops }
+    const entry: HistoryEntry = { label, ops, at: new Date().toISOString() }
     this.undoStack.push(entry)
     this.redoStack = []
     this.hooks.onAppend?.(entry)
     this.hooks.onChange?.()
+  }
+
+  /** Read-only views for the history browser. */
+  entriesApplied(): readonly HistoryEntry[] {
+    return this.undoStack
+  }
+
+  entriesPending(): readonly HistoryEntry[] {
+    return [...this.redoStack].reverse()
   }
 
   undo(scene: SceneGraph): HistoryEntry | null {
@@ -268,7 +279,7 @@ export class History {
   }
 
   /** Restore stacks from a persisted journal (without touching the scene). */
-  load(entries: { label: string; ops: PatchOp[] }[], cursor: number): void {
+  load(entries: { label: string; ops: PatchOp[]; at?: string }[], cursor: number): void {
     const c = Math.max(0, Math.min(cursor, entries.length))
     this.undoStack = entries.slice(0, c)
     this.redoStack = entries.slice(c).reverse()

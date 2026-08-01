@@ -103,6 +103,11 @@ export type MenuActionId =
   | 'object.intersect'
   | 'object.exclude'
   | 'object.toggleMask'
+  | 'object.createComponent'
+  | 'object.createInstance'
+  | 'object.detachInstance'
+  | 'view.history'
+  | 'plugins.run'
   | 'help.about'
 
 export interface PolyformApi {
@@ -117,6 +122,12 @@ export interface PolyformApi {
   assetsImportDialog: () => Promise<ImportedAsset[] | null>
   assetsRead: (hash: string) => Promise<AssetData | null>
   svgImportDialog: () => Promise<{ fileName: string; text: string }[] | null>
+  /** Pick a .poly bundle to attach as a library. */
+  libraryPick: () => Promise<{ path: string; title: string } | null>
+  /** Read a library bundle's manifest + scene bytes. */
+  libraryRead: (path: string) => Promise<{ title: string; sceneBytes: Uint8Array; updatedAt: string } | null>
+  /** Pick and read a plugin script (.js). */
+  pluginOpenDialog: () => Promise<{ fileName: string; text: string } | null>
   exportSave: (defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => Promise<string | null>
   setDirty: (dirty: boolean) => void
   setTitle: (title: string) => void

@@ -3,7 +3,7 @@
 // the future Rust/WASM core will expose.
 
 import type { NodeId, Page, PolyformDocument, SceneNode } from './types'
-import { SCHEMA_VERSION, createPage, emptyStyles, isContainer } from './types'
+import { SCHEMA_VERSION, createPage, emptyStyles, isContainer, isFrameLike } from './types'
 import type { AABB, Mat } from './geometry'
 import {
   IDENTITY,
@@ -299,7 +299,7 @@ export class SceneGraph {
     }
 
     if (isContainer(node) && node.type !== 'BOOLEAN') {
-      const clips = node.type === 'FRAME' && node.clipsContent
+      const clips = isFrameLike(node) && node.clipsContent
       if (!clips) {
         for (const cid of node.children) {
           const child = this.getNode(cid)

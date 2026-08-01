@@ -4,7 +4,7 @@
 
 Polyform is a Figma-style design editor that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
-> Status: **v0.2.0** — "Editing Depth". Adds multi-page documents, a vector-edit mode, rulers + guides, masks, constraints, shared color/text styles, inner shadow + background blur, image crop/adjust, a gradient stop editor, equal-spacing snapping, and SVG import. See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
+> Status: **v0.3.0** — "Systems". Adds components & instances (with overrides, swap, detach), local-file libraries (attach any `.poly`, import components/styles), a version-history browser over the SQLite journal, and a plugin-API dev preview ([docs/Plugin-API.md](docs/Plugin-API.md)) — on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
 
 ## Highlights
 

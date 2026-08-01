@@ -5,14 +5,19 @@ import { useEditor } from '../state/editor'
 import {
   booleanSelection,
   copySelection,
+  createComponentFromSelection,
+  createInstanceFromSelection,
   deleteSelection,
+  detachSelectedInstances,
   duplicateSelection,
   frameSelection,
   groupSelection,
   paste,
   reorderSelection,
+  toggleMaskSelection,
   ungroupSelection,
 } from '../state/actions'
+import { documentStore } from '../state/document'
 
 interface Item {
   label: string
@@ -54,6 +59,19 @@ export function ContextMenu() {
     { label: 'Group Selection', shortcut: 'Ctrl+G', action: groupSelection, disabled: !multi },
     { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', action: ungroupSelection, disabled: !has },
     { label: 'Frame Selection', shortcut: 'Ctrl+Alt+G', action: frameSelection, disabled: !has, separatorAfter: true },
+    { label: 'Create Component', shortcut: 'Ctrl+Alt+K', action: createComponentFromSelection, disabled: !has },
+    {
+      label: 'Create Instance',
+      action: createInstanceFromSelection,
+      disabled: !selection.some((id) => documentStore.scene.getNode(id)?.type === 'COMPONENT'),
+    },
+    {
+      label: 'Detach Instance',
+      shortcut: 'Ctrl+Alt+B',
+      action: detachSelectedInstances,
+      disabled: !selection.some((id) => documentStore.scene.getNode(id)?.type === 'INSTANCE'),
+    },
+    { label: 'Use as Mask', shortcut: 'Ctrl+Alt+M', action: toggleMaskSelection, disabled: !has, separatorAfter: true },
     { label: 'Bring to Front', shortcut: 'Ctrl+Shift+]', action: () => reorderSelection('front'), disabled: !has },
     { label: 'Bring Forward', shortcut: 'Ctrl+]', action: () => reorderSelection('forward'), disabled: !has },
     { label: 'Send Backward', shortcut: 'Ctrl+[', action: () => reorderSelection('backward'), disabled: !has },

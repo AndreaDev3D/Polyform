@@ -206,6 +206,8 @@ export function nodeOutline(node: SceneNode): SubPath[] {
     case 'RECTANGLE':
       return [roundedRectPath(node.width, node.height, node.cornerRadius)]
     case 'FRAME':
+    case 'COMPONENT':
+    case 'INSTANCE':
       return [roundedRectPath(node.width, node.height, node.cornerRadius)]
     case 'ELLIPSE':
       return [ellipsePath(node.width, node.height)]

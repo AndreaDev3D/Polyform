@@ -12,6 +12,7 @@ import type {
   FrameNode,
   GradientPaint,
   ImagePaint,
+  InstanceNode,
   NodeId,
   Paint,
   RGBA,
@@ -28,16 +29,21 @@ import {
   createColorStyle,
   createTextStyle,
   deleteSharedStyle,
+  detachSelectedInstances,
   detachStyle,
   distributeSelection,
   exportSelection,
   renameSharedStyle,
+  resetInstanceOverrides,
   selectedIds,
   setSelectionSize,
+  swapInstanceComponent,
   toggleMaskSelection,
   updateColorStyle,
   updateSelectedNodes,
 } from '../state/actions'
+import { listComponents } from '../engine/components'
+import { ComponentIcon } from './icons'
 import type { PatchOp } from '../engine/commands'
 import { NumberInput, Section, Segmented, Select, round } from './components'
 import { ColorPicker } from './ColorPicker'
@@ -197,7 +203,8 @@ export function Inspector() {
 
   // ------------------------------------------------------------------
 
-  const isFrame = nodes.every((n) => n.type === 'FRAME')
+  const isFrame = nodes.every((n) => n.type === 'FRAME' || n.type === 'COMPONENT')
+  const isInstance = nodes.length === 1 && first.type === 'INSTANCE'
   const hasCorner = nodes.every((n) => n.type === 'RECTANGLE' || n.type === 'FRAME')
   const isText = nodes.every((n) => n.type === 'TEXT')
   const isBool = nodes.every((n) => n.type === 'BOOLEAN')
@@ -285,11 +292,21 @@ export function Inspector() {
         )}
       </Section>
 
+      {/* Instance */}
+      {isInstance && first.type === 'INSTANCE' && (
+        <Section title="Instance">
+          <InstanceSection instance={first} />
+        </Section>
+      )}
+
       {/* Constraints (children of plain frames) */}
       {nodes.every((n) => {
         const p = scene.parentOf(n.id)
         const parent = p && !scene.isPage(p) ? scene.getNode(p) : null
-        return parent?.type === 'FRAME' && parent.layout.mode === 'NONE'
+        return (
+          (parent?.type === 'FRAME' || parent?.type === 'COMPONENT' || parent?.type === 'INSTANCE') &&
+          parent.layout.mode === 'NONE'
+        )
       }) && (
         <Section title="Constraints">
           <div className="grid grid-cols-2 gap-2">
@@ -832,6 +849,48 @@ function GradientStopsBar({
           onPointerDown={(e) => dragStop(e, si)}
         />
       ))}
+    </div>
+  )
+}
+
+/** Instance controls: component link, swap, reset overrides, detach. */
+function InstanceSection({ instance }: { instance: InstanceNode }) {
+  const scene = documentStore.scene
+  const comp = instance.componentId ? scene.getNode(instance.componentId) : null
+  const components = listComponents(scene)
+  const overrideCount = Object.keys(instance.overrides ?? {}).length
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-[#a78bfa]">
+          <ComponentIcon width={12} height={12} />
+        </span>
+        <span className="flex-1 truncate text-[11px]">
+          {comp ? comp.name : '⚠ component missing (kept as-is)'}
+        </span>
+      </div>
+      {components.length > 0 && (
+        <Select
+          value={comp ? instance.componentId : ''}
+          options={components.map((c) => ({ value: c.id, label: c.name }))}
+          onChange={(id) => swapInstanceComponent(instance.id, id)}
+          className="mb-2"
+        />
+      )}
+      <div className="flex gap-1.5">
+        <button
+          className="pf-btn flex-1 bg-[var(--pf-bg-3)] text-[10px]"
+          disabled={overrideCount === 0}
+          style={{ opacity: overrideCount === 0 ? 0.5 : 1 }}
+          title={`${overrideCount} overridden layer(s)`}
+          onClick={() => resetInstanceOverrides()}
+        >
+          Reset overrides{overrideCount > 0 ? ` (${overrideCount})` : ''}
+        </button>
+        <button className="pf-btn flex-1 bg-[var(--pf-bg-3)] text-[10px]" onClick={() => detachSelectedInstances()}>
+          Detach
+        </button>
+      </div>
     </div>
   )
 }

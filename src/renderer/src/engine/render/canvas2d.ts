@@ -407,7 +407,9 @@ function drawNode(
   applyEffectsBeforeDraw(ctx, node, deviceScale, paintsSelf)
 
   switch (node.type) {
-    case 'FRAME': {
+    case 'FRAME':
+    case 'COMPONENT':
+    case 'INSTANCE': {
       const path = subPathsToPath2D(nodeOutline(node))
       applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
       fillPath(ctx, node, path, 'nonzero', opts.assets)

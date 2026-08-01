@@ -13,6 +13,7 @@ import { CanvasView } from './CanvasView'
 import { StatusBar } from './StatusBar'
 import { WelcomeScreen } from './WelcomeScreen'
 import { ContextMenu } from './ContextMenu'
+import { HistoryModal } from './HistoryModal'
 
 export function App() {
   const hasProject = useEditor((s) => s.hasProject)
@@ -59,6 +60,7 @@ export function App() {
       </div>
       <StatusBar />
       <ContextMenu />
+      <HistoryModal />
     </div>
   )
 }

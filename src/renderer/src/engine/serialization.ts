@@ -75,6 +75,9 @@ export function migrateDocument(doc: PolyformDocument & { rootIds?: NodeId[] }):
   if (!Array.isArray(doc.styles.colors)) doc.styles.colors = []
   if (!Array.isArray(doc.styles.texts)) doc.styles.texts = []
   if (!Array.isArray(doc.styles.effects)) doc.styles.effects = []
+  // v3: attached libraries (optional) + component/instance node types (new
+  // fields are optional, so v2 documents need no per-node rewriting).
+  if (!Array.isArray(doc.libraries)) doc.libraries = []
   doc.schemaVersion = SCHEMA_VERSION
   return doc
 }

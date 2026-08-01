@@ -25,15 +25,15 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 5 | 4 | 1 | 23 |
 | [Text & Typography](#text--typography) | 10 | 1 | 7 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
-| [Components, Styles & Libraries](#components-styles--libraries) | 1 | 2 | 7 | 2 | 12 |
+| [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
 | [Export & Import](#export--import) | 4 | 1 | 6 | 0 | 11 |
-| [Files, Data & History](#files-data--history) | 11 | 1 | 2 | 2 | 16 |
+| [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 1 | 4 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
-| [Extensibility](#extensibility) | 1 | 0 | 2 | 4 | 7 |
-| **Total** | **121** | **20** | **66** | **24** | **231** |
+| [Extensibility](#extensibility) | 1 | 1 | 1 | 4 | 7 |
+| **Total** | **125** | **22** | **61** | **23** | **231** |
 
 ---
 
@@ -226,17 +226,17 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
-| Components | Reusable master elements | 📋 | Top of the post-v0.1 roadmap |
-| Variants | Grouped component permutations | 📋 | |
-| Instances & overrides | Linked copies with local overrides | 📋 | |
-| Instance swapping | Swap an instance for another component | 📋 | |
+| Components | Reusable master elements | ✅ | Ctrl+Alt+K from selection (or converts a frame in place) |
+| Variants | Grouped component permutations | 📋 | Instance swapping shipped as the interim mechanism |
+| Instances & overrides | Linked copies with local overrides | ✅ | Materialized instances auto-sync; edits journal as overrides; reset/detach per instance |
+| Instance swapping | Swap an instance for another component | ✅ | Inspector dropdown |
 | Component properties | Boolean/text/swap props on components | 📋 | |
 | Color styles | Named, reusable color tokens | ✅ | Create/apply/detach; editing propagates to referencing layers |
 | Text styles | Named, reusable typography sets | 🟡 | Create/apply/detach/rename; property re-editing via recreate |
 | Effect styles | Named, reusable effect stacks | 🟡 | Apply-by-reference API shipped; no dedicated management UI yet |
 | Grid styles | Named, reusable layout grids | 📋 | Depends on layout grids |
 | Variables / design tokens | Modes, aliases, token-driven values | 📋 | |
-| Team libraries | Publish libraries across an organization | ❌ | Single-user product; no org infrastructure |
+| Team libraries | Publish libraries across an organization | 🟡 | Local-first flavor: attach any .poly as a library, import components/styles, manual update pull |
 | Library publish & update flow | Push/accept library updates across files | ❌ | Same rationale |
 
 ## Prototyping
@@ -282,7 +282,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | File thumbnails | Auto-generated document previews | ✅ | Thumbnail written into the bundle |
 | Unlimited undo / redo | Deep undo stack per session | ✅ | Unlimited, command/PatchOp based |
 | History survives restart | Undo history lost when the tab closes | ✅ | Polyform exceeds Figma: disk-backed SQLite journal spans sessions |
-| Version history browsing | Timeline UI of past document states | 📋 | Journal is already on disk; browsing UI planned |
+| Version history browsing | Timeline UI of past document states | ✅ | Ctrl+Alt+H: journal timeline, jump anywhere, Save As to fork |
 | Named versions | Manually titled checkpoints | 📋 | |
 | Binary scene serialization | Proprietary binary format | 🟡 | MessagePack envelope (`PFRM1` + schemaVersion) today; FlatBuffers per `docs/schema.fbs` is the target once flatc codegen lands |
 | Durable history journal | Server-side operation log | ✅ | Real SQLite file via sql.js WASM — zero native dependencies |
@@ -340,7 +340,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
-| Plugin API | JS plugin runtime with typed API | 📋 | |
+| Plugin API | JS plugin runtime with typed API | 🟡 | Dev-preview script runner + design doc (docs/Plugin-API.md); sandboxed API post-1.0 |
 | Widget API | Interactive collaborative canvas objects | ❌ | Built for multiplayer canvases |
 | REST API | Cloud API for files, nodes, images | ❌ | No cloud service; the file format is the API |
 | Webhooks | Server-side event notifications | ❌ | No server |

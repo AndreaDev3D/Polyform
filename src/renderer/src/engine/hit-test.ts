@@ -53,7 +53,9 @@ export function preciseHit(scene: SceneGraph, id: NodeId, worldPt: Vec2, tolWorl
 
   switch (node.type) {
     case 'RECTANGLE':
-    case 'FRAME': {
+    case 'FRAME':
+    case 'COMPONENT':
+    case 'INSTANCE': {
       const inside = pointInRoundedRect(p, node.width, node.height, node.cornerRadius)
       if (hasFill && inside) return true
       // Border proximity (frames without fill are pickable by their border).
@@ -116,6 +118,19 @@ function eligible(scene: SceneGraph, id: NodeId, opts: HitOptions): boolean {
   return true
 }
 
+/** True when any ancestor of the node is an INSTANCE (structurally locked). */
+export function isInsideInstance(scene: SceneGraph, id: NodeId): boolean {
+  return nearestInstanceAncestor(scene, id) !== null
+}
+
+/** The closest INSTANCE ancestor of a node, or null. */
+export function nearestInstanceAncestor(scene: SceneGraph, id: NodeId): NodeId | null {
+  for (const aid of scene.ancestors(id)) {
+    if (scene.getNode(aid)?.type === 'INSTANCE') return aid
+  }
+  return null
+}
+
 /** All nodes under a world point, topmost first. */
 export function hitTestAll(scene: SceneGraph, index: SpatialIndex, worldPt: Vec2, opts: HitOptions): NodeId[] {
   index.sync(scene)
@@ -170,7 +185,7 @@ export function nodesInRect(scene: SceneGraph, index: SpatialIndex, rect: AABB, 
     const node = scene.getNode(id)
     if (!node) continue
     const box = scene.worldAABB(id)
-    if (node.type === 'FRAME') {
+    if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE') {
       if (aabbContainsAABB(rect, box)) out.push(id)
       else {
         // Otherwise select enclosed/intersecting children of the frame.
@@ -188,8 +203,9 @@ export function nodesInRect(scene: SceneGraph, index: SpatialIndex, rect: AABB, 
 }
 
 /**
- * Topmost frame containing a world point — used as the drop target when
- * drawing/pasting/dragging nodes. Excludes `exclude` subtrees.
+ * Topmost frame (or component) containing a world point — the drop target
+ * when drawing/pasting/dragging nodes. Instances are structurally locked and
+ * never accept drops. Excludes `exclude` subtrees.
  */
 export function findDropFrame(scene: SceneGraph, index: SpatialIndex, worldPt: Vec2, exclude?: Set<NodeId>): NodeId | null {
   index.sync(scene)
@@ -198,7 +214,8 @@ export function findDropFrame(scene: SceneGraph, index: SpatialIndex, worldPt: V
     .searchPoint(worldPt.x, worldPt.y, 0)
     .filter((id) => {
       const node = scene.getNode(id)
-      if (!node || node.type !== 'FRAME' || node.locked) return false
+      if (!node || (node.type !== 'FRAME' && node.type !== 'COMPONENT') || node.locked) return false
+      if (isInsideInstance(scene, id)) return false
       if (exclude?.has(id)) return false
       if (exclude && [...exclude].some((e) => scene.isAncestorOf(e, id) || e === id)) return false
       const inv = matInvert(scene.worldMatrix(id))

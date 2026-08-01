@@ -219,6 +219,54 @@ function registerIpc(): void {
     return result.filePath
   })
 
+  ipcMain.handle('library:pick', async () => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Attach Library (.poly folder)',
+      defaultPath: app.getPath('documents'),
+      properties: ['openDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const libPath = result.filePaths[0]
+    try {
+      const manifest = JSON.parse(await fs.readFile(path.join(libPath, 'manifest.json'), 'utf-8'))
+      return { path: libPath, title: String(manifest.title ?? path.basename(libPath)) }
+    } catch {
+      dialog.showErrorBox('Not a Polyform project', `No manifest.json found in:\n${libPath}`)
+      return null
+    }
+  })
+
+  ipcMain.handle('library:read', async (_e, libPath: string) => {
+    try {
+      const manifest = JSON.parse(await fs.readFile(path.join(libPath, 'manifest.json'), 'utf-8'))
+      const sceneBytes = new Uint8Array(await fs.readFile(path.join(libPath, 'scene.bin')))
+      return {
+        title: String(manifest.title ?? path.basename(libPath)),
+        sceneBytes,
+        updatedAt: String(manifest.updated_at ?? ''),
+      }
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle('plugins:openDialog', async () => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Run Plugin Script',
+      filters: [{ name: 'JavaScript', extensions: ['js', 'mjs'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    try {
+      const text = await fs.readFile(result.filePaths[0], 'utf-8')
+      return { fileName: path.basename(result.filePaths[0]), text }
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.on('app:set-dirty', (_e, dirty: boolean) => {
     isDirty = dirty
     refreshTitle()

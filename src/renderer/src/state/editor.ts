@@ -46,6 +46,10 @@ interface EditorState {
   vectorEditId: NodeId | null
   /** Selected vertex ids within vector edit mode. */
   vectorSelection: number[]
+  /** Version-history browser visibility. */
+  showHistory: boolean
+  /** Left panel tab. */
+  leftTab: 'layers' | 'assets'
 
   setTool: (tool: Tool) => void
   setSelection: (ids: NodeId[]) => void
@@ -65,6 +69,8 @@ interface EditorState {
   setShowRulers: (v: boolean) => void
   setVectorEditId: (id: NodeId | null) => void
   setVectorSelection: (ids: number[]) => void
+  setShowHistory: (v: boolean) => void
+  setLeftTab: (t: 'layers' | 'assets') => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -86,6 +92,8 @@ export const useEditor = create<EditorState>((set) => ({
   showRulers: true,
   vectorEditId: null,
   vectorSelection: [],
+  showHistory: false,
+  leftTab: 'layers' as const,
 
   setTool: (tool) => set({ tool, penDraft: null, contextMenu: null }),
   setSelection: (selection) => set({ selection }),
@@ -105,6 +113,8 @@ export const useEditor = create<EditorState>((set) => ({
   setShowRulers: (showRulers) => set({ showRulers }),
   setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [] }),
   setVectorSelection: (vectorSelection) => set({ vectorSelection }),
+  setShowHistory: (showHistory) => set({ showHistory }),
+  setLeftTab: (leftTab) => set({ leftTab }),
 }))
 
 /** Imperative accessors for non-React interaction code. */

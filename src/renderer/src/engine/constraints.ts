@@ -2,7 +2,8 @@
 // frame changes size (Technical spec "Auto-Layout & Constraints").
 // Applied only to frames WITHOUT auto-layout (the layout pass owns those).
 
-import type { FrameNode, NodeId, SceneNode } from './types'
+import type { FrameLikeNode, NodeId, SceneNode } from './types'
+import { isFrameLike } from './types'
 import type { SceneGraph } from './scene'
 
 export interface ChildRect {
@@ -74,7 +75,7 @@ export function constrainChild(
  */
 export function constrainFrameChildren(
   scene: SceneGraph,
-  frame: FrameNode,
+  frame: FrameLikeNode,
   snap: (id: NodeId) => ChildRect | null,
   oldW: number,
   oldH: number,
@@ -86,7 +87,7 @@ export function constrainFrameChildren(
     const s = snap(cid)
     if (!s) continue
     constrainChild(child, s, oldW, oldH, frame.width, frame.height)
-    if (child.type === 'FRAME' && (child.width !== s.width || child.height !== s.height)) {
+    if (isFrameLike(child) && (child.width !== s.width || child.height !== s.height)) {
       constrainFrameChildren(scene, child, snap, s.width, s.height)
     }
   }

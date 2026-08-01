@@ -58,10 +58,15 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         // registerAccelerator: false — bare Shift+R would steal 'R' from text
         // fields; the renderer handles it with a focus guard.
         { label: 'Toggle Rulers', accelerator: 'Shift+R', registerAccelerator: false, click: () => send('view.toggleRulers') },
+        { label: 'Version History', accelerator: 'CmdOrCtrl+Alt+H', click: () => send('view.history') },
         { type: 'separator' },
         { role: 'toggleDevTools' },
         { role: 'togglefullscreen' },
       ],
+    },
+    {
+      label: '&Plugins',
+      submenu: [{ label: 'Run Plugin Script…', click: () => send('plugins.run') }],
     },
     {
       label: '&Object',
@@ -76,6 +81,10 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         { label: 'Send to Back', accelerator: 'CmdOrCtrl+Shift+[', click: () => send('object.sendToBack') },
         { type: 'separator' },
         { label: 'Use as Mask', accelerator: 'CmdOrCtrl+Alt+M', click: () => send('object.toggleMask') },
+        { type: 'separator' },
+        { label: 'Create Component', accelerator: 'CmdOrCtrl+Alt+K', click: () => send('object.createComponent') },
+        { label: 'Create Instance', click: () => send('object.createInstance') },
+        { label: 'Detach Instance', accelerator: 'CmdOrCtrl+Alt+B', click: () => send('object.detachInstance') },
         { type: 'separator' },
         { label: 'Boolean Union', click: () => send('object.union') },
         { label: 'Boolean Subtract', click: () => send('object.subtract') },

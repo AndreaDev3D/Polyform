@@ -102,6 +102,8 @@ Goal: close the biggest day-to-day editing gaps against Figma for a single desig
 
 ## v0.3 — Systems
 
+> **Status: shipped in v0.3.0.** Notes: 3.1 shipped as materialized instances with journaled overrides, swap and detach — variant property groups remain 📋 (instance swap is the interim mechanism); 3.2 libraries are import-on-use with a manual update pull (no file watching); 3.3 shipped as the journal timeline (fork via Save As rather than restore-as-copy); 3.4 shipped as the dev-preview runner + design doc.
+
 Goal: design-systems features — reuse, libraries, and history you can see. Still on the TypeScript engine.
 
 | # | Item | Effort | Depends on | Notes |

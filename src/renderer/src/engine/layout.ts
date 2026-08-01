@@ -3,12 +3,13 @@
 // bounds normalization. These are deterministic recomputations — they mutate
 // the scene directly and never enter the undo journal.
 
-import type { FrameNode, NodeId, SceneNode } from './types'
-import { isContainer } from './types'
+import type { FrameLikeNode, NodeId, SceneNode } from './types'
+import { isContainer, isFrameLike } from './types'
 import type { SceneGraph } from './scene'
 import { aabbOfPoints, applyMat, nodeLocalMatrix } from './geometry'
 import { layoutText } from './text'
 import { booleanRings } from './booleans'
+import { collectGarbage, syncInstances } from './components'
 
 const EPS = 0.01
 
@@ -37,7 +38,7 @@ function autoResizeText(scene: SceneGraph): boolean {
   return changed
 }
 
-function layoutFrame(scene: SceneGraph, frame: FrameNode): boolean {
+function layoutFrame(scene: SceneGraph, frame: FrameLikeNode): boolean {
   const l = frame.layout
   if (l.mode === 'NONE') return false
   let changed = false
@@ -172,7 +173,7 @@ function layoutFrames(scene: SceneGraph, id: NodeId): boolean {
   if (isContainer(node)) {
     for (const cid of node.children) changed = layoutFrames(scene, cid) || changed
   }
-  if (node.type === 'FRAME') changed = layoutFrame(scene, node) || changed
+  if (isFrameLike(node)) changed = layoutFrame(scene, node) || changed
   return changed
 }
 
@@ -182,8 +183,9 @@ function layoutFrames(scene: SceneGraph, id: NodeId): boolean {
  */
 export function runDerivedPasses(scene: SceneGraph): boolean {
   let changedAny = false
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     let changed = false
+    changed = syncInstances(scene) || changed
     changed = autoResizeText(scene) || changed
     for (const rid of scene.rootIds()) changed = layoutFrames(scene, rid) || changed
     for (const rid of scene.rootIds()) changed = normalizeContainers(scene, rid) || changed
@@ -193,6 +195,10 @@ export function runDerivedPasses(scene: SceneGraph): boolean {
     } else {
       break
     }
+  }
+  if (collectGarbage(scene)) {
+    scene.bump()
+    changedAny = true
   }
   return changedAny
 }

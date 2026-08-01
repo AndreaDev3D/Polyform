@@ -6,7 +6,7 @@ import { migrateDocument } from './serialization'
 import { applyOp, invertOp, type PatchOp } from './commands'
 import { constrainChild, constrainFrameChildren } from './constraints'
 import { parsePathData } from './import/svg-import'
-import { createNode, createPage, type FrameNode, type PolyformDocument, type NodeId } from './types'
+import { SCHEMA_VERSION, createNode, createPage, type FrameNode, type PolyformDocument, type NodeId } from './types'
 import { IDENTITY } from './geometry'
 
 describe('schema migration v1 -> v2', () => {
@@ -18,7 +18,7 @@ describe('schema migration v1 -> v2', () => {
       rootIds: [rect.id],
     } as unknown as PolyformDocument & { rootIds?: NodeId[] }
     const doc = migrateDocument(v1)
-    expect(doc.schemaVersion).toBe(2)
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION)
     expect(doc.pages).toHaveLength(1)
     expect(doc.pages[0].rootIds).toEqual([rect.id])
     expect(doc.activePageId).toBe(doc.pages[0].id)

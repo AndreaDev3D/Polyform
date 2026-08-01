@@ -25,8 +25,12 @@ import {
   TypeIcon,
   VectorIcon,
   BoolUnionIcon,
+  ComponentIcon,
+  InstanceIcon,
   PlusIcon,
 } from './icons'
+import { isInsideInstance } from '../engine/hit-test'
+import { AssetsPanel } from './AssetsPanel'
 
 function PagesSection() {
   useDocVersion()
@@ -114,6 +118,10 @@ function typeIcon(node: SceneNode) {
       return <VectorIcon width={12} height={12} />
     case 'TEXT':
       return <TypeIcon width={12} height={12} />
+    case 'COMPONENT':
+      return <ComponentIcon width={12} height={12} />
+    case 'INSTANCE':
+      return <InstanceIcon width={12} height={12} />
   }
 }
 
@@ -130,9 +138,30 @@ interface RowInfo {
   depth: number
 }
 
+function LeftTabs() {
+  const leftTab = useEditor((s) => s.leftTab)
+  const setLeftTab = useEditor((s) => s.setLeftTab)
+  return (
+    <div className="flex border-b border-[var(--pf-border)]">
+      {(['layers', 'assets'] as const).map((tab) => (
+        <button
+          key={tab}
+          className={`flex-1 py-2 text-[11px] font-semibold capitalize ${
+            leftTab === tab ? 'text-white border-b-2 border-[var(--pf-accent)]' : 'text-[var(--pf-text-dim)]'
+          }`}
+          onClick={() => setLeftTab(tab)}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function LayersPanel() {
   useDocVersion()
   const selection = useEditor((s) => s.selection)
+  const leftTab = useEditor((s) => s.leftTab)
   const [collapsed, setCollapsed] = useState<Set<NodeId>>(new Set())
   const [renaming, setRenaming] = useState<NodeId | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
@@ -214,6 +243,17 @@ export function LayersPanel() {
 
   const endDrag = () => {
     if (drag?.active && drag.target) {
+      // Structural moves in/out of instances are locked.
+      const blocked =
+        drag.ids.some((id) => isInsideInstance(scene, id)) ||
+        (drag.target.parentId !== null &&
+          !scene.isPage(drag.target.parentId) &&
+          (scene.getNode(drag.target.parentId)?.type === 'INSTANCE' ||
+            isInsideInstance(scene, drag.target.parentId)))
+      if (blocked) {
+        setDrag(null)
+        return
+      }
       const rec = new OpRecorder()
       const { parentId, index } = drag.target
       let insertAt = index
@@ -254,12 +294,20 @@ export function LayersPanel() {
     setDrag(null)
   }
 
+  if (leftTab === 'assets') {
+    return (
+      <div className="w-64 shrink-0 flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]">
+        <PagesSection />
+        <LeftTabs />
+        <AssetsPanel />
+      </div>
+    )
+  }
+
   return (
     <div className="w-64 shrink-0 flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]">
       <PagesSection />
-      <div className="px-3 py-2 text-[11px] font-semibold border-b border-[var(--pf-border)] text-[var(--pf-text)]">
-        Layers
-      </div>
+      <LeftTabs />
       <div ref={listRef} className="flex-1 overflow-y-auto py-1" onPointerUp={endDrag}>
         {rows.length === 0 && (
           <div className="px-3 py-4 text-[11px] text-[var(--pf-text-dim)]">
@@ -314,7 +362,17 @@ export function LayersPanel() {
                   onPointerDown={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span className={`flex-1 truncate text-[11px] ${selected ? 'text-white' : ''}`}>{node.name}</span>
+                <span
+                  className={`flex-1 truncate text-[11px] ${
+                    node.type === 'COMPONENT' || node.type === 'INSTANCE'
+                      ? 'text-[#a78bfa]'
+                      : selected
+                        ? 'text-white'
+                        : ''
+                  }`}
+                >
+                  {node.name}
+                </span>
               )}
               <span className="hidden group-hover:flex items-center gap-0.5">
                 <button

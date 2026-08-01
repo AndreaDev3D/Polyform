@@ -14,6 +14,7 @@ export const RULER_SIZE = 20
 const ACCENT = '#4f9eff'
 const ACCENT_DIM = 'rgba(79, 158, 255, 0.9)'
 const GUIDE_COLOR = '#67b8ff'
+const COMPONENT_COLOR = '#a78bfa'
 
 export function worldToScreen(camera: Camera, p: Vec2): Vec2 {
   return { x: (p.x - camera.x) * camera.zoom, y: (p.y - camera.y) * camera.zoom }
@@ -188,18 +189,22 @@ export interface FrameLabel {
   y: number
   width: number
   height: number
+  /** Components/instances get the purple treatment. */
+  isComponent: boolean
 }
 
-/** Screen-space name labels for root-level frames. */
+/** Screen-space name labels for root-level frames/components/instances. */
 export function frameLabels(scene: SceneGraph, camera: Camera, ctx?: CanvasRenderingContext2D): FrameLabel[] {
   const labels: FrameLabel[] = []
   for (const id of scene.rootIds()) {
     const node = scene.getNode(id)
-    if (!node || node.type !== 'FRAME' || !node.visible) continue
+    if (!node || !node.visible) continue
+    if (node.type !== 'FRAME' && node.type !== 'COMPONENT' && node.type !== 'INSTANCE') continue
     const p = worldToScreen(camera, { x: node.x, y: node.y })
-    const text = node.name
+    const isComponent = node.type !== 'FRAME'
+    const text = (isComponent ? '◈ ' : '') + node.name
     const width = ctx ? ctx.measureText(text).width : text.length * 6
-    labels.push({ id, text, x: p.x, y: p.y - 8, width: Math.min(width, 240), height: 12 })
+    labels.push({ id, text, x: p.x, y: p.y - 8, width: Math.min(width, 240), height: 12, isComponent })
   }
   return labels
 }
@@ -212,7 +217,13 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
   ctx.font = '11px "Segoe UI", system-ui, sans-serif'
   ctx.textBaseline = 'alphabetic'
   for (const label of frameLabels(scene, camera, ctx)) {
-    ctx.fillStyle = state.selection.includes(label.id) ? ACCENT : '#9a9a9a'
+    ctx.fillStyle = state.selection.includes(label.id)
+      ? label.isComponent
+        ? COMPONENT_COLOR
+        : ACCENT
+      : label.isComponent
+        ? 'rgba(167, 139, 250, 0.85)'
+        : '#9a9a9a'
     ctx.fillText(label.text, label.x, label.y - 2, 240)
   }
 
