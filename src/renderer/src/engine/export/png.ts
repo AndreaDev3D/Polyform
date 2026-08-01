@@ -28,7 +28,7 @@ export async function renderThumbnail(
   assets: AssetCache,
   maxSize = 512,
 ): Promise<Uint8Array | null> {
-  const ids = scene.doc.rootIds.filter((id) => scene.getNode(id)?.visible)
+  const ids = scene.rootIds().filter((id) => scene.getNode(id)?.visible)
   if (ids.length === 0) return null
   const box = scene.documentAABB()
   const w = box.maxX - box.minX

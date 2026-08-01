@@ -13,13 +13,13 @@ describe('SceneGraph', () => {
     scene.addNode(a, null, 1)
     scene.addNode(b, frame.id, 0)
 
-    expect(scene.doc.rootIds).toEqual([frame.id, a.id])
+    expect(scene.rootIds()).toEqual([frame.id, a.id])
     expect(scene.parentOf(b.id)).toBe(frame.id)
     expect(scene.indexInParent(a.id)).toBe(1)
 
     scene.moveNode(a.id, frame.id, 1)
     expect(frame.children).toEqual([b.id, a.id])
-    expect(scene.doc.rootIds).toEqual([frame.id])
+    expect(scene.rootIds()).toEqual([frame.id])
     expect(scene.isAncestorOf(frame.id, a.id)).toBe(true)
     expect(scene.topLevelAncestor(a.id)).toBe(frame.id)
   })

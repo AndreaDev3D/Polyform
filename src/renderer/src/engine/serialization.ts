@@ -3,8 +3,8 @@
 // format once flatc codegen is wired into the build (see ADR-004).
 
 import { decode, encode } from '@msgpack/msgpack'
-import type { PolyformDocument } from './types'
-import { SCHEMA_VERSION } from './types'
+import type { NodeId, PolyformDocument } from './types'
+import { SCHEMA_VERSION, createPage, emptyStyles } from './types'
 
 const MAGIC = [0x50, 0x46, 0x52, 0x4d] // "PFRM"
 const FORMAT_MSGPACK = 1
@@ -45,11 +45,36 @@ export function decodeScene(bytes: Uint8Array): PolyformDocument {
       `Project schema v${version} is newer than this build supports (v${SCHEMA_VERSION})`,
     )
   }
-  // Migration hook: schema upgrades will run here as `version` diverges.
   const doc = payload.doc
-  if (!doc.nodes || !Array.isArray(doc.rootIds)) {
-    throw new SceneDecodeError('scene.bin document is missing nodes/rootIds')
+  if (!doc.nodes) {
+    throw new SceneDecodeError('scene.bin document is missing nodes')
   }
+  return migrateDocument(doc as PolyformDocument & { rootIds?: NodeId[] })
+}
+
+/**
+ * Upgrade any older document shape to the current schema in place.
+ * v1 -> v2: single implicit page becomes pages[]; styles added.
+ */
+export function migrateDocument(doc: PolyformDocument & { rootIds?: NodeId[] }): PolyformDocument {
+  if (!Array.isArray(doc.pages) || doc.pages.length === 0) {
+    const page = createPage('Page 1')
+    page.rootIds = Array.isArray(doc.rootIds) ? doc.rootIds : []
+    doc.pages = [page]
+    doc.activePageId = page.id
+    delete doc.rootIds
+  }
+  for (const page of doc.pages) {
+    if (!Array.isArray(page.rootIds)) page.rootIds = []
+    if (!Array.isArray(page.guides)) page.guides = []
+  }
+  if (!doc.activePageId || !doc.pages.some((p) => p.id === doc.activePageId)) {
+    doc.activePageId = doc.pages[0].id
+  }
+  if (!doc.styles) doc.styles = emptyStyles()
+  if (!Array.isArray(doc.styles.colors)) doc.styles.colors = []
+  if (!Array.isArray(doc.styles.texts)) doc.styles.texts = []
+  if (!Array.isArray(doc.styles.effects)) doc.styles.effects = []
   doc.schemaVersion = SCHEMA_VERSION
   return doc
 }

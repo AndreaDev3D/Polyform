@@ -2,8 +2,8 @@
 // subscribes to a version counter (see state/document.ts). API mirrors what
 // the future Rust/WASM core will expose.
 
-import type { NodeId, PolyformDocument, SceneNode } from './types'
-import { SCHEMA_VERSION, isContainer } from './types'
+import type { NodeId, Page, PolyformDocument, SceneNode } from './types'
+import { SCHEMA_VERSION, createPage, emptyStyles, isContainer } from './types'
 import type { AABB, Mat } from './geometry'
 import {
   IDENTITY,
@@ -29,8 +29,49 @@ export class SceneGraph {
   private zRankCache: Map<NodeId, number> | null = null
 
   constructor(doc?: PolyformDocument) {
-    this.doc = doc ?? { schemaVersion: SCHEMA_VERSION, nodes: {}, rootIds: [] }
+    if (doc) {
+      this.doc = doc
+    } else {
+      const page = createPage('Page 1')
+      this.doc = {
+        schemaVersion: SCHEMA_VERSION,
+        nodes: {},
+        pages: [page],
+        activePageId: page.id,
+        styles: emptyStyles(),
+      }
+    }
     this.rebuildParents()
+  }
+
+  // -------------------------------------------------------------------------
+  // Pages
+  // -------------------------------------------------------------------------
+
+  isPage(id: string): boolean {
+    return this.doc.pages.some((p) => p.id === id)
+  }
+
+  getPage(id: string): Page | undefined {
+    return this.doc.pages.find((p) => p.id === id)
+  }
+
+  get activePage(): Page {
+    const page = this.getPage(this.doc.activePageId) ?? this.doc.pages[0]
+    if (!page) throw new Error('Document has no pages')
+    return page
+  }
+
+  /** Root z-order of the ACTIVE page, bottom to top. */
+  rootIds(): NodeId[] {
+    return this.activePage.rootIds
+  }
+
+  /** View-state change (not undoable). */
+  setActivePage(id: string): void {
+    if (!this.isPage(id) || this.doc.activePageId === id) return
+    this.doc.activePageId = id
+    this.bump()
   }
 
   loadDocument(doc: PolyformDocument): void {
@@ -49,7 +90,9 @@ export class SceneGraph {
 
   private rebuildParents(): void {
     this.parents.clear()
-    for (const id of this.doc.rootIds) this.parents.set(id, null)
+    for (const page of this.doc.pages) {
+      for (const id of page.rootIds) this.parents.set(id, page.id)
+    }
     for (const node of Object.values(this.doc.nodes)) {
       if (isContainer(node)) {
         for (const cid of node.children) this.parents.set(cid, node.id)
@@ -75,13 +118,19 @@ export class SceneGraph {
     return id in this.doc.nodes
   }
 
+  /** Parent node id, or a PAGE id for page roots (check with isPage). */
   parentOf(id: NodeId): NodeId | null {
     return this.parents.get(id) ?? null
   }
 
-  /** The mutable child-id array for a parent (null = document root). */
+  /**
+   * The mutable child-id array for a parent. Accepts a node id, a page id,
+   * or null (= the active page, kept for v0.1 journal compatibility).
+   */
   childListOf(parentId: NodeId | null): NodeId[] {
-    if (parentId === null) return this.doc.rootIds
+    if (parentId === null) return this.activePage.rootIds
+    const page = this.getPage(parentId)
+    if (page) return page.rootIds
     const p = this.requireNode(parentId)
     if (!isContainer(p)) throw new Error(`Not a container: ${parentId}`)
     return p.children
@@ -107,11 +156,11 @@ export class SceneGraph {
     return out
   }
 
-  /** All ancestor ids from the direct parent up to a root. */
+  /** All ancestor NODE ids from the direct parent up to a page root. */
   ancestors(id: NodeId): NodeId[] {
     const out: NodeId[] = []
     let cur = this.parentOf(id)
-    while (cur !== null) {
+    while (cur !== null && !this.isPage(cur)) {
       out.push(cur)
       cur = this.parentOf(cur)
     }
@@ -120,19 +169,19 @@ export class SceneGraph {
 
   isAncestorOf(maybeAncestor: NodeId, id: NodeId): boolean {
     let cur = this.parentOf(id)
-    while (cur !== null) {
+    while (cur !== null && !this.isPage(cur)) {
       if (cur === maybeAncestor) return true
       cur = this.parentOf(cur)
     }
     return false
   }
 
-  /** The root-level ancestor of a node (or the node itself if at root). */
+  /** The page-root-level ancestor of a node (the node itself if at root). */
   topLevelAncestor(id: NodeId): NodeId {
     let cur = id
     for (;;) {
       const p = this.parentOf(cur)
-      if (p === null) return cur
+      if (p === null || this.isPage(p)) return cur
       cur = p
     }
   }
@@ -144,10 +193,11 @@ export class SceneGraph {
   addNode(node: SceneNode, parentId: NodeId | null, index: number): void {
     if (this.doc.nodes[node.id]) throw new Error(`Duplicate node id: ${node.id}`)
     this.doc.nodes[node.id] = node
-    const list = this.childListOf(parentId)
+    const resolvedParent = parentId ?? this.activePage.id
+    const list = this.childListOf(resolvedParent)
     const i = Math.max(0, Math.min(index, list.length))
     list.splice(i, 0, node.id)
-    this.parents.set(node.id, parentId)
+    this.parents.set(node.id, resolvedParent)
     // A container may arrive with children already registered (subtree adds
     // register parents when each child op runs); nothing else to do here.
     if (isContainer(node)) {
@@ -172,10 +222,11 @@ export class SceneGraph {
     const fromList = this.childListOf(fromParent)
     const fromIdx = fromList.indexOf(id)
     if (fromIdx >= 0) fromList.splice(fromIdx, 1)
-    const toList = this.childListOf(toParent)
+    const resolvedTo = toParent ?? this.activePage.id
+    const toList = this.childListOf(resolvedTo)
     const i = Math.max(0, Math.min(toIndex, toList.length))
     toList.splice(i, 0, id)
-    this.parents.set(id, toParent)
+    this.parents.set(id, resolvedTo)
     this.bump()
   }
 
@@ -199,7 +250,7 @@ export class SceneGraph {
     const node = this.getNode(id)
     if (!node) return IDENTITY
     const parentId = this.parentOf(id)
-    const parentMat = parentId ? this.worldMatrix(parentId) : IDENTITY
+    const parentMat = parentId && !this.isPage(parentId) ? this.worldMatrix(parentId) : IDENTITY
     const m = matMultiply(parentMat, this.localMatrix(node))
     this.matrixCache.set(id, m)
     return m
@@ -262,10 +313,10 @@ export class SceneGraph {
     return box
   }
 
-  /** Union of all visible root subtrees. */
+  /** Union of all visible root subtrees on the ACTIVE page. */
   documentAABB(): AABB {
     let box = emptyAABB()
-    for (const id of this.doc.rootIds) {
+    for (const id of this.rootIds()) {
       const n = this.getNode(id)
       if (!n || !n.visible) continue
       const b = this.worldAABB(id)
@@ -279,8 +330,8 @@ export class SceneGraph {
   // -------------------------------------------------------------------------
 
   /**
-   * Render order: parents before children, roots bottom -> top.
-   * BOOLEAN children are excluded (they are geometry sources, not layers).
+   * Render order of the ACTIVE page: parents before children, roots bottom
+   * -> top. BOOLEAN children are excluded (geometry sources, not layers).
    */
   renderOrder(): NodeId[] {
     if (this.renderOrderCache) return this.renderOrderCache
@@ -293,7 +344,7 @@ export class SceneGraph {
         for (const cid of n.children) walk(cid)
       }
     }
-    for (const id of this.doc.rootIds) walk(id)
+    for (const id of this.rootIds()) walk(id)
     this.renderOrderCache = out
     return out
   }

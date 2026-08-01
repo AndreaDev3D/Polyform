@@ -20,6 +20,54 @@ function edgesOf(box: AABB, axis: 'x' | 'y'): number[] {
     : [box.minY, (box.minY + box.maxY) / 2, box.maxY]
 }
 
+function overlaps(a: AABB, b: AABB, axis: 'x' | 'y'): boolean {
+  return axis === 'x'
+    ? a.minY <= b.maxY && a.maxY >= b.minY // horizontal neighbours share Y range
+    : a.minX <= b.maxX && a.maxX >= b.minX
+}
+
+/**
+ * Equal-spacing correction: find neighbours left/right (or above/below) of
+ * the moving box and snap so that both gaps are equal.
+ */
+function spacingSnap(
+  candidates: AABB[],
+  box: AABB,
+  axis: 'x' | 'y',
+  threshold: number,
+): { delta: number; cand: SnapCandidate } | null {
+  const lo = axis === 'x' ? box.minX : box.minY
+  const hi = axis === 'x' ? box.maxX : box.maxY
+  const size = hi - lo
+  let left: AABB | null = null
+  let right: AABB | null = null
+  for (const c of candidates) {
+    if (!overlaps(c, box, axis)) continue
+    const cLo = axis === 'x' ? c.minX : c.minY
+    const cHi = axis === 'x' ? c.maxX : c.maxY
+    if (cHi <= lo && (!left || cHi > (axis === 'x' ? left.maxX : left.maxY))) left = c
+    if (cLo >= hi && (!right || cLo < (axis === 'x' ? right.minX : right.minY))) right = c
+  }
+  if (!left || !right) return null
+  const leftEdge = axis === 'x' ? left.maxX : left.maxY
+  const rightEdge = axis === 'x' ? right.minX : right.minY
+  const targetLo = leftEdge + (rightEdge - leftEdge - size) / 2
+  const delta = targetLo - lo
+  if (Math.abs(delta) > threshold) return null
+  return {
+    delta,
+    cand: {
+      value: axis === 'x' ? targetLo : targetLo,
+      box: {
+        minX: axis === 'x' ? leftEdge : Math.min(left.minX, right.minX),
+        maxX: axis === 'x' ? rightEdge : Math.max(left.maxX, right.maxX),
+        minY: axis === 'y' ? leftEdge : Math.min(left.minY, right.minY),
+        maxY: axis === 'y' ? rightEdge : Math.max(left.maxY, right.maxY),
+      },
+    },
+  }
+}
+
 export interface SnapResult {
   dx: number
   dy: number
@@ -74,6 +122,36 @@ export function snapBox(
         }
       }
     }
+  }
+
+  // User guides on the active page snap like infinite edges.
+  for (const g of scene.activePage.guides) {
+    if (g.axis === 'x') {
+      for (const mx of edgesOf(box, 'x')) {
+        const delta = g.pos - mx
+        if (Math.abs(delta) <= threshold && (!bestDx || Math.abs(delta) < Math.abs(bestDx.delta))) {
+          bestDx = { delta, cand: { value: g.pos, box: { minX: g.pos, maxX: g.pos, minY: box.minY, maxY: box.maxY } } }
+        }
+      }
+    } else {
+      for (const my of edgesOf(box, 'y')) {
+        const delta = g.pos - my
+        if (Math.abs(delta) <= threshold && (!bestDy || Math.abs(delta) < Math.abs(bestDy.delta))) {
+          bestDy = { delta, cand: { value: g.pos, box: { minX: box.minX, maxX: box.maxX, minY: g.pos, maxY: g.pos } } }
+        }
+      }
+    }
+  }
+
+  // Equal-spacing snap: when the moving box sits between two candidates on
+  // an axis, prefer the position where both gaps match.
+  if (!bestDx) {
+    const spacing = spacingSnap(candidates, box, 'x', threshold)
+    if (spacing) bestDx = spacing
+  }
+  if (!bestDy) {
+    const spacing = spacingSnap(candidates, box, 'y', threshold)
+    if (spacing) bestDy = spacing
   }
 
   const guides: SnapGuide[] = []

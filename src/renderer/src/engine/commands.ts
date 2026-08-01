@@ -3,8 +3,9 @@
 // reverse. Ops are JSON-encoded into the SQLite journal for session-spanning
 // history.
 
-import type { NodeId, PolyformDocument, SceneNode } from './types'
-import { cloneNode, isContainer } from './types'
+import type { DocumentStyles, NodeId, Page, PolyformDocument, SceneNode } from './types'
+import { cloneNode, createPage, emptyStyles, isContainer } from './types'
+import { SCHEMA_VERSION } from './types'
 import type { SceneGraph } from './scene'
 
 export type PatchOp =
@@ -17,6 +18,10 @@ export type PatchOp =
       from: { parentId: NodeId | null; index: number }
       to: { parentId: NodeId | null; index: number }
     }
+  | { kind: 'page-add'; index: number; page: Page }
+  | { kind: 'page-remove'; index: number; page: Page }
+  | { kind: 'page-rename'; pageId: string; before: string; after: string }
+  | { kind: 'styles-set'; before: DocumentStyles; after: DocumentStyles }
 
 export function applyOp(scene: SceneGraph, op: PatchOp): void {
   switch (op.kind) {
@@ -32,6 +37,33 @@ export function applyOp(scene: SceneGraph, op: PatchOp): void {
     case 'move':
       scene.moveNode(op.id, op.to.parentId, op.to.index)
       break
+    case 'page-add': {
+      const page = structuredClone(op.page)
+      page.rootIds = [] // node ops populate the page
+      scene.doc.pages.splice(Math.min(op.index, scene.doc.pages.length), 0, page)
+      scene.bump()
+      break
+    }
+    case 'page-remove': {
+      const idx = scene.doc.pages.findIndex((p) => p.id === op.page.id)
+      if (idx >= 0) scene.doc.pages.splice(idx, 1)
+      if (scene.doc.activePageId === op.page.id && scene.doc.pages.length > 0) {
+        scene.doc.activePageId = scene.doc.pages[Math.min(idx, scene.doc.pages.length - 1)].id
+      }
+      scene.bump()
+      break
+    }
+    case 'page-rename': {
+      const page = scene.getPage(op.pageId)
+      if (page) page.name = op.after
+      scene.bump()
+      break
+    }
+    case 'styles-set': {
+      scene.doc.styles = structuredClone(op.after)
+      scene.bump()
+      break
+    }
   }
 }
 
@@ -45,6 +77,14 @@ export function invertOp(op: PatchOp): PatchOp {
       return { kind: 'update', id: op.id, before: op.after, after: op.before }
     case 'move':
       return { kind: 'move', id: op.id, from: op.to, to: op.from }
+    case 'page-add':
+      return { kind: 'page-remove', index: op.index, page: op.page }
+    case 'page-remove':
+      return { kind: 'page-add', index: op.index, page: op.page }
+    case 'page-rename':
+      return { kind: 'page-rename', pageId: op.pageId, before: op.after, after: op.before }
+    case 'styles-set':
+      return { kind: 'styles-set', before: op.after, after: op.before }
   }
 }
 
@@ -247,5 +287,12 @@ export class History {
 // ---------------------------------------------------------------------------
 
 export function emptyDocument(): PolyformDocument {
-  return { schemaVersion: 1, nodes: {}, rootIds: [] }
+  const page = createPage('Page 1')
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    nodes: {},
+    pages: [page],
+    activePageId: page.id,
+    styles: emptyStyles(),
+  }
 }

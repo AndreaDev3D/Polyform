@@ -17,23 +17,23 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Section | ✅ Implemented | 🟡 Partial | 📋 Planned | ❌ Out of scope | Rows |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| [Canvas & Viewport](#canvas--viewport) | 13 | 0 | 5 | 0 | 18 |
-| [Drawing & Shape Tools](#drawing--shape-tools) | 12 | 0 | 5 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 2 | 6 | 7 | 0 | 15 |
+| [Canvas & Viewport](#canvas--viewport) | 15 | 1 | 2 | 0 | 18 |
+| [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
+| [Vector Editing](#vector-editing) | 3 | 7 | 5 | 0 | 15 |
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
-| [Layers & Hierarchy](#layers--hierarchy) | 13 | 0 | 3 | 0 | 16 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 11 | 4 | 7 | 1 | 23 |
+| [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 5 | 4 | 1 | 23 |
 | [Text & Typography](#text--typography) | 10 | 1 | 7 | 1 | 19 |
-| [Auto Layout & Constraints](#auto-layout--constraints) | 6 | 0 | 7 | 0 | 13 |
-| [Components, Styles & Libraries](#components-styles--libraries) | 0 | 0 | 10 | 2 | 12 |
+| [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
+| [Components, Styles & Libraries](#components-styles--libraries) | 1 | 2 | 7 | 2 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
-| [Export & Import](#export--import) | 4 | 0 | 7 | 0 | 11 |
+| [Export & Import](#export--import) | 4 | 1 | 6 | 0 | 11 |
 | [Files, Data & History](#files-data--history) | 11 | 1 | 2 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 1 | 4 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 1 | 0 | 2 | 4 | 7 |
-| **Total** | **112** | **14** | **81** | **24** | **231** |
+| **Total** | **121** | **20** | **66** | **24** | **231** |
 
 ---
 
@@ -52,11 +52,11 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Pixel grid at high zoom | Pixel lattice appears when zoomed far in | ✅ | |
 | Pixel grid toggle | Show/hide pixel grid preference | ✅ | |
 | Layout grids | Column/row/grid overlays on frames | 📋 | |
-| Rulers | Toggleable rulers along canvas edges | 📋 | On roadmap alongside user guides |
-| User guides | Draggable guide lines from rulers | 📋 | Journal-friendly; blocked on rulers |
+| Rulers | Toggleable rulers along canvas edges | ✅ | Shift+R toggle; tick spacing adapts to zoom |
+| User guides | Draggable guide lines from rulers | ✅ | Drag from rulers, drop back to delete; persisted per page; snapping targets |
 | Snap to object edges/centers | Objects snap to sibling geometry while dragging | ✅ | Snaps to sibling edges and centers |
 | Smart alignment guides | Red lines flash when edges/centers align | ✅ | Red smart-guide lines during drag |
-| Spacing / measurement guides | Red measurements show equal spacing between objects | 📋 | Snapping is edges/centers only in v0.1 |
+| Spacing / measurement guides | Red measurements show equal spacing between objects | 🟡 | Equal-spacing snap between two neighbours shipped; no measurement labels yet |
 | Viewport state persistence | Reopening a file restores camera position | ✅ | Zoom/pan saved in `manifest.json` viewport state |
 | Hand tool (H) | Dedicated pan tool | ✅ | |
 
@@ -72,7 +72,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Arrow tool (Shift+L) | Line with arrowhead cap | 📋 | Line tool ships without arrowhead presets |
 | Polygon tool | Draw N-sided polygons | ✅ | |
 | Star tool | Draw stars | ✅ | |
-| Polygon/star point-count editing | Adjust vertex count and star ratio after drawing | 📋 | Not exposed in the v0.1 inspector |
+| Polygon/star point-count editing | Adjust vertex count and star ratio after drawing | ✅ | Inspector N / inner-radius fields |
 | Pen tool (P) | Place vertices and bezier curves | ✅ | Draws vector paths; see Vector Editing for edit-mode gaps |
 | Pencil tool (freehand) | Freehand drawing smoothed into vectors | 📋 | |
 | Text tool (T) | Click or drag to create text | ✅ | Detailed in Text & Typography |
@@ -88,7 +88,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | :--- | :--- | :---: | :--- |
 | Vector networks (data model) | Paths are graphs, not linear command lists | 🟡 | Spec-shaped vertex/edge network model is in place; UI does not yet exploit it |
 | Bezier path drawing | Pen tool places lines and cubic curves | ✅ | |
-| Dedicated vector edit mode | Enter/exit object to edit vertices and handles | 📋 | Pen-drawn geometry cannot yet be re-edited point-by-point |
+| Dedicated vector edit mode | Enter/exit object to edit vertices and handles | ✅ | Double-click or Enter; move vertices/handles, click edge to insert, Del removes |
 | Branching edges per vertex | One vertex can join N edges | 🟡 | Data model supports it; no branching-edge editing UI |
 | Bend tool | Toggle a point between corner and curve | 📋 | Depends on vector edit mode |
 | Paint bucket region fill | Fill enclosed regions of a vector network | 📋 | Depends on vector edit mode |
@@ -99,7 +99,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Non-destructive boolean groups | Children stay editable inside the boolean | ✅ | Boolean result recomputes as children change |
 | Flatten selection | Bake selection into a single vector layer | 📋 | |
 | Outline stroke | Convert a stroke into filled geometry | 📋 | |
-| Masks | Layer masks clip sibling content | 📋 | Frame clip-content covers common cases today |
+| Masks | Layer masks clip sibling content | 🟡 | Vector/shape clipping of siblings above (Ctrl+Alt+M); no luminance masks |
 | Rounded corners on vector paths | Corner radius applies to arbitrary vertices | 📋 | Radius currently applies to rectangles |
 
 ## Selection & Transform
@@ -149,7 +149,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Clip content | Frames optionally clip children to bounds | ✅ | |
 | Z-order commands | Bring forward/backward, to front/back | ✅ | |
 | Sections | Named organizational regions on canvas | 📋 | No target milestone yet |
-| Multi-page documents | Multiple pages per file | 📋 | v0.1 documents are single-page |
+| Multi-page documents | Multiple pages per file | ✅ | Pages panel; per-page guides + viewport; undoable page ops |
 | Layer search / filter | Filter the layers panel by name/type | 📋 | |
 
 ## Fills, Strokes & Effects
@@ -162,10 +162,10 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Radial gradients | Center-out gradient fill | ✅ | |
 | Angular gradients | Sweep/conic gradient fill | 📋 | |
 | Diamond gradients | Diamond-shaped gradient fill | 📋 | |
-| Gradient stop editing | On-canvas handles, stop insert/remove/recolor | 🟡 | Minimal stop-editing UI in v0.1 |
+| Gradient stop editing | On-canvas handles, stop insert/remove/recolor | 🟡 | Full stop bar in inspector (drag/add/remove/recolor); on-canvas handles pending |
 | Image fills | Bitmap as a fill paint | ✅ | Content-addressed assets, deduplicated |
 | Image fill modes | Fill / Fit / Crop / Tile scaling modes | 🟡 | FILL, FIT, TILE, STRETCH shipped; Figma-style CROP awaits image crop tooling |
-| Image crop & adjust | Crop plus exposure/contrast/saturation sliders | 📋 | |
+| Image crop & adjust | Crop plus exposure/contrast/saturation sliders | ✅ | Non-destructive crop rect + exposure/contrast/saturation on image fills |
 | Video fills | Video as a fill paint | ❌ | Out of scope |
 | Stroke color & weight | Per-object stroke paint and thickness | ✅ | |
 | Stroke align: center | Stroke centered on the path | ✅ | |
@@ -174,9 +174,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Per-side strokes | Different weights on top/right/bottom/left | 📋 | |
 | Stroke caps & joins | Cap (butt/round/square) and join controls | 📋 | |
 | Drop shadow | Offset/blur/spread/color shadow effect | ✅ | |
-| Inner shadow | Shadow cast inside the shape | 📋 | |
+| Inner shadow | Shadow cast inside the shape | ✅ | |
 | Layer blur | Gaussian blur on the layer | ✅ | |
-| Background blur | Blur content behind a translucent layer | 📋 | |
+| Background blur | Blur content behind a translucent layer | 🟡 | Backdrop-capture self-draw; expensive on very large canvases |
 | Blend modes | Full Photoshop-style blend mode list | 🟡 | Canvas2D-supported subset only |
 | Layer opacity | 0–100% object opacity | ✅ | |
 
@@ -218,7 +218,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Wrap | Children wrap onto multiple rows | 📋 | Explicit v0.1 gap vs. Figma |
 | Auto gap (space between) | Distribute remaining space between items | 📋 | |
 | Absolute position in auto layout | Exempt a child from the flow | 📋 | |
-| Constraints (pin / scale) | Pin edges or scale with parent resize | 📋 | |
+| Constraints (pin / scale) | Pin edges or scale with parent resize | ✅ | Left/right/center/stretch/scale per axis; cascades through nested frames |
 | Min / max width & height | Size clamps on auto-layout nodes | 📋 | |
 | Grid layout mode | Two-dimensional auto-layout grid | 📋 | |
 
@@ -231,9 +231,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Instances & overrides | Linked copies with local overrides | 📋 | |
 | Instance swapping | Swap an instance for another component | 📋 | |
 | Component properties | Boolean/text/swap props on components | 📋 | |
-| Color styles | Named, reusable color tokens | 📋 | |
-| Text styles | Named, reusable typography sets | 📋 | |
-| Effect styles | Named, reusable effect stacks | 📋 | |
+| Color styles | Named, reusable color tokens | ✅ | Create/apply/detach; editing propagates to referencing layers |
+| Text styles | Named, reusable typography sets | 🟡 | Create/apply/detach/rename; property re-editing via recreate |
+| Effect styles | Named, reusable effect stacks | 🟡 | Apply-by-reference API shipped; no dedicated management UI yet |
 | Grid styles | Named, reusable layout grids | 📋 | Depends on layout grids |
 | Variables / design tokens | Modes, aliases, token-driven values | 📋 | |
 | Team libraries | Publish libraries across an organization | ❌ | Single-user product; no org infrastructure |
@@ -264,7 +264,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | PDF export | Per-frame PDF output | 📋 | |
 | Per-node export settings | Persisted export presets on layers | 📋 | Export is invoked ad hoc in v0.1 |
 | Slice export | Export arbitrary canvas regions | 📋 | Blocked on slice tool |
-| SVG import | Paste or place SVG as editable vectors | 📋 | |
+| SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
 | .fig import | Open Figma's native files | 📋 | |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |

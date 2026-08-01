@@ -2,20 +2,24 @@
 // move (with snapping + reparenting), resize, rotate, marquee, shape drawing,
 // pen paths, text placement, panning, and wheel zoom/pan.
 
-import type { NodeId, SceneNode, Vec2, VectorNetwork } from '../engine/types'
+import type { NodeId, SceneNode, Vec2, VectorNetwork, VectorNode } from '../engine/types'
 import { createNode, isContainer, newId } from '../engine/types'
-import { applyMat, clamp, matInvert, matRotateDeg, type AABB } from '../engine/geometry'
+import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, type AABB } from '../engine/geometry'
 import { documentStore } from '../state/document'
 import { editor, type Tool } from '../state/editor'
-import { OpRecorder, setSelection, topSelection } from '../state/actions'
+import { OpRecorder, guidesChanged, setSelection, topSelection } from '../state/actions'
 import { findDropFrame, hitTestAll, resolveClickTarget, nodesInRect } from '../engine/hit-test'
+import { constrainFrameChildren } from '../engine/constraints'
 import type { PatchOp } from '../engine/commands'
+import { removeSubtreeOps } from '../engine/commands'
 import {
+  RULER_SIZE,
   boxHandles,
   hitHandle,
   screenToWorld,
   selectionScreenBox,
   frameLabels,
+  worldToScreen,
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
@@ -62,6 +66,15 @@ type Mode =
     }
   | { kind: 'draw'; rec: OpRecorder; nodeId: NodeId; startWorld: Vec2; parentId: NodeId | null }
   | { kind: 'pen' }
+  | { kind: 'guide'; axis: 'x' | 'y'; index: number }
+  | {
+      kind: 'vector-vertex'
+      vids: number[]
+      startWorld: Vec2
+      startVerts: Map<number, Vec2>
+      startCps: Map<string, Vec2>
+    }
+  | { kind: 'vector-cp'; edgeIndex: number; key: 'cp0' | 'cp1' }
 
 interface PenAnchor {
   p: Vec2
@@ -103,13 +116,13 @@ export class InteractionController {
     return out
   }
 
-  /** Include descendants for container scaling. */
+  /** Include descendants for container scaling / frame constraints. */
   private snapshotWithDescendants(ids: NodeId[], keys: string[]): DragNodeSnapshot[] {
     const all = new Set<NodeId>()
     for (const id of ids) {
       all.add(id)
       const node = this.scene.getNode(id)
-      if (node && (node.type === 'GROUP' || node.type === 'BOOLEAN')) {
+      if (node && (node.type === 'GROUP' || node.type === 'BOOLEAN' || node.type === 'FRAME')) {
         for (const d of this.scene.descendants(id)) all.add(d)
       }
     }
@@ -186,6 +199,39 @@ export class InteractionController {
       return
     }
     if (button !== 0) return
+
+    // Vector edit mode captures all primary-button interaction.
+    if (state.vectorEditId) {
+      if (state.tool !== 'select') {
+        this.exitVectorEdit(true)
+      } else {
+        this.vectorPointerDown(screen, world, mods, isDouble)
+        return
+      }
+    }
+
+    // Rulers: drag out a new guide (top ruler -> horizontal, left -> vertical).
+    if (state.showRulers && state.tool === 'select') {
+      const page = this.scene.activePage
+      if (screen.y < RULER_SIZE && screen.x >= RULER_SIZE) {
+        page.guides.push({ axis: 'y', pos: Math.round(world.y) })
+        this.mode = { kind: 'guide', axis: 'y', index: page.guides.length - 1 }
+        guidesChanged()
+        return
+      }
+      if (screen.x < RULER_SIZE && screen.y >= RULER_SIZE) {
+        page.guides.push({ axis: 'x', pos: Math.round(world.x) })
+        this.mode = { kind: 'guide', axis: 'x', index: page.guides.length - 1 }
+        guidesChanged()
+        return
+      }
+      // Grab an existing guide.
+      const grabbed = this.guideAt(screen)
+      if (grabbed !== null) {
+        this.mode = { kind: 'guide', axis: page.guides[grabbed].axis, index: grabbed }
+        return
+      }
+    }
 
     if (state.tool === 'pen') {
       this.penPointerDown(world)
@@ -275,6 +321,11 @@ export class InteractionController {
       if (targetNode?.type === 'TEXT') {
         setSelection([target])
         editor.set({ editingTextId: target })
+        this.mode = { kind: 'idle' }
+        return
+      }
+      if (targetNode?.type === 'VECTOR') {
+        this.enterVectorEdit(target)
         this.mode = { kind: 'idle' }
         return
       }
@@ -544,6 +595,53 @@ export class InteractionController {
         this.updatePenPreview(world, state.camera.zoom)
         return
       }
+      case 'guide': {
+        const page = this.scene.activePage
+        const guide = page.guides[this.mode.index]
+        if (guide) {
+          guide.pos = Math.round(this.mode.axis === 'x' ? world.x : world.y)
+          guidesChanged()
+        }
+        this.cursorOverride = this.mode.axis === 'x' ? 'ew-resize' : 'ns-resize'
+        return
+      }
+      case 'vector-vertex': {
+        const id = editor.get().vectorEditId
+        const node = id ? this.scene.getNode(id) : null
+        if (!node || node.type !== 'VECTOR') return
+        const inv = matInvert(this.scene.worldMatrix(node.id))
+        const dx = inv.a * (world.x - this.mode.startWorld.x) + inv.c * (world.y - this.mode.startWorld.y)
+        const dy = inv.b * (world.x - this.mode.startWorld.x) + inv.d * (world.y - this.mode.startWorld.y)
+        const moving = new Set(this.mode.vids)
+        for (const v of node.network.vertices) {
+          const start = this.mode.startVerts.get(v.id)
+          if (!start || !moving.has(v.id)) continue
+          v.x = start.x + dx
+          v.y = start.y + dy
+        }
+        node.network.edges.forEach((e, i) => {
+          const cp0Start = this.mode.kind === 'vector-vertex' ? this.mode.startCps.get(`${i}:cp0`) : null
+          const cp1Start = this.mode.kind === 'vector-vertex' ? this.mode.startCps.get(`${i}:cp1`) : null
+          if (e.cp0 && cp0Start && moving.has(e.v0)) e.cp0 = { x: cp0Start.x + dx, y: cp0Start.y + dy }
+          if (e.cp1 && cp1Start && moving.has(e.v1)) e.cp1 = { x: cp1Start.x + dx, y: cp1Start.y + dy }
+        })
+        this.scene.bump()
+        documentStore.transient()
+        return
+      }
+      case 'vector-cp': {
+        const id = editor.get().vectorEditId
+        const node = id ? this.scene.getNode(id) : null
+        if (!node || node.type !== 'VECTOR') return
+        const local = applyMat(matInvert(this.scene.worldMatrix(node.id)), world)
+        const edge = node.network.edges[this.mode.edgeIndex]
+        if (edge) {
+          edge[this.mode.key] = { x: local.x, y: local.y }
+          this.scene.bump()
+          documentStore.transient()
+        }
+        return
+      }
       case 'idle': {
         // The pen rubber-band must track the cursor between clicks too
         // (mode returns to idle after each anchor is placed).
@@ -577,12 +675,30 @@ export class InteractionController {
 
   private updateHoverAndCursor(screen: Vec2, world: Vec2): void {
     const state = editor.get()
+    if (state.vectorEditId) {
+      if (state.hover) editor.set({ hover: null })
+      this.cursorOverride = 'crosshair'
+      return
+    }
     if (state.tool !== 'select') {
       if (state.hover) editor.set({ hover: null })
       this.cursorOverride = state.tool === 'hand' ? 'grab' : 'crosshair'
       return
     }
     this.cursorOverride = null
+    if (state.showRulers) {
+      if (screen.x < RULER_SIZE || screen.y < RULER_SIZE) {
+        this.cursorOverride = screen.y < RULER_SIZE && screen.x >= RULER_SIZE ? 'ns-resize' : screen.x < RULER_SIZE && screen.y >= RULER_SIZE ? 'ew-resize' : null
+        if (state.hover) editor.set({ hover: null })
+        return
+      }
+      const gi = this.guideAt(screen)
+      if (gi !== null) {
+        this.cursorOverride = this.scene.activePage.guides[gi].axis === 'x' ? 'ew-resize' : 'ns-resize'
+        if (state.hover) editor.set({ hover: null })
+        return
+      }
+    }
     const box = selectionScreenBox(this.scene, state.selection, state.camera)
     if (box && state.selection.length > 0) {
       const handle = hitHandle(boxHandles(box), screen)
@@ -676,9 +792,12 @@ export class InteractionController {
       if (node.type === 'TEXT' && node.autoResize === 'WIDTH_AND_HEIGHT' && affectsW) {
         node.autoResize = 'HEIGHT'
       }
-      // Scale children of groups/booleans proportionally.
+      // Scale children of groups/booleans proportionally; constrain frame
+      // children per their pin/scale constraints.
       if (node.type === 'GROUP' || node.type === 'BOOLEAN') {
         scaleChildren(scene, this.mode.snapshots, node.id, newW / w0, newH / h0)
+      } else if (node.type === 'FRAME') {
+        constrainFrameChildren(scene, node, this.snapLookup(this.mode.snapshots), w0, h0)
       }
       this.scene.bump()
       documentStore.transient()
@@ -734,10 +853,22 @@ export class InteractionController {
       node.height = node.type === 'LINE' ? 0 : Math.max(0.5, ph * sy)
       if (node.type === 'GROUP' || node.type === 'BOOLEAN') {
         scaleChildren(scene, this.mode.snapshots, node.id, sx, sy)
+      } else if (node.type === 'FRAME') {
+        constrainFrameChildren(scene, node, this.snapLookup(this.mode.snapshots), pw, ph)
       }
     }
     this.scene.bump()
     documentStore.transient()
+  }
+
+  /** Snapshot lookup adapter for the constraints engine. */
+  private snapLookup(snapshots: DragNodeSnapshot[]) {
+    const map = new Map(snapshots.map((s) => [s.id, s.props]))
+    return (id: NodeId) => {
+      const p = map.get(id)
+      if (!p || p.x === undefined) return null
+      return { x: p.x as number, y: p.y as number, width: p.width as number, height: p.height as number }
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -811,6 +942,20 @@ export class InteractionController {
         // Anchors are added on pointerDown; nothing to finalize here.
         this.mode = { kind: 'idle' }
         return
+      case 'guide': {
+        // Dropping a guide back onto a ruler removes it.
+        const page = this.scene.activePage
+        if (screen.x < RULER_SIZE || screen.y < RULER_SIZE) {
+          page.guides.splice(this.mode.index, 1)
+        }
+        guidesChanged()
+        this.cursorOverride = null
+        break
+      }
+      case 'vector-vertex':
+      case 'vector-cp':
+        this.commitVectorGesture()
+        break
       case 'idle':
         break
     }
@@ -903,6 +1048,307 @@ export class InteractionController {
     if (this.mode.kind === 'pen') this.mode = { kind: 'idle' }
   }
 
+  // -----------------------------------------------------------------------
+  // Guides
+  // -----------------------------------------------------------------------
+
+  /** Index of the page guide under the pointer (screen coords), or null. */
+  private guideAt(screen: Vec2): number | null {
+    const { camera } = editor.get()
+    const guides = this.scene.activePage.guides
+    for (let i = 0; i < guides.length; i++) {
+      const g = guides[i]
+      const s = g.axis === 'x' ? (g.pos - camera.x) * camera.zoom : (g.pos - camera.y) * camera.zoom
+      const p = g.axis === 'x' ? screen.x : screen.y
+      if (Math.abs(p - s) <= 4) return i
+    }
+    return null
+  }
+
+  // -----------------------------------------------------------------------
+  // Vector edit mode
+  // -----------------------------------------------------------------------
+
+  private gestureNetwork: VectorNetwork | null = null
+
+  enterVectorEdit(id: NodeId): void {
+    const node = this.scene.getNode(id)
+    if (!node || node.type !== 'VECTOR') return
+    editor.set({ vectorEditId: id, vectorSelection: [], selection: [id], tool: 'select' })
+  }
+
+  /** Exit edit mode; when committing, normalize the node's bbox. */
+  exitVectorEdit(commit: boolean): void {
+    const id = editor.get().vectorEditId
+    editor.set({ vectorEditId: null, vectorSelection: [] })
+    this.gestureNetwork = null
+    if (!id || !commit) return
+    const node = this.scene.getNode(id)
+    if (!node || node.type !== 'VECTOR') return
+    if (node.network.vertices.length === 0) {
+      // Everything was deleted — remove the empty node.
+      const ops = removeSubtreeOps(this.scene, id)
+      for (const op of ops) if (op.kind === 'remove') this.scene.removeNode(op.node.id)
+      documentStore.commit(ops, 'Delete Vector', true)
+      setSelection([])
+      return
+    }
+    if (node.rotation !== 0) return
+    // Normalize: shift network so its bbox starts at (0,0), move the node.
+    const pts: Vec2[] = node.network.vertices.map((v) => ({ x: v.x, y: v.y }))
+    for (const e of node.network.edges) {
+      if (e.cp0) pts.push(e.cp0)
+      if (e.cp1) pts.push(e.cp1)
+    }
+    const minX = Math.min(...pts.map((p) => p.x))
+    const minY = Math.min(...pts.map((p) => p.y))
+    const maxX = Math.max(...pts.map((p) => p.x))
+    const maxY = Math.max(...pts.map((p) => p.y))
+    const before = {
+      network: structuredClone(node.network),
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+    }
+    if (Math.abs(minX) < 1e-6 && Math.abs(minY) < 1e-6 && Math.abs(node.width - (maxX - minX)) < 1e-6 && Math.abs(node.height - (maxY - minY)) < 1e-6) {
+      return
+    }
+    for (const v of node.network.vertices) {
+      v.x -= minX
+      v.y -= minY
+    }
+    for (const e of node.network.edges) {
+      if (e.cp0) e.cp0 = { x: e.cp0.x - minX, y: e.cp0.y - minY }
+      if (e.cp1) e.cp1 = { x: e.cp1.x - minX, y: e.cp1.y - minY }
+    }
+    node.x += minX
+    node.y += minY
+    node.width = Math.max(1, maxX - minX)
+    node.height = Math.max(1, maxY - minY)
+    documentStore.commit(
+      [
+        {
+          kind: 'update',
+          id,
+          before: before as unknown as Record<string, unknown>,
+          after: structuredClone({
+            network: node.network,
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+          }) as unknown as Record<string, unknown>,
+        },
+      ],
+      'Edit Vector',
+      true,
+    )
+  }
+
+  private vectorPointerDown(screen: Vec2, world: Vec2, mods: PointerMods, isDouble: boolean): void {
+    const state = editor.get()
+    const id = state.vectorEditId!
+    const node = this.scene.getNode(id)
+    if (!node || node.type !== 'VECTOR') {
+      this.exitVectorEdit(false)
+      return
+    }
+    const m = this.scene.worldMatrix(id)
+    const toScreen = (p: Vec2) => worldToScreen(state.camera, applyMat(m, p))
+    const net = node.network
+    const selected = new Set(state.vectorSelection)
+
+    // 1. Vertices.
+    for (const v of net.vertices) {
+      const s = toScreen({ x: v.x, y: v.y })
+      if (Math.hypot(s.x - screen.x, s.y - screen.y) <= 6) {
+        let sel: number[]
+        if (mods.shift) {
+          sel = selected.has(v.id) ? state.vectorSelection.filter((x) => x !== v.id) : [...state.vectorSelection, v.id]
+        } else {
+          sel = selected.has(v.id) ? state.vectorSelection : [v.id]
+        }
+        editor.set({ vectorSelection: sel })
+        this.beginVectorVertexDrag(node, sel, world)
+        return
+      }
+    }
+
+    // 2. Control points of edges touching selected vertices.
+    for (let i = 0; i < net.edges.length; i++) {
+      const e = net.edges[i]
+      if (e.cp0 && selected.has(e.v0)) {
+        const s = toScreen(e.cp0)
+        if (Math.hypot(s.x - screen.x, s.y - screen.y) <= 6) {
+          this.gestureNetwork = structuredClone(net)
+          this.mode = { kind: 'vector-cp', edgeIndex: i, key: 'cp0' }
+          return
+        }
+      }
+      if (e.cp1 && selected.has(e.v1)) {
+        const s = toScreen(e.cp1)
+        if (Math.hypot(s.x - screen.x, s.y - screen.y) <= 6) {
+          this.gestureNetwork = structuredClone(net)
+          this.mode = { kind: 'vector-cp', edgeIndex: i, key: 'cp1' }
+          return
+        }
+      }
+    }
+
+    // 3. Edges: click to insert a vertex at the nearest curve point.
+    const hit = this.nearestEdgePoint(node, screen, state.camera.zoom)
+    if (hit && hit.distPx <= 5) {
+      this.gestureNetwork = structuredClone(net)
+      const vid = this.splitEdge(node, hit.edgeIndex, hit.t)
+      editor.set({ vectorSelection: [vid] })
+      this.scene.bump()
+      documentStore.transient()
+      this.beginVectorVertexDrag(node, [vid], world, this.gestureNetwork)
+      return
+    }
+
+    // 4. Empty space.
+    if (isDouble) {
+      this.exitVectorEdit(true)
+    } else {
+      editor.set({ vectorSelection: [] })
+    }
+  }
+
+  private beginVectorVertexDrag(node: VectorNode, vids: number[], world: Vec2, presetGesture?: VectorNetwork): void {
+    this.gestureNetwork = presetGesture ?? structuredClone(node.network)
+    const startVerts = new Map<number, Vec2>()
+    for (const v of node.network.vertices) startVerts.set(v.id, { x: v.x, y: v.y })
+    const startCps = new Map<string, Vec2>()
+    node.network.edges.forEach((e, i) => {
+      if (e.cp0) startCps.set(`${i}:cp0`, { ...e.cp0 })
+      if (e.cp1) startCps.set(`${i}:cp1`, { ...e.cp1 })
+    })
+    this.mode = { kind: 'vector-vertex', vids, startWorld: world, startVerts, startCps }
+  }
+
+  /** Nearest point on any edge (screen-space distance + curve parameter). */
+  private nearestEdgePoint(
+    node: VectorNode,
+    screen: Vec2,
+    _zoom: number,
+  ): { edgeIndex: number; t: number; distPx: number } | null {
+    const state = editor.get()
+    const m = this.scene.worldMatrix(node.id)
+    const toScreen = (p: Vec2) => worldToScreen(state.camera, applyMat(m, p))
+    const vmap = new Map(node.network.vertices.map((v) => [v.id, v]))
+    let best: { edgeIndex: number; t: number; distPx: number } | null = null
+    node.network.edges.forEach((e, ei) => {
+      const a = vmap.get(e.v0)
+      const b = vmap.get(e.v1)
+      if (!a || !b) return
+      const p0 = { x: a.x, y: a.y }
+      const p1 = { x: b.x, y: b.y }
+      let samples: Vec2[]
+      if (e.cp0 || e.cp1) {
+        samples = [p0, ...flattenCubic(p0, e.cp0 ?? p0, e.cp1 ?? p1, p1, 0.1)]
+      } else {
+        samples = [p0, p1]
+      }
+      const screenPts = samples.map(toScreen)
+      for (let i = 0; i < screenPts.length - 1; i++) {
+        const d = distToSegment(screen, screenPts[i], screenPts[i + 1])
+        if (!best || d < best.distPx) {
+          best = { edgeIndex: ei, t: (i + 0.5) / (screenPts.length - 1), distPx: d }
+        }
+      }
+    })
+    return best
+  }
+
+  /** Split an edge at parameter t; returns the new vertex id. */
+  private splitEdge(node: VectorNode, edgeIndex: number, t: number): number {
+    const net = node.network
+    const edge = net.edges[edgeIndex]
+    const vmap = new Map(net.vertices.map((v) => [v.id, v]))
+    const a = vmap.get(edge.v0)!
+    const b = vmap.get(edge.v1)!
+    const nextVid = Math.max(0, ...net.vertices.map((v) => v.id)) + 1
+    const nextEid = Math.max(0, ...net.edges.map((e) => e.id)) + 1
+    const lerp = (p: Vec2, q: Vec2, s: number): Vec2 => ({ x: p.x + (q.x - p.x) * s, y: p.y + (q.y - p.y) * s })
+
+    if (edge.cp0 || edge.cp1) {
+      // De Casteljau split of the cubic.
+      const p0 = { x: a.x, y: a.y }
+      const p3 = { x: b.x, y: b.y }
+      const c0 = edge.cp0 ?? p0
+      const c1 = edge.cp1 ?? p3
+      const q0 = lerp(p0, c0, t)
+      const q1 = lerp(c0, c1, t)
+      const q2 = lerp(c1, p3, t)
+      const r0 = lerp(q0, q1, t)
+      const r1 = lerp(q1, q2, t)
+      const s = lerp(r0, r1, t)
+      net.vertices.push({ id: nextVid, x: s.x, y: s.y })
+      net.edges.splice(edgeIndex, 1,
+        { id: edge.id, v0: edge.v0, v1: nextVid, cp0: q0, cp1: r0 },
+        { id: nextEid, v0: nextVid, v1: edge.v1, cp0: r1, cp1: q2 },
+      )
+    } else {
+      const s = lerp({ x: a.x, y: a.y }, { x: b.x, y: b.y }, t)
+      net.vertices.push({ id: nextVid, x: s.x, y: s.y })
+      net.edges.splice(edgeIndex, 1,
+        { id: edge.id, v0: edge.v0, v1: nextVid, cp0: null, cp1: null },
+        { id: nextEid, v0: nextVid, v1: edge.v1, cp0: null, cp1: null },
+      )
+    }
+    return nextVid
+  }
+
+  /** Commit the in-flight vector gesture as one history entry. */
+  private commitVectorGesture(): void {
+    const id = editor.get().vectorEditId
+    const before = this.gestureNetwork
+    this.gestureNetwork = null
+    if (!id || !before) return
+    const node = this.scene.getNode(id)
+    if (!node || node.type !== 'VECTOR') return
+    if (JSON.stringify(node.network) === JSON.stringify(before)) return
+    documentStore.commit(
+      [{ kind: 'update', id, before: { network: before }, after: { network: structuredClone(node.network) } }],
+      'Edit Vector',
+      true,
+    )
+  }
+
+  /** Delete the selected vertices (and their edges) in vector edit mode. */
+  deleteVectorVertices(): void {
+    const state = editor.get()
+    const id = state.vectorEditId
+    if (!id || state.vectorSelection.length === 0) return
+    const node = this.scene.getNode(id)
+    if (!node || node.type !== 'VECTOR') return
+    const doomed = new Set(state.vectorSelection)
+    const before = structuredClone(node.network)
+    node.network.vertices = node.network.vertices.filter((v) => !doomed.has(v.id))
+    node.network.edges = node.network.edges.filter((e) => !doomed.has(e.v0) && !doomed.has(e.v1))
+    editor.set({ vectorSelection: [] })
+    if (node.network.vertices.length === 0) {
+      node.network = before // restore so the exit path records a clean delete
+      this.scene.bump()
+      this.exitVectorEdit(true)
+      const live = this.scene.getNode(id)
+      if (live && live.type === 'VECTOR') {
+        const ops = removeSubtreeOps(this.scene, id)
+        for (const op of ops) if (op.kind === 'remove') this.scene.removeNode(op.node.id)
+        documentStore.commit(ops, 'Delete Vector', true)
+        setSelection([])
+      }
+      return
+    }
+    documentStore.commit(
+      [{ kind: 'update', id, before: { network: before }, after: { network: structuredClone(node.network) } }],
+      'Delete Points',
+      true,
+    )
+  }
+
   /** Escape key: cancel the in-flight interaction and restore node state. */
   cancel(): void {
     if (this.mode.kind === 'draw') {
@@ -918,6 +1364,16 @@ export class InteractionController {
       }
       this.scene.bump()
       documentStore.transient()
+    }
+    if (this.mode.kind === 'vector-vertex' || this.mode.kind === 'vector-cp') {
+      const id = editor.get().vectorEditId
+      const node = id ? this.scene.getNode(id) : null
+      if (node && node.type === 'VECTOR' && this.gestureNetwork) {
+        node.network = this.gestureNetwork
+        this.scene.bump()
+        documentStore.transient()
+      }
+      this.gestureNetwork = null
     }
     if (this.mode.kind === 'pen' || editor.get().penDraft) {
       this.cancelPen()

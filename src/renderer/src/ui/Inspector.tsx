@@ -7,8 +7,11 @@ import type {
   AutoLayout,
   BlendMode,
   BooleanOp,
+  Constraint,
   Effect,
   FrameNode,
+  GradientPaint,
+  ImagePaint,
   NodeId,
   Paint,
   RGBA,
@@ -20,9 +23,19 @@ import { documentStore, useDocVersion } from '../state/document'
 import { useEditor } from '../state/editor'
 import {
   alignSelection,
+  applyColorStyle,
+  applyTextStyle,
+  createColorStyle,
+  createTextStyle,
+  deleteSharedStyle,
+  detachStyle,
   distributeSelection,
   exportSelection,
+  renameSharedStyle,
   selectedIds,
+  setSelectionSize,
+  toggleMaskSelection,
+  updateColorStyle,
   updateSelectedNodes,
 } from '../state/actions'
 import type { PatchOp } from '../engine/commands'
@@ -81,11 +94,13 @@ export function Inspector() {
   if (nodes.length === 0) {
     return (
       <div className="w-72 shrink-0 bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto">
+        <StylesPanel />
         <div className="px-4 py-6 text-[11px] text-[var(--pf-text-dim)]">
           Select a layer to edit its properties.
           <div className="mt-4 space-y-1 leading-5">
             <div>V — Move · F — Frame · R — Rectangle</div>
             <div>O — Ellipse · L — Line · P — Pen · T — Text</div>
+            <div>Enter — edit vector points · Shift+R — rulers</div>
             <div>Ctrl+wheel — zoom · Space — pan</div>
           </div>
         </div>
@@ -147,7 +162,7 @@ export function Inspector() {
       if (!n) continue
       if (picker.kind === 'effect') {
         const fx = n.effects[picker.index]
-        if (fx && fx.type === 'DROP_SHADOW') fx.color = { ...c }
+        if (fx && (fx.type === 'DROP_SHADOW' || fx.type === 'INNER_SHADOW')) fx.color = { ...c }
         continue
       }
       const list = picker.kind === 'fill' ? n.fills : n.strokes
@@ -168,7 +183,7 @@ export function Inspector() {
     if (!picker) return { r: 0, g: 0, b: 0, a: 1 }
     if (picker.kind === 'effect') {
       const fx = first.effects[picker.index]
-      return fx && fx.type === 'DROP_SHADOW' ? fx.color : { r: 0, g: 0, b: 0, a: 1 }
+      return fx && (fx.type === 'DROP_SHADOW' || fx.type === 'INNER_SHADOW') ? fx.color : { r: 0, g: 0, b: 0, a: 1 }
     }
     const list = picker.kind === 'fill' ? first.fills : first.strokes
     const paint = list[picker.index]
@@ -208,8 +223,8 @@ export function Inspector() {
         <div className="grid grid-cols-2 gap-2">
           <NumberInput label="X" value={common((n) => round(n.x))} onCommit={(v) => commit(() => ({ x: v }), 'Set X')} />
           <NumberInput label="Y" value={common((n) => round(n.y))} onCommit={(v) => commit(() => ({ y: v }), 'Set Y')} />
-          <NumberInput label="W" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => commit(() => ({ width: v }), 'Set Width')} />
-          <NumberInput label="H" value={common((n) => round(n.height))} min={0} onCommit={(v) => commit(() => ({ height: v }), 'Set Height')} />
+          <NumberInput label="W" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => setSelectionSize('width', v)} />
+          <NumberInput label="H" value={common((n) => round(n.height))} min={0} onCommit={(v) => setSelectionSize('height', v)} />
           <NumberInput label="⟳" value={common((n) => round(n.rotation))} suffix="°" onCommit={(v) => commit(() => ({ rotation: v }), 'Set Rotation')} />
           {hasCorner && !cornersExpanded && (
             <NumberInput
@@ -270,6 +285,40 @@ export function Inspector() {
         )}
       </Section>
 
+      {/* Constraints (children of plain frames) */}
+      {nodes.every((n) => {
+        const p = scene.parentOf(n.id)
+        const parent = p && !scene.isPage(p) ? scene.getNode(p) : null
+        return parent?.type === 'FRAME' && parent.layout.mode === 'NONE'
+      }) && (
+        <Section title="Constraints">
+          <div className="grid grid-cols-2 gap-2">
+            <Select<Constraint>
+              value={(common((n) => n.constraintsH ?? 'MIN') ?? '') as Constraint | ''}
+              options={[
+                { value: 'MIN', label: 'Left' },
+                { value: 'MAX', label: 'Right' },
+                { value: 'CENTER', label: 'Center' },
+                { value: 'STRETCH', label: 'Left & right' },
+                { value: 'SCALE', label: 'Scale' },
+              ]}
+              onChange={(v) => commit(() => ({ constraintsH: v }), 'Set Constraints')}
+            />
+            <Select<Constraint>
+              value={(common((n) => n.constraintsV ?? 'MIN') ?? '') as Constraint | ''}
+              options={[
+                { value: 'MIN', label: 'Top' },
+                { value: 'MAX', label: 'Bottom' },
+                { value: 'CENTER', label: 'Center' },
+                { value: 'STRETCH', label: 'Top & bottom' },
+                { value: 'SCALE', label: 'Scale' },
+              ]}
+              onChange={(v) => commit(() => ({ constraintsV: v }), 'Set Constraints')}
+            />
+          </div>
+        </Section>
+      )}
+
       {/* Auto layout */}
       {isFrame && (
         <Section title="Auto layout">
@@ -294,11 +343,22 @@ export function Inspector() {
             onChange={(v) => commit(() => ({ blendMode: v }), 'Set Blend Mode')}
           />
         </div>
+        {nodes.every((n) => n.type !== 'FRAME') && (
+          <label className="flex items-center gap-2 mt-2 text-[11px] text-[var(--pf-text-dim)] cursor-default">
+            <input
+              type="checkbox"
+              checked={common((n) => n.isMask ?? false) === true}
+              onChange={() => toggleMaskSelection()}
+            />
+            Use as mask (clips siblings above)
+          </label>
+        )}
       </Section>
 
       {/* Text */}
       {isText && (
         <Section title="Text">
+          <TextStyleChip node={first as TextNode} />
           <TextEditor node={first as TextNode} fonts={fonts} commit={commit} common={common} />
         </Section>
       )}
@@ -316,42 +376,65 @@ export function Inspector() {
           </button>
         }
       >
+        <FillStyleChip node={first} />
         {first.fills.length === 0 && <div className="text-[11px] text-[var(--pf-text-dim)]">No fill</div>}
         {first.fills.map((paint, i) => (
-          <PaintRow
-            key={i}
-            paint={paint}
-            onSwatch={(anchor, stopIndex) => openPicker({ kind: 'fill', index: i, anchor, stopIndex })}
-            onToggle={() =>
-              commit((n) => {
-                const fills = structuredClone(n.fills)
-                if (fills[i]) fills[i].visible = !fills[i].visible
-                return { fills }
-              }, 'Toggle Fill')
-            }
-            onRemove={() =>
-              commit((n) => {
-                const fills = structuredClone(n.fills)
-                fills.splice(i, 1)
-                return { fills }
-              }, 'Remove Fill')
-            }
-            onTypeChange={(t) =>
-              commit((n) => {
-                const fills = structuredClone(n.fills)
-                fills[i] = convertPaintType(fills[i], t)
-                return { fills }
-              }, 'Change Fill Type')
-            }
-            onScaleModeChange={(mode) =>
-              commit((n) => {
-                const fills = structuredClone(n.fills)
-                const p = fills[i]
-                if (p && p.type === 'IMAGE') p.scaleMode = mode
-                return { fills }
-              }, 'Set Image Fit')
-            }
-          />
+          <div key={i}>
+            <PaintRow
+              paint={paint}
+              onSwatch={(anchor, stopIndex) => openPicker({ kind: 'fill', index: i, anchor, stopIndex })}
+              onToggle={() =>
+                commit((n) => {
+                  const fills = structuredClone(n.fills)
+                  if (fills[i]) fills[i].visible = !fills[i].visible
+                  return { fills }
+                }, 'Toggle Fill')
+              }
+              onRemove={() =>
+                commit((n) => {
+                  const fills = structuredClone(n.fills)
+                  fills.splice(i, 1)
+                  return { fills }
+                }, 'Remove Fill')
+              }
+              onTypeChange={(t) =>
+                commit((n) => {
+                  const fills = structuredClone(n.fills)
+                  fills[i] = convertPaintType(fills[i], t)
+                  return { fills }
+                }, 'Change Fill Type')
+              }
+              onScaleModeChange={(mode) =>
+                commit((n) => {
+                  const fills = structuredClone(n.fills)
+                  const p = fills[i]
+                  if (p && p.type === 'IMAGE') p.scaleMode = mode
+                  return { fills }
+                }, 'Set Image Fit')
+              }
+              onStopsChange={(mutate) =>
+                commit((n) => {
+                  const fills = structuredClone(n.fills)
+                  const p = fills[i]
+                  if (p && (p.type === 'GRADIENT_LINEAR' || p.type === 'GRADIENT_RADIAL')) mutate(p)
+                  return { fills }
+                }, 'Edit Gradient')
+              }
+            />
+            {paint.type === 'IMAGE' && (
+              <ImageFillControls
+                paint={paint}
+                onChange={(mutate, label) =>
+                  commit((n) => {
+                    const fills = structuredClone(n.fills)
+                    const p = fills[i]
+                    if (p && p.type === 'IMAGE') mutate(p)
+                    return { fills }
+                  }, label)
+                }
+              />
+            )}
+          </div>
         ))}
       </Section>
 
@@ -453,7 +536,9 @@ export function Inspector() {
                 value={fx.type}
                 options={[
                   { value: 'DROP_SHADOW', label: 'Drop shadow' },
+                  { value: 'INNER_SHADOW', label: 'Inner shadow' },
                   { value: 'LAYER_BLUR', label: 'Layer blur' },
+                  { value: 'BACKGROUND_BLUR', label: 'Background blur' },
                 ]}
                 onChange={(t) =>
                   commit((n) => {
@@ -461,7 +546,11 @@ export function Inspector() {
                     effects[i] =
                       t === 'DROP_SHADOW'
                         ? { type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.25 }, offset: { x: 0, y: 4 }, blur: 8 }
-                        : { type: 'LAYER_BLUR', visible: true, radius: 4 }
+                        : t === 'INNER_SHADOW'
+                          ? { type: 'INNER_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 2 }, blur: 6 }
+                          : t === 'LAYER_BLUR'
+                            ? { type: 'LAYER_BLUR', visible: true, radius: 4 }
+                            : { type: 'BACKGROUND_BLUR', visible: true, radius: 10 }
                     return { effects }
                   }, 'Change Effect')
                 }
@@ -492,11 +581,11 @@ export function Inspector() {
                 <MinusIcon width={11} height={11} />
               </button>
             </div>
-            {fx.type === 'DROP_SHADOW' && (
+            {(fx.type === 'DROP_SHADOW' || fx.type === 'INNER_SHADOW') && (
               <div className="grid grid-cols-4 gap-1 mt-1 items-center">
-                <NumberInput label="X" value={round(fx.offset.x)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => e.type === 'DROP_SHADOW' && (e.offset = { ...e.offset, x: v })), 'Set Shadow')} />
-                <NumberInput label="Y" value={round(fx.offset.y)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => e.type === 'DROP_SHADOW' && (e.offset = { ...e.offset, y: v })), 'Set Shadow')} />
-                <NumberInput label="B" value={round(fx.blur)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => e.type === 'DROP_SHADOW' && (e.blur = v)), 'Set Shadow')} />
+                <NumberInput label="X" value={round(fx.offset.x)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.offset = { ...e.offset, x: v })), 'Set Shadow')} />
+                <NumberInput label="Y" value={round(fx.offset.y)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.offset = { ...e.offset, y: v })), 'Set Shadow')} />
+                <NumberInput label="B" value={round(fx.blur)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.blur = v)), 'Set Shadow')} />
                 <button
                   className="w-6 h-6 rounded border border-[var(--pf-border)]"
                   style={{ background: rgbaToCss(fx.color) }}
@@ -508,9 +597,9 @@ export function Inspector() {
                 />
               </div>
             )}
-            {fx.type === 'LAYER_BLUR' && (
+            {(fx.type === 'LAYER_BLUR' || fx.type === 'BACKGROUND_BLUR') && (
               <div className="grid grid-cols-2 gap-1 mt-1">
-                <NumberInput label="R" value={round(fx.radius)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => e.type === 'LAYER_BLUR' && (e.radius = v)), 'Set Blur')} />
+                <NumberInput label="R" value={round(fx.radius)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'LAYER_BLUR' || e.type === 'BACKGROUND_BLUR') && (e.radius = v)), 'Set Blur')} />
               </div>
             )}
           </div>
@@ -596,6 +685,7 @@ function PaintRow({
   onRemove,
   onTypeChange,
   onScaleModeChange,
+  onStopsChange,
 }: {
   paint: Paint
   onSwatch: (anchor: { x: number; y: number }, stopIndex?: number) => void
@@ -603,6 +693,7 @@ function PaintRow({
   onRemove: () => void
   onTypeChange: (t: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL') => void
   onScaleModeChange?: (m: 'FILL' | 'FIT' | 'TILE' | 'STRETCH') => void
+  onStopsChange?: (mutate: (p: GradientPaint) => void) => void
 }) {
   const isGradient = paint.type === 'GRADIENT_LINEAR' || paint.type === 'GRADIENT_RADIAL'
   return (
@@ -647,23 +738,338 @@ function PaintRow({
           <MinusIcon width={11} height={11} />
         </button>
       </div>
-      {isGradient && (
-        <div className="flex items-center gap-1 mt-1 pl-8">
-          {paint.stops.map((stop, si) => (
-            <button
-              key={si}
-              className="w-4 h-4 rounded-full border border-[var(--pf-border)]"
-              style={{ background: rgbaToCss(stop.color) }}
-              title={`Stop ${Math.round(stop.position * 100)}%`}
-              onClick={(e) => {
-                const r = (e.target as HTMLElement).getBoundingClientRect()
-                onSwatch({ x: r.left - 260, y: r.top }, si)
-              }}
-            />
-          ))}
-        </div>
+      {(paint.type === 'GRADIENT_LINEAR' || paint.type === 'GRADIENT_RADIAL') && onStopsChange && (
+        <GradientStopsBar paint={paint} onSwatch={onSwatch} onStopsChange={onStopsChange} />
       )}
     </div>
+  )
+}
+
+/**
+ * Gradient stop editor: drag stops along the bar, click to recolor,
+ * double-click the bar to add a stop, Alt+click a stop to remove it.
+ */
+function GradientStopsBar({
+  paint,
+  onSwatch,
+  onStopsChange,
+}: {
+  paint: GradientPaint
+  onSwatch: (anchor: { x: number; y: number }, stopIndex: number) => void
+  onStopsChange: (mutate: (p: GradientPaint) => void) => void
+}) {
+  const gradientCss = `linear-gradient(90deg, ${paint.stops
+    .map((s) => `${rgbaToCss(s.color)} ${Math.max(0, Math.min(1, s.position)) * 100}%`)
+    .join(', ')})`
+
+  const dragStop = (e: React.PointerEvent, si: number) => {
+    e.stopPropagation()
+    const bar = (e.currentTarget as HTMLElement).parentElement!
+    const rect = bar.getBoundingClientRect()
+    let moved = false
+    const onMove = (ev: PointerEvent) => {
+      moved = true
+      const pos = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+      onStopsChange((p) => {
+        if (p.stops[si]) p.stops[si].position = Math.round(pos * 100) / 100
+      })
+    }
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (!moved) {
+        if (ev.altKey && paint.stops.length > 2) {
+          onStopsChange((p) => p.stops.splice(si, 1))
+        } else {
+          const r = (e.target as HTMLElement).getBoundingClientRect()
+          onSwatch({ x: r.left - 260, y: r.top }, si)
+        }
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  return (
+    <div
+      className="relative h-4 mt-1.5 ml-8 rounded cursor-copy"
+      style={{ background: gradientCss }}
+      title="Double-click to add a stop · Alt+click a stop to remove"
+      onDoubleClick={(e) => {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+        onStopsChange((p) => {
+          // Interpolate the color at the insertion point.
+          const sorted = [...p.stops].sort((a, b) => a.position - b.position)
+          let color = sorted[0]?.color ?? { r: 0.5, g: 0.5, b: 0.5, a: 1 }
+          for (let i = 0; i < sorted.length - 1; i++) {
+            const a = sorted[i]
+            const b = sorted[i + 1]
+            if (pos >= a.position && pos <= b.position) {
+              const t = (pos - a.position) / Math.max(1e-6, b.position - a.position)
+              color = {
+                r: a.color.r + (b.color.r - a.color.r) * t,
+                g: a.color.g + (b.color.g - a.color.g) * t,
+                b: a.color.b + (b.color.b - a.color.b) * t,
+                a: a.color.a + (b.color.a - a.color.a) * t,
+              }
+            }
+          }
+          p.stops.push({ position: Math.round(pos * 100) / 100, color })
+          p.stops.sort((a, b) => a.position - b.position)
+        })
+      }}
+    >
+      {paint.stops.map((stop, si) => (
+        <div
+          key={si}
+          className="absolute top-1/2 w-3.5 h-3.5 rounded-full border-2 border-white shadow cursor-ew-resize"
+          style={{
+            left: `${Math.max(0, Math.min(1, stop.position)) * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            background: rgbaToCss(stop.color),
+          }}
+          onPointerDown={(e) => dragStop(e, si)}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** Image fill crop + adjustment controls. */
+function ImageFillControls({
+  paint,
+  onChange,
+}: {
+  paint: ImagePaint
+  onChange: (mutate: (p: ImagePaint) => void, label: string) => void
+}) {
+  const crop = paint.crop ?? { x: 0, y: 0, w: 1, h: 1 }
+  const adj = paint.adjust ?? { exposure: 0, contrast: 0, saturation: 0 }
+  const setCrop = (key: 'x' | 'y' | 'w' | 'h', v: number) =>
+    onChange((p) => {
+      p.crop = { ...(p.crop ?? { x: 0, y: 0, w: 1, h: 1 }), [key]: Math.max(0, Math.min(1, v / 100)) }
+    }, 'Crop Image')
+  const setAdj = (key: 'exposure' | 'contrast' | 'saturation', v: number) =>
+    onChange((p) => {
+      p.adjust = { ...(p.adjust ?? { exposure: 0, contrast: 0, saturation: 0 }), [key]: Math.max(-1, Math.min(1, v / 100)) }
+    }, 'Adjust Image')
+  return (
+    <div className="pl-8 mb-1.5">
+      <div className="text-[10px] text-[var(--pf-text-dim)] mt-1 mb-0.5">Crop (% of image)</div>
+      <div className="grid grid-cols-4 gap-1">
+        <NumberInput label="X" value={round(crop.x * 100)} min={0} max={100} onCommit={(v) => setCrop('x', v)} />
+        <NumberInput label="Y" value={round(crop.y * 100)} min={0} max={100} onCommit={(v) => setCrop('y', v)} />
+        <NumberInput label="W" value={round(crop.w * 100)} min={1} max={100} onCommit={(v) => setCrop('w', v)} />
+        <NumberInput label="H" value={round(crop.h * 100)} min={1} max={100} onCommit={(v) => setCrop('h', v)} />
+      </div>
+      <div className="text-[10px] text-[var(--pf-text-dim)] mt-1.5 mb-0.5">Adjust (−100 … 100)</div>
+      <div className="grid grid-cols-3 gap-1">
+        <NumberInput label="☀" value={round(adj.exposure * 100)} min={-100} max={100} onCommit={(v) => setAdj('exposure', v)} />
+        <NumberInput label="◑" value={round(adj.contrast * 100)} min={-100} max={100} onCommit={(v) => setAdj('contrast', v)} />
+        <NumberInput label="S" value={round(adj.saturation * 100)} min={-100} max={100} onCommit={(v) => setAdj('saturation', v)} />
+      </div>
+    </div>
+  )
+}
+
+/** Shared color-style chip for the Fill section. */
+function FillStyleChip({ node }: { node: SceneNode }) {
+  const styles = documentStore.scene.doc.styles.colors
+  const ref = node.styleRefs?.fill
+  const applied = ref ? styles.find((s) => s.id === ref) : null
+  if (applied) {
+    return (
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="w-4 h-4 rounded-full border border-[var(--pf-border)]" style={{ background: paintSwatchCss(applied.paint) }} />
+        <span className="flex-1 text-[11px] truncate">{applied.name}</span>
+        <button className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)]" onClick={() => detachStyle('fill')}>
+          Detach
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5">
+      {styles.length > 0 && (
+        <Select
+          value=""
+          options={styles.map((s) => ({ value: s.id, label: s.name }))}
+          onChange={(id) => applyColorStyle(id)}
+          className="flex-1"
+        />
+      )}
+      {node.fills.length > 0 && (
+        <button
+          className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)] whitespace-nowrap"
+          title="Create a shared color style from this fill"
+          onClick={() => {
+            const name = window.prompt('Style name', 'Color style')
+            if (name?.trim()) {
+              const id = createColorStyle(name.trim(), node.fills[0])
+              applyColorStyle(id)
+            }
+          }}
+        >
+          + Style
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Shared text-style chip for the Text section. */
+function TextStyleChip({ node }: { node: TextNode }) {
+  const styles = documentStore.scene.doc.styles.texts
+  const ref = node.styleRefs?.text
+  const applied = ref ? styles.find((s) => s.id === ref) : null
+  if (applied) {
+    return (
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="flex-1 text-[11px] truncate font-medium">{applied.name}</span>
+        <button className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)]" onClick={() => detachStyle('text')}>
+          Detach
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1.5 mb-2">
+      {styles.length > 0 && (
+        <Select
+          value=""
+          options={styles.map((s) => ({ value: s.id, label: s.name }))}
+          onChange={(id) => applyTextStyle(id)}
+          className="flex-1"
+        />
+      )}
+      <button
+        className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)] whitespace-nowrap"
+        title="Create a shared text style from this node"
+        onClick={() => {
+          const name = window.prompt('Style name', `${node.fontFamily} ${node.fontSize}`)
+          if (name?.trim()) {
+            const id = createTextStyle(name.trim(), {
+              fontFamily: node.fontFamily,
+              fontWeight: node.fontWeight,
+              italic: node.italic,
+              fontSize: node.fontSize,
+              lineHeight: node.lineHeight,
+              letterSpacing: node.letterSpacing,
+            })
+            applyTextStyle(id)
+          }
+        }}
+      >
+        + Style
+      </button>
+    </div>
+  )
+}
+
+/** Document styles editor shown when nothing is selected. */
+function StylesPanel() {
+  const [picker, setPicker] = useState<{ styleId: string; anchor: { x: number; y: number } } | null>(null)
+  const styles = documentStore.scene.doc.styles
+  const liveColor = useRef<RGBA | null>(null)
+  if (styles.colors.length === 0 && styles.texts.length === 0) return null
+
+  const editing = picker ? styles.colors.find((s) => s.id === picker.styleId) : null
+  const editingColor: RGBA =
+    editing && editing.paint.type === 'SOLID' ? editing.paint.color : { r: 0.5, g: 0.5, b: 0.5, a: 1 }
+
+  return (
+    <>
+      {styles.colors.length > 0 && (
+        <Section title="Color styles">
+          {styles.colors.map((s) => (
+            <div key={s.id} className="group flex items-center gap-2 h-7">
+              <button
+                className="w-4 h-4 rounded-full border border-[var(--pf-border)]"
+                style={{ background: paintSwatchCss(s.paint) }}
+                title="Edit color"
+                onClick={(e) => {
+                  const r = (e.target as HTMLElement).getBoundingClientRect()
+                  liveColor.current = null
+                  setPicker({ styleId: s.id, anchor: { x: r.left - 260, y: r.top } })
+                }}
+              />
+              <EditableStyleName name={s.name} onRename={(name) => renameSharedStyle('colors', s.id, name)} />
+              <button
+                className="hidden group-hover:block pf-icon-btn !w-5 !h-5"
+                title="Delete style"
+                onClick={() => deleteSharedStyle('colors', s.id)}
+              >
+                <MinusIcon width={11} height={11} />
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
+      {styles.texts.length > 0 && (
+        <Section title="Text styles">
+          {styles.texts.map((s) => (
+            <div key={s.id} className="group flex items-center gap-2 h-7">
+              <span className="text-[11px] text-[var(--pf-text-dim)]">Ag</span>
+              <EditableStyleName name={s.name} onRename={(name) => renameSharedStyle('texts', s.id, name)} />
+              <span className="text-[10px] text-[var(--pf-text-dim)]">
+                {s.props.fontFamily} {s.props.fontSize}
+              </span>
+              <button
+                className="hidden group-hover:block pf-icon-btn !w-5 !h-5"
+                title="Delete style"
+                onClick={() => deleteSharedStyle('texts', s.id)}
+              >
+                <MinusIcon width={11} height={11} />
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
+      {picker && editing && (
+        <ColorPicker
+          color={editingColor}
+          anchor={picker.anchor}
+          onLive={(c) => {
+            liveColor.current = c
+          }}
+          onClose={() => {
+            if (liveColor.current) {
+              updateColorStyle(picker.styleId, { type: 'SOLID', visible: true, opacity: 1, color: liveColor.current })
+            }
+            setPicker(null)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function EditableStyleName({ name, onRename }: { name: string; onRename: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    return (
+      <input
+        className="pf-input h-5 py-0 text-[11px] flex-1"
+        autoFocus
+        defaultValue={name}
+        onFocus={(e) => e.target.select()}
+        onBlur={(e) => {
+          if (e.target.value.trim() && e.target.value !== name) onRename(e.target.value.trim())
+          setEditing(false)
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          if (e.key === 'Escape') setEditing(false)
+        }}
+      />
+    )
+  }
+  return (
+    <span className="flex-1 text-[11px] truncate" onDoubleClick={() => setEditing(true)}>
+      {name}
+    </span>
   )
 }
 

@@ -6,7 +6,7 @@ import type { NodeId, SceneNode } from '../engine/types'
 import { isContainer } from '../engine/types'
 import { documentStore, useDocVersion } from '../state/document'
 import { useEditor } from '../state/editor'
-import { OpRecorder, renameNode, setSelection } from '../state/actions'
+import { OpRecorder, addPage, deletePage, renamePage, renameNode, setSelection, switchPage } from '../state/actions'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -21,10 +21,76 @@ import {
   PolygonIcon,
   SquareIcon,
   StarIcon,
+  TrashIcon,
   TypeIcon,
   VectorIcon,
   BoolUnionIcon,
+  PlusIcon,
 } from './icons'
+
+function PagesSection() {
+  useDocVersion()
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const scene = documentStore.scene
+  const pages = scene.doc.pages
+  const activeId = scene.doc.activePageId
+
+  return (
+    <div className="border-b border-[var(--pf-border)] max-h-40 overflow-y-auto shrink-0">
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-[11px] font-semibold text-[var(--pf-text)]">Pages</span>
+        <button className="pf-icon-btn !w-5 !h-5" title="Add page" onClick={() => addPage()}>
+          <PlusIcon width={12} height={12} />
+        </button>
+      </div>
+      {pages.map((page) => (
+        <div
+          key={page.id}
+          className={`group flex items-center gap-2 px-3 h-7 cursor-default ${
+            page.id === activeId ? 'bg-[rgba(79,158,255,0.18)] text-white' : 'hover:bg-[var(--pf-bg-2)] text-[var(--pf-text-dim)]'
+          }`}
+          onClick={() => switchPage(page.id)}
+          onDoubleClick={() => setRenaming(page.id)}
+        >
+          {renaming === page.id ? (
+            <input
+              className="pf-input h-5 py-0 text-[11px]"
+              autoFocus
+              defaultValue={page.name}
+              onFocus={(e) => e.target.select()}
+              onBlur={(e) => {
+                renamePage(page.id, e.target.value)
+                setRenaming(null)
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') setRenaming(null)
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="flex-1 truncate text-[11px]">{page.name}</span>
+          )}
+          {pages.length > 1 && (
+            <button
+              className="hidden group-hover:flex w-5 h-5 items-center justify-center text-[var(--pf-text-dim)] hover:text-white"
+              title="Delete page (removes its layers)"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (window.confirm(`Delete "${page.name}" and its ${page.rootIds.length} top-level layers?`)) {
+                  deletePage(page.id)
+                }
+              }}
+            >
+              <TrashIcon width={11} height={11} />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function typeIcon(node: SceneNode) {
   switch (node.type) {
@@ -86,7 +152,7 @@ export function LayersPanel() {
       }
     }
   }
-  pushRows(scene.doc.rootIds, 0)
+  pushRows(scene.rootIds(), 0)
 
   const toggleCollapse = (id: NodeId) => {
     setCollapsed((prev) => {
@@ -190,6 +256,7 @@ export function LayersPanel() {
 
   return (
     <div className="w-64 shrink-0 flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]">
+      <PagesSection />
       <div className="px-3 py-2 text-[11px] font-semibold border-b border-[var(--pf-border)] text-[var(--pf-text)]">
         Layers
       </div>

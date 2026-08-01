@@ -78,6 +78,8 @@ Deliberately **out of scope** for the whole roadmap (local-first, single-user by
 
 ## v0.2 — Editing Depth
 
+> **Status: shipped in v0.2.0.** Notes: 2.3 masks are shape-clip based (no luminance masks); 2.9 SVG gradients fall back to solid fills; 2.10 shipped as the inspector stop editor (on-canvas gradient handles still pending); 2.11 shipped as equal-spacing snap (no measurement labels yet).
+
 Goal: close the biggest day-to-day editing gaps against Figma for a single designer. Everything here builds on the v0.1 TypeScript engine — no engine swap required.
 
 | # | Item | Effort | Depends on | Notes |

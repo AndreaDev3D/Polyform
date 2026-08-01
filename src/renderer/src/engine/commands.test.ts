@@ -39,7 +39,7 @@ describe('patch ops', () => {
     applyOps(scene, ops)
     expect(scene.hasNode(frame.id)).toBe(false)
     expect(scene.hasNode(rectId)).toBe(false)
-    expect(scene.doc.rootIds).toHaveLength(0)
+    expect(scene.rootIds()).toHaveLength(0)
     undoOps(scene, ops)
     expect(scene.hasNode(frame.id)).toBe(true)
     expect(scene.hasNode(rectId)).toBe(true)
@@ -52,7 +52,7 @@ describe('patch ops', () => {
     const bundle = reIdBundle(extractBundle(scene, [frame.id]), () => `new-${Math.random().toString(36).slice(2)}`)
     const ops = addBundleOps(bundle, null, 1)
     applyOps(scene, ops)
-    expect(scene.doc.rootIds).toHaveLength(2)
+    expect(scene.rootIds()).toHaveLength(2)
     const copyId = bundle.rootIds[0]
     expect(copyId).not.toBe(frame.id)
     const copy = scene.requireNode(copyId) as FrameNode

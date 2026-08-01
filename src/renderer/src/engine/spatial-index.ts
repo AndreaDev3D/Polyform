@@ -37,7 +37,7 @@ export class SpatialIndex {
         for (const cid of node.children) walk(cid, visible)
       }
     }
-    for (const id of scene.doc.rootIds) walk(id, true)
+    for (const id of scene.rootIds()) walk(id, true)
     this.tree = new RBush<IndexEntry>()
     this.tree.load(entries)
     this.builtVersion = scene.version

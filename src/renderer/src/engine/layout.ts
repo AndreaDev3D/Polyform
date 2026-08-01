@@ -185,8 +185,8 @@ export function runDerivedPasses(scene: SceneGraph): boolean {
   for (let i = 0; i < 4; i++) {
     let changed = false
     changed = autoResizeText(scene) || changed
-    for (const rid of scene.doc.rootIds) changed = layoutFrames(scene, rid) || changed
-    for (const rid of scene.doc.rootIds) changed = normalizeContainers(scene, rid) || changed
+    for (const rid of scene.rootIds()) changed = layoutFrames(scene, rid) || changed
+    for (const rid of scene.rootIds()) changed = normalizeContainers(scene, rid) || changed
     if (changed) {
       scene.bump()
       changedAny = true

@@ -14,6 +14,7 @@ const api: PolyformApi = {
   historySetCursor: (cursor) => ipcRenderer.invoke('history:setCursor', cursor),
   assetsImportDialog: () => ipcRenderer.invoke('assets:importDialog'),
   assetsRead: (hash) => ipcRenderer.invoke('assets:read', hash),
+  svgImportDialog: () => ipcRenderer.invoke('import:svgDialog'),
   exportSave: (defaultName, kind, data) => ipcRenderer.invoke('export:save', defaultName, kind, data),
   setDirty: (dirty) => ipcRenderer.send('app:set-dirty', dirty),
   setTitle: () => ipcRenderer.send('app:set-title'),

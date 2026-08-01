@@ -4,6 +4,7 @@
 import { editor, type Tool } from '../state/editor'
 import { deleteSelection, nudgeSelection, setSelection, zoomToFit } from '../state/actions'
 import { interactionController } from '../interactions/controller'
+import { documentStore } from '../state/document'
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: 'select',
@@ -30,6 +31,10 @@ export function installShortcuts(): () => void {
       if (isTypingTarget(e.target)) return // fields handle their own escape
       if (state.editingTextId) return // overlay handles it
       interactionController.cancel()
+      if (state.vectorEditId) {
+        interactionController.exitVectorEdit(true)
+        return
+      }
       if (state.penDraft) return
       if (state.enteredContainer) {
         editor.set({ enteredContainer: null })
@@ -53,6 +58,21 @@ export function installShortcuts(): () => void {
       return
     }
 
+    if (e.key === 'Enter') {
+      if (state.vectorEditId) {
+        interactionController.exitVectorEdit(true)
+        return
+      }
+      // Enter on a selected vector opens vector edit mode (Figma behavior).
+      if (state.selection.length === 1) {
+        const node = documentStore.scene.getNode(state.selection[0])
+        if (node?.type === 'VECTOR') {
+          interactionController.enterVectorEdit(node.id)
+          return
+        }
+      }
+    }
+
     if (e.shiftKey && e.code === 'Digit1') {
       // Zoom to Fit (menu shows the hint; registered here so typing '!' in
       // text fields is never intercepted — the guards above already ran).
@@ -60,7 +80,16 @@ export function installShortcuts(): () => void {
       return
     }
 
+    if (e.shiftKey && e.code === 'KeyR') {
+      editor.set({ showRulers: !state.showRulers })
+      return
+    }
+
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (state.vectorEditId) {
+        interactionController.deleteVectorVertices()
+        return
+      }
       deleteSelection()
       return
     }
@@ -78,6 +107,9 @@ export function installShortcuts(): () => void {
 
     const tool = TOOL_KEYS[e.key.toLowerCase()]
     if (tool && !e.shiftKey) {
+      if (state.vectorEditId && tool !== 'select') {
+        interactionController.exitVectorEdit(true)
+      }
       editor.get().setTool(tool)
     }
   }

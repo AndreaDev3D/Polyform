@@ -45,6 +45,21 @@ export interface GradientPaint {
 
 export type ImageScaleMode = 'FILL' | 'FIT' | 'TILE' | 'STRETCH'
 
+/** Crop rect normalized to the source image (0..1). */
+export interface ImageCrop {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** Non-destructive adjustments, each -1..1 (0 = neutral). */
+export interface ImageAdjust {
+  exposure: number
+  contrast: number
+  saturation: number
+}
+
 export interface ImagePaint {
   type: 'IMAGE'
   visible: boolean
@@ -52,6 +67,8 @@ export interface ImagePaint {
   /** SHA-256 content hash referencing assets/<hash>.<ext> in the bundle. */
   assetHash: string
   scaleMode: ImageScaleMode
+  crop?: ImageCrop | null
+  adjust?: ImageAdjust | null
 }
 
 export type Paint = SolidPaint | GradientPaint | ImagePaint
@@ -68,13 +85,27 @@ export interface DropShadowEffect {
   blur: number
 }
 
+export interface InnerShadowEffect {
+  type: 'INNER_SHADOW'
+  visible: boolean
+  color: RGBA
+  offset: Vec2
+  blur: number
+}
+
 export interface LayerBlurEffect {
   type: 'LAYER_BLUR'
   visible: boolean
   radius: number
 }
 
-export type Effect = DropShadowEffect | LayerBlurEffect
+export interface BackgroundBlurEffect {
+  type: 'BACKGROUND_BLUR'
+  visible: boolean
+  radius: number
+}
+
+export type Effect = DropShadowEffect | InnerShadowEffect | LayerBlurEffect | BackgroundBlurEffect
 
 // ---------------------------------------------------------------------------
 // Vector networks (per Technical-Specification §2.1)
@@ -143,6 +174,20 @@ export interface CornerRadius {
   bl: number
 }
 
+/**
+ * Constraint of a node relative to its parent frame when the frame resizes.
+ * MIN pins to left/top, MAX to right/bottom, STRETCH pins both edges,
+ * CENTER keeps the center offset, SCALE resizes proportionally.
+ */
+export type Constraint = 'MIN' | 'MAX' | 'CENTER' | 'STRETCH' | 'SCALE'
+
+/** References into the document's shared styles (applied-by-reference). */
+export interface StyleRefs {
+  fill?: string | null
+  text?: string | null
+  effect?: string | null
+}
+
 export interface BaseNode {
   id: NodeId
   type: NodeType
@@ -164,6 +209,13 @@ export interface BaseNode {
   strokeAlign: StrokeAlign
   strokeDash: number[]
   effects: Effect[]
+  // --- v2 fields (optional so v1 documents and journals stay loadable) ---
+  /** Horizontal / vertical constraints relative to the parent frame. */
+  constraintsH?: Constraint
+  constraintsV?: Constraint
+  /** Mask: clips the siblings above it within the same container. */
+  isMask?: boolean
+  styleRefs?: StyleRefs
 }
 
 export type LayoutMode = 'NONE' | 'HORIZONTAL' | 'VERTICAL'
@@ -274,16 +326,74 @@ export function isContainer(node: SceneNode): node is ContainerNode {
 }
 
 // ---------------------------------------------------------------------------
-// Document
+// Document, pages, guides, shared styles
 // ---------------------------------------------------------------------------
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
+
+export interface Guide {
+  axis: 'x' | 'y'
+  pos: number
+}
+
+export interface Page {
+  id: string
+  name: string
+  /** Root z-order, bottom to top. */
+  rootIds: NodeId[]
+  guides: Guide[]
+  /** Per-page camera, restored when switching pages. */
+  viewport?: { x: number; y: number; zoom: number } | null
+}
+
+export interface ColorStyle {
+  id: string
+  name: string
+  paint: Paint
+}
+
+/** The text properties a shared text style carries. */
+export interface TextStyleProps {
+  fontFamily: string
+  fontWeight: number
+  italic: boolean
+  fontSize: number
+  lineHeight: number
+  letterSpacing: number
+}
+
+export interface TextStyle {
+  id: string
+  name: string
+  props: TextStyleProps
+}
+
+export interface EffectStyle {
+  id: string
+  name: string
+  effects: Effect[]
+}
+
+export interface DocumentStyles {
+  colors: ColorStyle[]
+  texts: TextStyle[]
+  effects: EffectStyle[]
+}
 
 export interface PolyformDocument {
   schemaVersion: number
   nodes: Record<NodeId, SceneNode>
-  /** Root z-order, bottom to top. */
-  rootIds: NodeId[]
+  pages: Page[]
+  activePageId: string
+  styles: DocumentStyles
+}
+
+export function createPage(name: string): Page {
+  return { id: newId(), name, rootIds: [], guides: [], viewport: null }
+}
+
+export function emptyStyles(): DocumentStyles {
+  return { colors: [], texts: [], effects: [] }
 }
 
 // ---------------------------------------------------------------------------

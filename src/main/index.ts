@@ -187,6 +187,26 @@ function registerIpc(): void {
 
   ipcMain.handle('assets:read', (_e, hash: string) => projects.readAsset(hash))
 
+  ipcMain.handle('import:svgDialog', async () => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import SVG',
+      filters: [{ name: 'SVG Images', extensions: ['svg'] }],
+      properties: ['openFile', 'multiSelections'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const files = []
+    for (const file of result.filePaths) {
+      try {
+        const text = await fs.readFile(file, 'utf-8')
+        files.push({ fileName: path.basename(file), text })
+      } catch {
+        /* skip unreadable */
+      }
+    }
+    return files
+  })
+
   ipcMain.handle('export:save', async (_e, defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => {
     if (!mainWindow) return null
     const result = await dialog.showSaveDialog(mainWindow, {

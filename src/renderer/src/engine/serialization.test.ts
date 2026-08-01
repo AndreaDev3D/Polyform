@@ -30,7 +30,7 @@ describe('scene.bin serialization', () => {
     const bytes = encodeScene(scene.doc)
     expect(bytes[0]).toBe(0x50) // 'P'
     const decoded = decodeScene(bytes)
-    expect(decoded.rootIds).toEqual(scene.doc.rootIds)
+    expect(decoded.pages[0].rootIds).toEqual(scene.rootIds())
     expect(Object.keys(decoded.nodes)).toHaveLength(3)
     const decodedText = decoded.nodes[text.id] as TextNode
     expect(decodedText.characters).toBe('Hello\nPolyform')

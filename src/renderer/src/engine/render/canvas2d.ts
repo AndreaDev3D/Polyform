@@ -134,10 +134,28 @@ function drawImagePaint(
     return
   }
   ctx.globalAlpha *= paint.opacity
+  // Non-destructive adjustments via canvas filters.
+  const adj = paint.adjust
+  if (adj && (adj.exposure !== 0 || adj.contrast !== 0 || adj.saturation !== 0)) {
+    const clamp01 = (v: number) => Math.max(0, 1 + v)
+    ctx.filter = `brightness(${clamp01(adj.exposure)}) contrast(${clamp01(adj.contrast)}) saturate(${clamp01(adj.saturation)})`
+  }
   const iw = bmp.width
   const ih = bmp.height
+  // Crop rect (normalized to the source image).
+  const crop = paint.crop
+  let sx = 0
+  let sy = 0
+  let sw = iw
+  let sh = ih
+  if (crop && crop.w > 0.001 && crop.h > 0.001) {
+    sx = Math.max(0, Math.min(1, crop.x)) * iw
+    sy = Math.max(0, Math.min(1, crop.y)) * ih
+    sw = Math.max(0.001, Math.min(1 - crop.x, crop.w)) * iw
+    sh = Math.max(0.001, Math.min(1 - crop.y, crop.h)) * ih
+  }
   if (paint.scaleMode === 'STRETCH') {
-    ctx.drawImage(bmp, 0, 0, w, h)
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h)
   } else if (paint.scaleMode === 'TILE') {
     const pattern = ctx.createPattern(bmp, 'repeat')
     if (pattern) {
@@ -145,10 +163,10 @@ function drawImagePaint(
       ctx.fillRect(0, 0, w, h)
     }
   } else {
-    const scale = paint.scaleMode === 'FILL' ? Math.max(w / iw, h / ih) : Math.min(w / iw, h / ih)
-    const dw = iw * scale
-    const dh = ih * scale
-    ctx.drawImage(bmp, (w - dw) / 2, (h - dh) / 2, dw, dh)
+    const scale = paint.scaleMode === 'FILL' ? Math.max(w / sw, h / sh) : Math.min(w / sw, h / sh)
+    const dw = sw * scale
+    const dh = sh * scale
+    ctx.drawImage(bmp, sx, sy, sw, sh, (w - dw) / 2, (h - dh) / 2, dw, dh)
   }
   ctx.restore()
 }
@@ -248,6 +266,65 @@ function clearShadow(ctx: CanvasRenderingContext2D): void {
   ctx.shadowBlur = 0
 }
 
+/**
+ * Inner shadow: clip to the shape, then fill the INVERSE region with an
+ * offset shadow — only the shadow cast into the clip is visible.
+ */
+function drawInnerShadows(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  path: Path2D,
+  fillRule: CanvasFillRule,
+  deviceScale: number,
+): void {
+  for (const fx of node.effects) {
+    if (fx.type !== 'INNER_SHADOW' || !fx.visible) continue
+    ctx.save()
+    ctx.clip(path, fillRule)
+    ctx.shadowColor = rgbaToCss(fx.color)
+    ctx.shadowOffsetX = fx.offset.x * deviceScale
+    ctx.shadowOffsetY = fx.offset.y * deviceScale
+    ctx.shadowBlur = fx.blur * deviceScale
+    const inverse = new Path2D()
+    inverse.rect(-1e6, -1e6, 2e6, 2e6)
+    inverse.addPath(path)
+    ctx.fillStyle = '#000'
+    ctx.fill(inverse, 'evenodd')
+    ctx.restore()
+  }
+}
+
+/**
+ * Background blur: snapshot what is already painted, re-draw it blurred and
+ * clipped to the shape (device-space self-drawImage), then paint the node's
+ * own translucent fills on top.
+ */
+function applyBackgroundBlur(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  path: Path2D,
+  fillRule: CanvasFillRule,
+  deviceScale: number,
+): void {
+  const fx = node.effects.find((e) => e.type === 'BACKGROUND_BLUR' && e.visible && e.radius > 0)
+  if (!fx || fx.type !== 'BACKGROUND_BLUR') return
+  ctx.save()
+  const devicePath = new Path2D()
+  devicePath.addPath(path, ctx.getTransform())
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  clearShadow(ctx)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.clip(devicePath, fillRule)
+  ctx.filter = `blur(${fx.radius * deviceScale}px)`
+  try {
+    ctx.drawImage(ctx.canvas, 0, 0)
+  } catch {
+    /* zero-sized canvas edge cases */
+  }
+  ctx.restore()
+}
+
 function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type: 'TEXT' }>): void {
   const layout = layoutText(node)
   const paint = node.fills.find((f) => f.visible)
@@ -273,6 +350,41 @@ function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type
   }
 }
 
+/** Node-local Path2D used when this node acts as a mask. */
+function maskPathFor(scene: SceneGraph, node: SceneNode): Path2D {
+  if (node.type === 'BOOLEAN') return ringsToPath2D(booleanRings(scene, node))
+  return subPathsToPath2D(nodeOutline(node))
+}
+
+/**
+ * Draw a sibling list with Figma mask semantics: a mask node is not painted
+ * itself; it clips every sibling drawn after (above) it in the same scope.
+ */
+function drawChildren(
+  ctx: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  children: readonly NodeId[],
+  opts: RenderOptions,
+  viewBox: AABB,
+): void {
+  let maskDepth = 0
+  for (const cid of children) {
+    const child = scene.getNode(cid)
+    if (!child) continue
+    if (child.isMask && child.visible) {
+      const lm = scene.localMatrix(child)
+      const clipPath = new Path2D()
+      clipPath.addPath(maskPathFor(scene, child), new DOMMatrix([lm.a, lm.b, lm.c, lm.d, lm.e, lm.f]))
+      ctx.save()
+      ctx.clip(clipPath, child.type === 'BOOLEAN' ? 'evenodd' : 'nonzero')
+      maskDepth++
+      continue
+    }
+    drawNode(ctx, scene, cid, opts, viewBox)
+  }
+  while (maskDepth-- > 0) ctx.restore()
+}
+
 function drawNode(
   ctx: CanvasRenderingContext2D,
   scene: SceneGraph,
@@ -289,31 +401,36 @@ function drawNode(
   ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f)
   ctx.globalAlpha *= node.opacity
   if (node.blendMode !== 'NORMAL') ctx.globalCompositeOperation = BLEND_MAP[node.blendMode]
+  const deviceScale = opts.camera.zoom * opts.dpr
   const paintsSelf =
     node.type !== 'GROUP' && (node.fills.some((f) => f.visible) || node.strokes.some((s) => s.visible))
-  applyEffectsBeforeDraw(ctx, node, opts.camera.zoom * opts.dpr, paintsSelf)
+  applyEffectsBeforeDraw(ctx, node, deviceScale, paintsSelf)
 
   switch (node.type) {
     case 'FRAME': {
       const path = subPathsToPath2D(nodeOutline(node))
+      applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
       fillPath(ctx, node, path, 'nonzero', opts.assets)
+      drawInnerShadows(ctx, node, path, 'nonzero', deviceScale)
       clearShadow(ctx)
       ctx.save()
       if (node.clipsContent) ctx.clip(path)
-      for (const cid of node.children) drawNode(ctx, scene, cid, opts, viewBox)
+      drawChildren(ctx, scene, node.children, opts, viewBox)
       ctx.restore()
       strokePath(ctx, node, path, true)
       break
     }
     case 'GROUP': {
-      for (const cid of node.children) drawNode(ctx, scene, cid, opts, viewBox)
+      drawChildren(ctx, scene, node.children, opts, viewBox)
       break
     }
     case 'BOOLEAN': {
       const rings = booleanRings(scene, node)
       if (rings.length > 0) {
         const path = ringsToPath2D(rings)
+        applyBackgroundBlur(ctx, node, path, 'evenodd', deviceScale)
         fillPath(ctx, node, path, 'evenodd', opts.assets)
+        drawInnerShadows(ctx, node, path, 'evenodd', deviceScale)
         strokePath(ctx, node, path, true)
       }
       break
@@ -331,8 +448,11 @@ function drawNode(
       const subpaths = nodeOutline(node)
       const path = subPathsToPath2D(subpaths)
       const hasClosed = subpaths.some((sp) => sp.closed)
+      const rule: CanvasFillRule = node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
       if (hasClosed) {
-        fillPath(ctx, node, path, node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero', opts.assets)
+        applyBackgroundBlur(ctx, node, path, rule, deviceScale)
+        fillPath(ctx, node, path, rule, opts.assets)
+        drawInnerShadows(ctx, node, path, rule, deviceScale)
       }
       strokePath(ctx, node, path, hasClosed)
       break
@@ -340,7 +460,9 @@ function drawNode(
     default: {
       // RECTANGLE / ELLIPSE / POLYGON / STAR
       const path = subPathsToPath2D(nodeOutline(node))
+      applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
       fillPath(ctx, node, path, 'nonzero', opts.assets)
+      drawInnerShadows(ctx, node, path, 'nonzero', deviceScale)
       strokePath(ctx, node, path, true)
       break
     }
@@ -392,7 +514,7 @@ export function drawScene(
   }
 
   ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, -camera.x * camera.zoom * dpr, -camera.y * camera.zoom * dpr)
-  for (const id of scene.doc.rootIds) drawNode(ctx, scene, id, opts, viewBox)
+  drawChildren(ctx, scene, scene.rootIds(), opts, viewBox)
   drawGrid(ctx, opts, viewBox)
   ctx.setTransform(1, 0, 0, 1, 0, 0)
 }

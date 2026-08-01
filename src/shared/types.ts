@@ -75,6 +75,7 @@ export type MenuActionId =
   | 'file.save'
   | 'file.saveAs'
   | 'file.placeImage'
+  | 'file.importSvg'
   | 'file.exportPng'
   | 'file.exportSvg'
   | 'edit.undo'
@@ -89,6 +90,7 @@ export type MenuActionId =
   | 'view.zoomFit'
   | 'view.zoomActual'
   | 'view.toggleGrid'
+  | 'view.toggleRulers'
   | 'object.group'
   | 'object.ungroup'
   | 'object.frameSelection'
@@ -100,6 +102,7 @@ export type MenuActionId =
   | 'object.subtract'
   | 'object.intersect'
   | 'object.exclude'
+  | 'object.toggleMask'
   | 'help.about'
 
 export interface PolyformApi {
@@ -113,6 +116,7 @@ export interface PolyformApi {
   historySetCursor: (cursor: number) => Promise<void>
   assetsImportDialog: () => Promise<ImportedAsset[] | null>
   assetsRead: (hash: string) => Promise<AssetData | null>
+  svgImportDialog: () => Promise<{ fileName: string; text: string }[] | null>
   exportSave: (defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => Promise<string | null>
   setDirty: (dirty: boolean) => void
   setTitle: (title: string) => void

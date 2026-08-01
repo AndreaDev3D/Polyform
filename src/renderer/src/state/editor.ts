@@ -41,6 +41,11 @@ interface EditorState {
   spacePanning: boolean
   hasProject: boolean
   viewportSize: { w: number; h: number }
+  showRulers: boolean
+  /** Vector node currently in edit mode (double-click a vector). */
+  vectorEditId: NodeId | null
+  /** Selected vertex ids within vector edit mode. */
+  vectorSelection: number[]
 
   setTool: (tool: Tool) => void
   setSelection: (ids: NodeId[]) => void
@@ -57,6 +62,9 @@ interface EditorState {
   setSpacePanning: (v: boolean) => void
   setHasProject: (v: boolean) => void
   setViewportSize: (s: { w: number; h: number }) => void
+  setShowRulers: (v: boolean) => void
+  setVectorEditId: (id: NodeId | null) => void
+  setVectorSelection: (ids: number[]) => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -75,6 +83,9 @@ export const useEditor = create<EditorState>((set) => ({
   spacePanning: false,
   hasProject: false,
   viewportSize: { w: 1200, h: 800 },
+  showRulers: true,
+  vectorEditId: null,
+  vectorSelection: [],
 
   setTool: (tool) => set({ tool, penDraft: null, contextMenu: null }),
   setSelection: (selection) => set({ selection }),
@@ -91,6 +102,9 @@ export const useEditor = create<EditorState>((set) => ({
   setSpacePanning: (spacePanning) => set({ spacePanning }),
   setHasProject: (hasProject) => set({ hasProject }),
   setViewportSize: (viewportSize) => set({ viewportSize }),
+  setShowRulers: (showRulers) => set({ showRulers }),
+  setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [] }),
+  setVectorSelection: (vectorSelection) => set({ vectorSelection }),
 }))
 
 /** Imperative accessors for non-React interaction code. */

@@ -74,6 +74,10 @@ export function CanvasView() {
           guides: state.guides,
           penDraft: state.penDraft,
           editingTextId: state.editingTextId,
+          pageGuides: documentStore.scene.activePage.guides,
+          showRulers: state.showRulers,
+          vectorEditId: state.vectorEditId,
+          vectorSelection: state.vectorSelection,
         })
         canvas.style.cursor = interactionController.cursor
       }

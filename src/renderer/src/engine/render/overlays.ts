@@ -2,7 +2,7 @@
 // handles, marquee, snap guides, frame name labels, pen-tool preview.
 // Handle geometry is exported so pointer interaction shares one source.
 
-import type { NodeId, Vec2 } from '../types'
+import type { Guide, NodeId, Vec2, VectorNode } from '../types'
 import type { SceneGraph } from '../scene'
 import type { AABB } from '../geometry'
 import { aabbIsEmpty, applyMat } from '../geometry'
@@ -10,8 +10,10 @@ import type { Camera } from './canvas2d'
 
 export const HANDLE_SIZE = 8
 export const ROTATE_ZONE = 14
+export const RULER_SIZE = 20
 const ACCENT = '#4f9eff'
 const ACCENT_DIM = 'rgba(79, 158, 255, 0.9)'
+const GUIDE_COLOR = '#67b8ff'
 
 export function worldToScreen(camera: Camera, p: Vec2): Vec2 {
   return { x: (p.x - camera.x) * camera.zoom, y: (p.y - camera.y) * camera.zoom }
@@ -48,6 +50,11 @@ export interface OverlayState {
   guides: SnapGuide[]
   penDraft: PenDraft | null
   editingTextId: NodeId | null
+  /** Persistent user guides of the active page. */
+  pageGuides?: Guide[]
+  showRulers?: boolean
+  vectorEditId?: NodeId | null
+  vectorSelection?: number[]
 }
 
 /** Screen-space corners (nw, ne, se, sw order) of a node's oriented box. */
@@ -186,7 +193,7 @@ export interface FrameLabel {
 /** Screen-space name labels for root-level frames. */
 export function frameLabels(scene: SceneGraph, camera: Camera, ctx?: CanvasRenderingContext2D): FrameLabel[] {
   const labels: FrameLabel[] = []
-  for (const id of scene.doc.rootIds) {
+  for (const id of scene.rootIds()) {
     const node = scene.getNode(id)
     if (!node || node.type !== 'FRAME' || !node.visible) continue
     const p = worldToScreen(camera, { x: node.x, y: node.y })
@@ -225,7 +232,7 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
 
   // Selection box + handles
   const box = selectionScreenBox(scene, state.selection, camera)
-  if (box && state.editingTextId === null) {
+  if (box && state.editingTextId === null && !state.vectorEditId) {
     strokePolygon(ctx, box, ACCENT, 1.5)
     for (const h of boxHandles(box)) {
       if (h.kind.startsWith('rotate')) continue
@@ -315,8 +322,184 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
       ctx.stroke()
     }
   }
+
+  drawPageGuides(ctx, state)
+  drawVectorEdit(ctx, scene, state)
+  drawRulers(ctx, state)
 }
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100
+}
+
+// ---------------------------------------------------------------------------
+// User guides + rulers
+// ---------------------------------------------------------------------------
+
+function drawPageGuides(ctx: CanvasRenderingContext2D, state: OverlayState): void {
+  const guides = state.pageGuides ?? []
+  if (guides.length === 0) return
+  ctx.strokeStyle = GUIDE_COLOR
+  ctx.lineWidth = 1
+  for (const g of guides) {
+    ctx.beginPath()
+    if (g.axis === 'x') {
+      const sx = Math.round((g.pos - state.camera.x) * state.camera.zoom) + 0.5
+      ctx.moveTo(sx, 0)
+      ctx.lineTo(sx, state.height)
+    } else {
+      const sy = Math.round((g.pos - state.camera.y) * state.camera.zoom) + 0.5
+      ctx.moveTo(0, sy)
+      ctx.lineTo(state.width, sy)
+    }
+    ctx.stroke()
+  }
+}
+
+/** Pick a world-space tick step whose screen size is 55-140px. */
+function rulerStep(zoom: number): number {
+  const target = 70 / zoom
+  const pow = Math.pow(10, Math.floor(Math.log10(target)))
+  for (const m of [1, 2, 5, 10]) {
+    if (pow * m >= target) return pow * m
+  }
+  return pow * 10
+}
+
+function drawRulers(ctx: CanvasRenderingContext2D, state: OverlayState): void {
+  if (!state.showRulers) return
+  const { camera, width, height } = state
+  ctx.save()
+  ctx.fillStyle = '#161616'
+  ctx.fillRect(0, 0, width, RULER_SIZE)
+  ctx.fillRect(0, 0, RULER_SIZE, height)
+  ctx.strokeStyle = '#333'
+  ctx.beginPath()
+  ctx.moveTo(0, RULER_SIZE + 0.5)
+  ctx.lineTo(width, RULER_SIZE + 0.5)
+  ctx.moveTo(RULER_SIZE + 0.5, 0)
+  ctx.lineTo(RULER_SIZE + 0.5, height)
+  ctx.stroke()
+
+  const step = rulerStep(camera.zoom)
+  ctx.fillStyle = '#8a8a8a'
+  ctx.strokeStyle = '#3f3f3f'
+  ctx.font = '9px "Segoe UI", system-ui, sans-serif'
+  ctx.textBaseline = 'alphabetic'
+
+  // Horizontal ruler (X axis).
+  const startX = Math.floor(camera.x / step) * step
+  const endX = camera.x + width / camera.zoom
+  ctx.beginPath()
+  for (let x = startX; x <= endX; x += step) {
+    const sx = Math.round((x - camera.x) * camera.zoom) + 0.5
+    if (sx < RULER_SIZE) continue
+    ctx.moveTo(sx, RULER_SIZE - 6)
+    ctx.lineTo(sx, RULER_SIZE)
+    ctx.fillText(String(Math.round(x)), sx + 3, RULER_SIZE - 8)
+  }
+  ctx.stroke()
+
+  // Vertical ruler (Y axis) — rotated labels.
+  const startY = Math.floor(camera.y / step) * step
+  const endY = camera.y + height / camera.zoom
+  ctx.beginPath()
+  for (let y = startY; y <= endY; y += step) {
+    const sy = Math.round((y - camera.y) * camera.zoom) + 0.5
+    if (sy < RULER_SIZE) continue
+    ctx.moveTo(RULER_SIZE - 6, sy)
+    ctx.lineTo(RULER_SIZE, sy)
+    ctx.save()
+    ctx.translate(RULER_SIZE - 8, sy + 3)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillText(String(Math.round(y)), 0, 0)
+    ctx.restore()
+  }
+  ctx.stroke()
+
+  // Corner square.
+  ctx.fillStyle = '#161616'
+  ctx.fillRect(0, 0, RULER_SIZE, RULER_SIZE)
+  ctx.restore()
+}
+
+// ---------------------------------------------------------------------------
+// Vector edit mode
+// ---------------------------------------------------------------------------
+
+/** Screen positions of every vertex of a vector node. */
+export function vectorVertexScreenPositions(
+  scene: SceneGraph,
+  node: VectorNode,
+  camera: Camera,
+): Map<number, Vec2> {
+  const m = scene.worldMatrix(node.id)
+  const out = new Map<number, Vec2>()
+  for (const v of node.network.vertices) {
+    out.set(v.id, worldToScreen(camera, applyMat(m, { x: v.x, y: v.y })))
+  }
+  return out
+}
+
+function drawVectorEdit(ctx: CanvasRenderingContext2D, scene: SceneGraph, state: OverlayState): void {
+  const id = state.vectorEditId
+  if (!id) return
+  const node = scene.getNode(id)
+  if (!node || node.type !== 'VECTOR') return
+  const m = scene.worldMatrix(id)
+  const selected = new Set(state.vectorSelection ?? [])
+  const toScreen = (p: Vec2) => worldToScreen(state.camera, applyMat(m, p))
+  const vmap = new Map(node.network.vertices.map((v) => [v.id, v]))
+
+  // Edges (with control point stems for selected endpoints).
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = ACCENT
+  for (const edge of node.network.edges) {
+    const a = vmap.get(edge.v0)
+    const b = vmap.get(edge.v1)
+    if (!a || !b) continue
+    const sa = toScreen({ x: a.x, y: a.y })
+    const sb = toScreen({ x: b.x, y: b.y })
+    ctx.beginPath()
+    ctx.moveTo(sa.x, sa.y)
+    if (edge.cp0 || edge.cp1) {
+      const c0 = toScreen(edge.cp0 ?? { x: a.x, y: a.y })
+      const c1 = toScreen(edge.cp1 ?? { x: b.x, y: b.y })
+      ctx.bezierCurveTo(c0.x, c0.y, c1.x, c1.y, sb.x, sb.y)
+    } else {
+      ctx.lineTo(sb.x, sb.y)
+    }
+    ctx.stroke()
+
+    // Control handles for edges touching a selected vertex.
+    const stems: { anchor: Vec2; cp: Vec2 }[] = []
+    if (edge.cp0 && selected.has(edge.v0)) stems.push({ anchor: sa, cp: toScreen(edge.cp0) })
+    if (edge.cp1 && selected.has(edge.v1)) stems.push({ anchor: sb, cp: toScreen(edge.cp1) })
+    for (const stem of stems) {
+      ctx.strokeStyle = 'rgba(79,158,255,0.7)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(stem.anchor.x, stem.anchor.y)
+      ctx.lineTo(stem.cp.x, stem.cp.y)
+      ctx.stroke()
+      ctx.fillStyle = '#fff'
+      ctx.strokeStyle = ACCENT
+      ctx.beginPath()
+      ctx.arc(stem.cp.x, stem.cp.y, 3.5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+      ctx.lineWidth = 1.5
+      ctx.strokeStyle = ACCENT
+    }
+  }
+
+  // Vertices.
+  for (const v of node.network.vertices) {
+    const s = toScreen({ x: v.x, y: v.y })
+    ctx.fillStyle = selected.has(v.id) ? ACCENT : '#ffffff'
+    ctx.strokeStyle = ACCENT
+    ctx.lineWidth = 1
+    ctx.fillRect(s.x - 3.5, s.y - 3.5, 7, 7)
+    ctx.strokeRect(s.x - 3.5, s.y - 3.5, 7, 7)
+  }
 }

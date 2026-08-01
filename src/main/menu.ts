@@ -21,6 +21,7 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('file.saveAs') },
         { type: 'separator' },
         { label: 'Place Image…', accelerator: 'CmdOrCtrl+Shift+K', click: () => send('file.placeImage') },
+        { label: 'Import SVG…', click: () => send('file.importSvg') },
         { type: 'separator' },
         { label: 'Export PNG…', accelerator: 'CmdOrCtrl+Shift+E', click: () => send('file.exportPng') },
         { label: 'Export SVG…', click: () => send('file.exportSvg') },
@@ -54,6 +55,9 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         { label: 'Zoom to 100%', accelerator: 'CmdOrCtrl+0', click: () => send('view.zoomActual') },
         { type: 'separator' },
         { label: 'Toggle Grid', accelerator: "CmdOrCtrl+'", click: () => send('view.toggleGrid') },
+        // registerAccelerator: false — bare Shift+R would steal 'R' from text
+        // fields; the renderer handles it with a focus guard.
+        { label: 'Toggle Rulers', accelerator: 'Shift+R', registerAccelerator: false, click: () => send('view.toggleRulers') },
         { type: 'separator' },
         { role: 'toggleDevTools' },
         { role: 'togglefullscreen' },
@@ -70,6 +74,8 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         { label: 'Send Backward', accelerator: 'CmdOrCtrl+[', click: () => send('object.sendBackward') },
         { label: 'Bring to Front', accelerator: 'CmdOrCtrl+Shift+]', click: () => send('object.bringToFront') },
         { label: 'Send to Back', accelerator: 'CmdOrCtrl+Shift+[', click: () => send('object.sendToBack') },
+        { type: 'separator' },
+        { label: 'Use as Mask', accelerator: 'CmdOrCtrl+Alt+M', click: () => send('object.toggleMask') },
         { type: 'separator' },
         { label: 'Boolean Union', click: () => send('object.union') },
         { label: 'Boolean Subtract', click: () => send('object.subtract') },

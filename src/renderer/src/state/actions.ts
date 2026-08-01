@@ -3,10 +3,22 @@
 // OpRecorder: mutate the scene imperatively while recording reversible ops,
 // then commit them as one history entry.
 
-import type { BooleanOp, FrameNode, NodeId, SceneNode, Vec2 } from '../engine/types'
-import { cloneNode, createNode, isContainer, newId } from '../engine/types'
+import type {
+  BooleanOp,
+  DocumentStyles,
+  Effect,
+  FrameNode,
+  NodeId,
+  Paint,
+  SceneNode,
+  TextNode,
+  TextStyleProps,
+  Vec2,
+} from '../engine/types'
+import { cloneNode, createNode, createPage, isContainer, newId } from '../engine/types'
 import type { PatchOp, NodeBundle } from '../engine/commands'
-import { extractBundle, makeUpdateOp, reIdBundle, removeSubtreeOps, undoOps } from '../engine/commands'
+import { applyOp, extractBundle, makeUpdateOp, reIdBundle, removeSubtreeOps, undoOps } from '../engine/commands'
+import { constrainFrameChildren, type ChildRect } from '../engine/constraints'
 import { applyMat, matInvert, aabbIsEmpty, aabbUnion, emptyAABB, type AABB } from '../engine/geometry'
 import { documentStore } from './document'
 import { editor } from './editor'
@@ -14,6 +26,7 @@ import { assetCache } from '../engine/assets'
 import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame } from '../engine/hit-test'
+import { importSvgDocument } from '../engine/import/svg-import'
 
 // ---------------------------------------------------------------------------
 // Op recorder: imperative mutation + reversible op capture in one pass
@@ -175,7 +188,7 @@ export function deleteSelection(): void {
 export function selectAll(): void {
   const scene = documentStore.scene
   const container = editor.get().enteredContainer
-  const list = container && scene.hasNode(container) ? scene.childListOf(container) : scene.doc.rootIds
+  const list = container && scene.hasNode(container) ? scene.childListOf(container) : scene.rootIds()
   setSelection(list.filter((id) => !scene.getNode(id)?.locked))
 }
 
@@ -464,6 +477,273 @@ export function renameNode(id: NodeId, name: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Pages
+// ---------------------------------------------------------------------------
+
+export function switchPage(pageId: string): void {
+  const scene = documentStore.scene
+  if (!scene.isPage(pageId) || scene.doc.activePageId === pageId) return
+  // Persist the current camera on the outgoing page (view state, no undo).
+  const { camera } = editor.get()
+  scene.activePage.viewport = { x: camera.x, y: camera.y, zoom: camera.zoom }
+  scene.setActivePage(pageId)
+  editor.set({
+    selection: [],
+    hover: null,
+    enteredContainer: null,
+    editingTextId: null,
+    penDraft: null,
+    vectorEditId: null,
+  })
+  const vp = scene.activePage.viewport
+  if (vp) editor.set({ camera: { x: vp.x, y: vp.y, zoom: vp.zoom } })
+  documentStore.transient()
+  documentStore.markDirty(true)
+  if (!vp) zoomToFit()
+}
+
+export function addPage(): void {
+  const scene = documentStore.scene
+  const page = createPage(`Page ${scene.doc.pages.length + 1}`)
+  documentStore.commit([{ kind: 'page-add', index: scene.doc.pages.length, page }], 'Add Page')
+  switchPage(page.id)
+}
+
+export function renamePage(pageId: string, name: string): void {
+  const page = documentStore.scene.getPage(pageId)
+  if (!page || !name.trim() || page.name === name.trim()) return
+  documentStore.commit(
+    [{ kind: 'page-rename', pageId, before: page.name, after: name.trim() }],
+    'Rename Page',
+  )
+}
+
+export function deletePage(pageId: string): void {
+  const scene = documentStore.scene
+  if (scene.doc.pages.length <= 1) return
+  const page = scene.getPage(pageId)
+  if (!page) return
+  if (scene.doc.activePageId === pageId) {
+    const fallback = scene.doc.pages.find((p) => p.id !== pageId)
+    if (fallback) switchPage(fallback.id)
+  }
+  const rec = new OpRecorder()
+  for (const rid of [...page.rootIds].reverse()) rec.removeSubtree(rid)
+  const index = scene.doc.pages.findIndex((p) => p.id === pageId)
+  const snapshot = structuredClone(page)
+  snapshot.rootIds = []
+  const removeOp: PatchOp = { kind: 'page-remove', index, page: snapshot }
+  applyOp(scene, removeOp)
+  rec.ops.push(removeOp)
+  rec.commit('Delete Page')
+}
+
+// ---------------------------------------------------------------------------
+// Masks
+// ---------------------------------------------------------------------------
+
+export function toggleMaskSelection(): void {
+  const scene = documentStore.scene
+  const ids = topSelection().filter((id) => {
+    const n = scene.getNode(id)
+    return n && n.type !== 'FRAME'
+  })
+  if (ids.length === 0) return
+  const anyOff = ids.some((id) => !scene.getNode(id)?.isMask)
+  const rec = new OpRecorder()
+  for (const id of ids) rec.update(id, { isMask: anyOff })
+  rec.commit(anyOff ? 'Use as Mask' : 'Remove Mask')
+}
+
+// ---------------------------------------------------------------------------
+// Sizing with constraints (inspector W/H commits)
+// ---------------------------------------------------------------------------
+
+export function setSelectionSize(axis: 'width' | 'height', v: number): void {
+  const scene = documentStore.scene
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node) continue
+    if (node.type === 'FRAME' && node.layout.mode === 'NONE') {
+      const rects = new Map<NodeId, ChildRect>()
+      for (const d of scene.descendants(id)) {
+        const n = scene.getNode(d)
+        if (n) rects.set(d, { x: n.x, y: n.y, width: n.width, height: n.height })
+      }
+      const oldW = node.width
+      const oldH = node.height
+      rec.update(id, { [axis]: v })
+      constrainFrameChildren(scene, node, (cid) => rects.get(cid) ?? null, oldW, oldH)
+      for (const [cid, r] of rects) {
+        const n = scene.getNode(cid)
+        if (!n) continue
+        const before: Record<string, unknown> = {}
+        const after: Record<string, unknown> = {}
+        if (n.x !== r.x) (before.x = r.x), (after.x = n.x)
+        if (n.y !== r.y) (before.y = r.y), (after.y = n.y)
+        if (n.width !== r.width) (before.width = r.width), (after.width = n.width)
+        if (n.height !== r.height) (before.height = r.height), (after.height = n.height)
+        if (Object.keys(after).length > 0) rec.ops.push({ kind: 'update', id: cid, before, after })
+      }
+    } else {
+      rec.update(id, { [axis]: v })
+    }
+  }
+  rec.commit(axis === 'width' ? 'Set Width' : 'Set Height')
+}
+
+// ---------------------------------------------------------------------------
+// Shared styles (applied-by-reference; edits propagate to referencing nodes)
+// ---------------------------------------------------------------------------
+
+function stylesOp(mutate: (styles: DocumentStyles) => void): { op: PatchOp; after: DocumentStyles } {
+  const before = structuredClone(documentStore.scene.doc.styles)
+  const after = structuredClone(before)
+  mutate(after)
+  return { op: { kind: 'styles-set', before, after }, after }
+}
+
+export function createColorStyle(name: string, paint: Paint): string {
+  const id = newId()
+  const { op } = stylesOp((s) => s.colors.push({ id, name, paint: structuredClone(paint) }))
+  documentStore.commit([op], 'Create Color Style')
+  return id
+}
+
+export function applyColorStyle(styleId: string): void {
+  const scene = documentStore.scene
+  const style = scene.doc.styles.colors.find((s) => s.id === styleId)
+  if (!style) return
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node) continue
+    rec.update(id, {
+      fills: [structuredClone(style.paint)],
+      styleRefs: { ...(node.styleRefs ?? {}), fill: styleId },
+    })
+  }
+  rec.commit('Apply Color Style')
+}
+
+export function detachStyle(kind: 'fill' | 'text' | 'effect'): void {
+  const scene = documentStore.scene
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node?.styleRefs?.[kind]) continue
+    rec.update(id, { styleRefs: { ...node.styleRefs, [kind]: null } })
+  }
+  rec.commit('Detach Style')
+}
+
+export function updateColorStyle(styleId: string, paint: Paint): void {
+  const scene = documentStore.scene
+  const { op } = stylesOp((s) => {
+    const style = s.colors.find((c) => c.id === styleId)
+    if (style) style.paint = structuredClone(paint)
+  })
+  const ops: PatchOp[] = [op]
+  for (const node of Object.values(scene.doc.nodes)) {
+    if (node.styleRefs?.fill === styleId) {
+      ops.push(makeUpdateOp(node, { fills: [structuredClone(paint)] }))
+    }
+  }
+  documentStore.commit(ops, 'Edit Color Style')
+}
+
+export function createTextStyle(name: string, props: TextStyleProps): string {
+  const id = newId()
+  const { op } = stylesOp((s) => s.texts.push({ id, name, props: structuredClone(props) }))
+  documentStore.commit([op], 'Create Text Style')
+  return id
+}
+
+export function applyTextStyle(styleId: string): void {
+  const scene = documentStore.scene
+  const style = scene.doc.styles.texts.find((s) => s.id === styleId)
+  if (!style) return
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node || node.type !== 'TEXT') continue
+    rec.update(id, { ...structuredClone(style.props), styleRefs: { ...(node.styleRefs ?? {}), text: styleId } })
+  }
+  rec.commit('Apply Text Style')
+}
+
+export function updateTextStyle(styleId: string, props: TextStyleProps): void {
+  const scene = documentStore.scene
+  const { op } = stylesOp((s) => {
+    const style = s.texts.find((t) => t.id === styleId)
+    if (style) style.props = structuredClone(props)
+  })
+  const ops: PatchOp[] = [op]
+  for (const node of Object.values(scene.doc.nodes)) {
+    if (node.type === 'TEXT' && node.styleRefs?.text === styleId) {
+      ops.push(makeUpdateOp(node, structuredClone(props) as unknown as Record<string, unknown>))
+    }
+  }
+  documentStore.commit(ops, 'Edit Text Style')
+}
+
+export function createEffectStyle(name: string, effects: Effect[]): string {
+  const id = newId()
+  const { op } = stylesOp((s) => s.effects.push({ id, name, effects: structuredClone(effects) }))
+  documentStore.commit([op], 'Create Effect Style')
+  return id
+}
+
+export function applyEffectStyle(styleId: string): void {
+  const scene = documentStore.scene
+  const style = scene.doc.styles.effects.find((s) => s.id === styleId)
+  if (!style) return
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node) continue
+    rec.update(id, {
+      effects: structuredClone(style.effects),
+      styleRefs: { ...(node.styleRefs ?? {}), effect: styleId },
+    })
+  }
+  rec.commit('Apply Effect Style')
+}
+
+export function renameSharedStyle(kind: 'colors' | 'texts' | 'effects', styleId: string, name: string): void {
+  const { op } = stylesOp((s) => {
+    const style = (s[kind] as { id: string; name: string }[]).find((x) => x.id === styleId)
+    if (style) style.name = name
+  })
+  documentStore.commit([op], 'Rename Style')
+}
+
+export function deleteSharedStyle(kind: 'colors' | 'texts' | 'effects', styleId: string): void {
+  const scene = documentStore.scene
+  const refKey = kind === 'colors' ? 'fill' : kind === 'texts' ? 'text' : 'effect'
+  const { op } = stylesOp((s) => {
+    const list = s[kind] as { id: string }[]
+    const idx = list.findIndex((x) => x.id === styleId)
+    if (idx >= 0) list.splice(idx, 1)
+  })
+  const ops: PatchOp[] = [op]
+  for (const node of Object.values(scene.doc.nodes)) {
+    if (node.styleRefs?.[refKey as 'fill' | 'text' | 'effect'] === styleId) {
+      ops.push(makeUpdateOp(node, { styleRefs: { ...node.styleRefs, [refKey]: null } }))
+    }
+  }
+  documentStore.commit(ops, 'Delete Style')
+}
+
+/** Guides are view furniture: persisted but not journaled. */
+export function guidesChanged(): void {
+  documentStore.scene.bump()
+  documentStore.markDirty(true)
+  documentStore.emit()
+}
+
+// ---------------------------------------------------------------------------
 // Camera
 // ---------------------------------------------------------------------------
 
@@ -610,13 +890,52 @@ export async function placeImages(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// SVG import
+// ---------------------------------------------------------------------------
+
+export async function importSvgFlow(): Promise<void> {
+  const files = await window.polyform.svgImportDialog()
+  if (!files || files.length === 0) return
+  const scene = documentStore.scene
+  const { camera, viewportSize } = editor.get()
+  const centerWorld = {
+    x: camera.x + viewportSize.w / (2 * camera.zoom),
+    y: camera.y + viewportSize.h / (2 * camera.zoom),
+  }
+  const rec = new OpRecorder()
+  const created: NodeId[] = []
+  let offset = 0
+  for (const file of files) {
+    const result = importSvgDocument(file.text, file.fileName)
+    if (!result) continue
+    const dx = centerWorld.x - (result.viewBox.x + result.viewBox.w / 2) + offset
+    const dy = centerWorld.y - (result.viewBox.y + result.viewBox.h / 2) + offset
+    for (const rid of result.bundle.rootIds) {
+      const n = result.bundle.nodes[rid]
+      n.x += dx
+      n.y += dy
+    }
+    rec.addBundle(result.bundle, null, scene.childListOf(null).length)
+    created.push(...result.bundle.rootIds)
+    offset += 24
+    if (result.warnings.length > 0) {
+      console.warn(`SVG import (${file.fileName}):`, [...new Set(result.warnings)].join('; '))
+    }
+  }
+  if (created.length > 0) {
+    rec.commit(files.length === 1 ? 'Import SVG' : `Import ${files.length} SVGs`)
+    setSelection(created)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
 export async function exportSelection(kind: 'png' | 'svg', scale = 1): Promise<void> {
   const scene = documentStore.scene
   let ids = topSelection()
-  if (ids.length === 0) ids = scene.doc.rootIds.filter((id) => scene.getNode(id)?.visible)
+  if (ids.length === 0) ids = scene.rootIds().filter((id) => scene.getNode(id)?.visible)
   if (ids.length === 0) return
   const first = scene.getNode(ids[0])
   const baseName = (ids.length === 1 && first ? first.name : documentStore.projectInfo?.manifest.title || 'export')
@@ -651,6 +970,9 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'file.placeImage':
       void placeImages()
+      break
+    case 'file.importSvg':
+      void importSvgFlow()
       break
     case 'file.exportPng':
       void exportSelection('png', 2)
@@ -693,6 +1015,12 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'view.toggleGrid':
       editor.set({ showGrid: !editor.get().showGrid })
+      break
+    case 'view.toggleRulers':
+      editor.set({ showRulers: !editor.get().showRulers })
+      break
+    case 'object.toggleMask':
+      toggleMaskSelection()
       break
     case 'object.group':
       groupSelection()
