@@ -4,7 +4,7 @@
 
 Polyform is a Figma-style design editor that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
-> Status: **v0.3.0 + v0.4 Sprint A in progress** — "Systems" shipped components & instances (with overrides, swap, detach), local-file libraries, a version-history browser over the SQLite journal, and a plugin-API dev preview ([docs/Plugin-API.md](docs/Plugin-API.md)) — on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. The v0.4 "Performance Core" phase has begun: the first Rust/WASM engine modules are live ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
+> Status: **v0.3.0 shipped; v0.4 "Performance Core" Sprints A–D landed** — every engine module now has a fuzz-proven Rust/WASM twin (the spatial index and exact-CSG booleans run on Rust by default), and a WebGPU renderer beta (View → GPU Rendering) pans **100,000 shapes at 60fps** with pixel-parity fixtures against the Canvas2D reference ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). v0.3 "Systems" shipped components & instances, local-file libraries, a version-history browser, and a plugin-API dev preview, on top of v0.2's multi-page documents, vector-edit mode, rulers/guides, masks, constraints, shared styles and SVG import. See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
 
 ## Highlights
 
@@ -67,8 +67,8 @@ Copying the folder copies the entire project — shapes, history, and assets inc
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
 | [Feature-Matrix.md](docs/Feature-Matrix.md) | 231-row Figma parity matrix with honest statuses (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v1.0 distribution |
-| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…014: every load-bearing decision and its replacement trigger |
-| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-16 with severities and mitigations |
+| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…016: every load-bearing decision and its replacement trigger |
+| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-17 with severities and mitigations |
 | [V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md) | Rust/WASM + WebGPU port: module inventory, API contracts, verification gates |
 | [Plugin-API.md](docs/Plugin-API.md) | Plugin dev preview API + post-1.0 sandbox design |
 | [schema.fbs](docs/schema.fbs) | Scene object model (schema v3) — FlatBuffers target & Rust struct reference |
@@ -82,10 +82,12 @@ Electron main ──ipc── preload bridge ──── React UI chrome (panel
   │  .poly bundle IO                          │
   │  SQLite journal (sql.js)                  ├── DocumentStore (scene graph, history,
   │  fonts, dialogs, assets                   │    R-tree index — outside React)
-  └───────────────────────────────────────────┴── Canvas2D renderer + overlays
-                                               │
-                    crates/polyform-core (Rust→WASM) — geometry, outlines,
-                    spatial index today; booleans, scene graph, text next.
+  └───────────────────────────────────────────┴── Canvas2D (default) + WebGPU (beta)
+                                               │   renderers + Canvas2D overlays
+                    crates/polyform-core (Rust→WASM) — the full engine surface:
+                    geometry, outlines, spatial index, exact-CSG booleans, scene
+                    graph + commands, constraints, hit-testing, components/layout,
+                    serialization, lyon tessellation for the WebGPU backend.
                     Per-module TS/WASM switch in engine/backend.ts (ADR-015).
 ```
 
