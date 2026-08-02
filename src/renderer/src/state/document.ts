@@ -14,6 +14,29 @@ import { assetCache } from '../engine/assets'
 import { renderThumbnail } from '../engine/export/png'
 import type { OpenProjectResult, ProjectInfo, ViewportState } from '../../../shared/types'
 
+/**
+ * Merge a gesture's stream of update ops into one op per node: the FIRST
+ * `before` seen for a key (the pre-gesture value) and the LAST `after`.
+ * Anything other than plain updates is passed through untouched.
+ */
+function coalesceUpdates(ops: PatchOp[]): PatchOp[] {
+  if (!ops.every((op) => op.kind === 'update')) return ops
+  const merged = new Map<NodeId, { before: Record<string, unknown>; after: Record<string, unknown> }>()
+  for (const op of ops) {
+    if (op.kind !== 'update') continue
+    let entry = merged.get(op.id)
+    if (!entry) {
+      entry = { before: {}, after: {} }
+      merged.set(op.id, entry)
+    }
+    for (const [key, value] of Object.entries(op.before)) {
+      if (!(key in entry.before)) entry.before[key] = value
+    }
+    Object.assign(entry.after, op.after)
+  }
+  return [...merged].map(([id, e]) => ({ kind: 'update' as const, id, before: e.before, after: e.after }))
+}
+
 class DocumentStore {
   scene = new SceneGraph()
   history = new History()
@@ -58,10 +81,41 @@ class DocumentStore {
   // Mutation pipeline
   // ---------------------------------------------------------------------
 
+  // -------------------------------------------------------------------
+  // Scrub gestures
+  //
+  // While the user drags a value in the inspector, every step applies to
+  // the scene (so the canvas updates live) but must land in history as ONE
+  // entry. Between beginScrub() and endScrub() commits are diverted into a
+  // buffer and merged on release — this sits at the commit sink, so it
+  // covers every action the inspector can reach, not just simple patches.
+  // -------------------------------------------------------------------
+
+  private scrubOps: PatchOp[] | null = null
+  private scrubLabel = 'Edit'
+
+  beginScrub(): void {
+    this.scrubOps = []
+  }
+
+  endScrub(): void {
+    const ops = this.scrubOps
+    this.scrubOps = null
+    if (!ops || ops.length === 0) return
+    this.commit(coalesceUpdates(ops), this.scrubLabel, true)
+  }
+
   /** Commit ops through history (applied=true when scene already mutated). */
   commit(ops: PatchOp[], label: string, applied = false): void {
     if (ops.length === 0) return
     if (!applied) applyOps(this.scene, ops)
+    if (this.scrubOps) {
+      // Mid-gesture: the scene is already updated; defer the journal entry.
+      this.scrubLabel = label
+      this.scrubOps.push(...ops)
+      this.afterMutation()
+      return
+    }
     // Edits inside instances also update the instance's override map so the
     // change survives component re-syncs (same journal entry, same undo).
     const extra = this.captureInstanceOverrides(ops)

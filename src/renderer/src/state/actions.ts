@@ -481,6 +481,24 @@ export function nudgeSelection(dx: number, dy: number): void {
 // Property application (inspector)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Scrub gestures (inspector value drags)
+//
+// A scrub applies to the scene on every pointer move so the canvas updates
+// live, but must land in history as ONE entry — per-pixel commits would
+// flood the journal. The document store coalesces every commit made between
+// these two calls, so this works for any action the inspector routes to,
+// not just plain property patches.
+// ---------------------------------------------------------------------------
+
+export function beginScrub(): void {
+  documentStore.beginScrub()
+}
+
+export function endScrub(): void {
+  documentStore.endScrub()
+}
+
 export function updateSelectedNodes(patchFor: (node: SceneNode) => Record<string, unknown> | null, label: string): void {
   const scene = documentStore.scene
   const ids = selectedIds()

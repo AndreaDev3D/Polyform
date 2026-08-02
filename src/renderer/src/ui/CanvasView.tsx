@@ -21,10 +21,17 @@ import { hitTestAll, resolveClickTarget } from '../engine/hit-test'
 import { setSelection } from '../state/actions'
 import { TextEditOverlay } from './TextEditOverlay'
 
+/** Windows/macOS double-click windows are ~500ms; 400ms with a small slop
+ *  is the usual editor compromise between responsive and accidental. */
+const DOUBLE_CLICK_MS = 400
+const DOUBLE_CLICK_SLOP = 6
+
 export function CanvasView() {
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  /** Click-count tracking for double-click gestures (see F-19). */
+  const clickRef = useRef({ t: 0, x: 0, y: 0, count: 0 })
   const dirtyRef = useRef(true)
   const editingTextId = useEditor((s) => s.editingTextId)
   const gpuRender = useEditor((s) => s.gpuRender)
@@ -189,11 +196,21 @@ export function CanvasView() {
       className="absolute inset-0 overflow-hidden bg-[var(--pf-bg-1)]"
       onPointerDown={(e) => {
         ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+        const p = pos(e)
+        // PointerEvent.detail is ALWAYS 0 per spec (only mouse events carry
+        // a click count), so double-clicks must be timed here — reading
+        // e.detail silently disabled every double-click gesture (F-19).
+        const now = performance.now()
+        const prev = clickRef.current
+        const repeat =
+          now - prev.t < DOUBLE_CLICK_MS && Math.hypot(p.x - prev.x, p.y - prev.y) < DOUBLE_CLICK_SLOP
+        const count = repeat ? prev.count + 1 : 1
+        clickRef.current = { t: now, x: p.x, y: p.y, count }
         interactionController.pointerDown(
-          pos(e),
+          p,
           e.button,
           { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey || e.metaKey },
-          e.detail >= 2,
+          count >= 2,
         )
       }}
       onPointerMove={(e) => {

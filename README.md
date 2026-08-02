@@ -71,7 +71,7 @@ Copying the folder copies the entire project — shapes, history, and assets inc
 | [Feature-Matrix.md](docs/Feature-Matrix.md) | 234-row Figma parity matrix with honest statuses (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v0.4.1 background removal → v0.5 3D model import → v0.6 agent connectivity (MCP + CLI) → v1.0 distribution |
 | [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…020: every load-bearing decision and its replacement trigger |
-| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-18 with severities and mitigations |
+| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-19 with severities and mitigations |
 | [V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md) | Rust/WASM + WebGPU port: module inventory, API contracts, verification gates |
 | [Plugin-API.md](docs/Plugin-API.md) | Plugin dev preview API + post-1.0 sandbox design |
 | [schema.fbs](docs/schema.fbs) | Scene object model (schema v4) — FlatBuffers target & Rust struct reference |

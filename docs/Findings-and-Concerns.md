@@ -415,7 +415,31 @@ Bisection (CDP-automated: real key/mouse events against built apps at v0.3, Spri
 ### Mitigation
 Fixed: a blur that lands **nowhere** (`relatedTarget === null`) while the window still has focus is never a deliberate end-of-edit — the overlay re-arms focus instead of committing. All real exits keep committing: focusing another control (relatedTarget set), clicking the canvas (the controller clears `editingTextId` → unmount commit), window deactivation (`document.hasFocus()` false), Escape/Ctrl+Enter.
 
-**New gate:** `npm run test:e2e` boots the built app under the DevTools protocol, simulates the real gesture (T, timed click, typing, Escape), and asserts the text survives and no "Remove Empty Text" entry appears. This is the register's reminder that focus/DOM interplay needs end-to-end coverage — unit and pixel gates cannot see it.
+**New gate:** `npm run test:e2e` boots the built app under the DevTools protocol, simulates the real gesture (T, timed click, typing, Escape), and asserts the text survives and no "Remove Empty Text" entry appears. (It has since grown the F-19 gesture gates too.) This is the register's reminder that focus/DOM interplay needs end-to-end coverage — unit and pixel gates cannot see it.
+
+---
+
+<a id="f-19"></a>
+## F-19. Every double-click gesture was dead: `PointerEvent.detail` is always 0
+
+**Severity: Fixed (was High — three features unreachable)** — user-reported during v0.5 ("I lose the ability to interact with anything inside a frame"); present since v0.1.
+
+### The problem
+The canvas derived its click count from `e.detail` on a **pointerdown** event. Per the Pointer Events spec, `detail` is defined as 0 for `pointerdown`/`pointerup` — only mouse events carry a click count. Verified directly in the built app: a real double-click produces `pointerdown:detail=0, mousedown:detail=1, pointerdown:detail=0, mousedown:detail=2, dblclick:detail=2`.
+
+So `isDouble` was **always false**, and every double-click behaviour in the app was unreachable: drilling into a group or frame, opening an existing text node for editing, entering vector-edit mode (masked, because Enter also works), and — newly added in v0.5 — entering a 3D model's orbit mode. Nothing errored; the gestures simply did nothing, which is why it survived four releases.
+
+Compounding it, single-click resolution returned `topLevelAncestor(hit)`, so clicking anything inside a frame selected the *frame*. With drill-down broken, frame contents could not be selected on the canvas at all — only via the layers panel. That combination is what the user hit.
+
+### Mitigation
+Fixed in two parts:
+
+1. **Click counting is timed, not read from the event.** The canvas tracks the previous pointerdown's timestamp and position; a second press within 400 ms and 6 px counts as a double-click. This is the standard approach for pointer events and works for pen and touch, which never carry a click count at all.
+2. **Frames are no longer selection units.** `resolveClickTarget` now matches Figma: frames and components are transparent to clicks (their contents are selected directly), while groups, booleans and instances stay atomic — click selects the outermost one, double-click drills in. Drill-down context (`enteredContainer`) still narrows to the direct child, and the ancestor walk terminates at the page (root nodes report the page as their parent, ADR-011).
+
+**New gates:** `selection.test.ts` pins the click-resolution matrix (frame child, nested frames, group, nested group, group-in-frame, instance, drilled context, page boundary), and `npm run test:e2e` now drives a real double-click against the built app and asserts the group drill-down plus direct frame-child selection.
+
+**The lesson, and it is the same one as F-18:** input-layer bugs are invisible to unit and pixel tests. Both were found only by driving the built app with synthetic OS-level input. Any behaviour that depends on DOM event semantics needs an end-to-end gate, not an engine test.
 
 ---
 

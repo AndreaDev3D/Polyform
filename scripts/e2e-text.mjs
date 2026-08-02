@@ -1,8 +1,13 @@
-// E2E gate for the add-text flow (the one class of bug no engine test or
-// render fixture can see: DOM focus interplay). Boots the BUILT app with
-// CDP, simulates the real gesture — T, click, type, Escape — and asserts
-// the text survives. Regression guard for the mid-gesture focus bounce
-// that silently deleted every freshly placed text node (F-18).
+// E2E gates for real pointer/keyboard gestures - the class of bug no engine
+// test or render fixture can see. Boots the BUILT app with CDP and drives
+// actual input:
+//   1. add-text: T, click, type, Escape - guards the mid-gesture focus
+//      bounce that silently deleted every fresh text node (F-18).
+//   2. double-click: drilling into a group - guards reading click counts
+//      from PointerEvent.detail, which is always 0 and silently disabled
+//      every double-click gesture in the app (F-19).
+//   3. inspector scrub: dragging a value updates the canvas live and lands
+//      as exactly ONE undo entry.
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -113,6 +118,118 @@ try {
   if (done.labels.includes('Remove Empty Text')) fail('fresh node was deleted as empty (focus bounce regression)')
 
   if (process.exitCode !== 1) console.log(`E2E PASS: add-text survives (nodes=${JSON.stringify(done.texts)})`)
+
+  // ---------------------------------------------------------------------
+  // 2. Double-click drills into a group (F-19).
+  // ---------------------------------------------------------------------
+  await evaluate(`globalThis.__polyform.editor.set({ selection: [], enteredContainer: null, tool: 'select' })`)
+  const built = JSON.parse(await evaluate(`(() => {
+    const s = globalThis.__polyform.documentStore.scene
+    const mk = (type, name, props) => Object.assign({
+      id: 'e2e' + Math.random().toString(36).slice(2, 9), type, name,
+      visible: true, locked: false, opacity: 1, blendMode: 'NORMAL',
+      x: 0, y: 0, width: 100, height: 100, rotation: 0,
+      fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.8, g: 0.3, b: 0.3, a: 1 } }],
+      strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE', strokeDash: [], effects: [] }, props)
+    const grp = mk('GROUP', 'G', { x: 0, y: 0, width: 200, height: 200, children: [], fills: [], strokes: [] })
+    s.addNode(grp, null, s.rootIds().length)
+    const kid = mk('RECTANGLE', 'Kid', { x: 20, y: 20, width: 160, height: 160, cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 } })
+    s.addNode(kid, grp.id, 0)
+    const frame = mk('FRAME', 'F', { x: 300, y: 0, width: 240, height: 200, children: [], clipsContent: true,
+      cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 },
+      layout: { mode: 'NONE', gap: 10, paddingTop: 10, paddingRight: 10, paddingBottom: 10, paddingLeft: 10, counterAlign: 'MIN', primarySizing: 'FIXED', counterSizing: 'FIXED' },
+      fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }] })
+    s.addNode(frame, null, s.rootIds().length)
+    // Child coordinates are parent-relative: this sits at world 340,40.
+    const inFrame = mk('RECTANGLE', 'InFrame', { x: 40, y: 40, width: 120, height: 100, cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 } })
+    s.addNode(inFrame, frame.id, 0)
+    globalThis.__polyform.editor.set({ camera: { x: -40, y: -40, zoom: 1 } })
+    globalThis.__polyform.documentStore.transient()
+    return JSON.stringify({ grp: grp.id, kid: kid.id, frame: frame.id, inFrame: inFrame.id })
+  })()`))
+  await sleep(400)
+
+  const toScreen = async (wx, wy) => JSON.parse(await evaluate(`(() => {
+    const c = globalThis.__polyform.editor.get().camera
+    const r = document.querySelector('canvas').getBoundingClientRect()
+    return JSON.stringify({ x: Math.round(r.left + (${wx} - c.x) * c.zoom), y: Math.round(r.top + (${wy} - c.y) * c.zoom) })
+  })()`))
+  const clickAt = async (x, y, count) => {
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: count })
+    await sleep(40)
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: count })
+    await sleep(90)
+  }
+  const names = async () => JSON.parse(await evaluate(`JSON.stringify({
+    sel: globalThis.__polyform.editor.get().selection.map(i => globalThis.__polyform.documentStore.scene.getNode(i)?.name),
+    entered: globalThis.__polyform.documentStore.scene.getNode(globalThis.__polyform.editor.get().enteredContainer || '')?.name ?? null,
+  })`))
+
+  const gp = await toScreen(100, 100)
+  await clickAt(gp.x, gp.y, 1)
+  await sleep(250)
+  const singleSel = await names()
+  if (singleSel.sel[0] !== 'G') fail(`single click inside a group should select the group, got ${JSON.stringify(singleSel)}`)
+
+  await clickAt(gp.x, gp.y, 1)
+  await clickAt(gp.x, gp.y, 2)
+  await sleep(350)
+  const drilled = await names()
+  if (drilled.entered !== 'G' || drilled.sel[0] !== 'Kid') {
+    fail(`double-click did not drill into the group (F-19 regression): ${JSON.stringify(drilled)}`)
+  } else {
+    console.log('E2E PASS: double-click drills into a group')
+  }
+
+  // Frame contents are clicked directly (frames are not selection units).
+  await evaluate(`globalThis.__polyform.editor.set({ selection: [], enteredContainer: null })`)
+  await sleep(200)
+  const fp = await toScreen(400, 90)
+  await clickAt(fp.x, fp.y, 1)
+  await sleep(300)
+  const inFrameSel = await names()
+  if (inFrameSel.sel[0] !== 'InFrame') {
+    fail(`clicking a frame child should select the child, got ${JSON.stringify(inFrameSel)}`)
+  } else {
+    console.log('E2E PASS: frame children are directly selectable')
+  }
+
+  // ---------------------------------------------------------------------
+  // 3. Inspector scrub: live canvas update, exactly one undo entry.
+  // ---------------------------------------------------------------------
+  await evaluate(`globalThis.__polyform.editor.set({ selection: ['${built.inFrame}'] })`)
+  await sleep(350)
+  const label = JSON.parse(await evaluate(`(() => {
+    const sp = [...document.querySelectorAll('span')].filter(e => e.textContent === 'X' && e.className.includes('ew-resize'))[0]
+    if (!sp) return 'null'
+    const r = sp.getBoundingClientRect()
+    return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+  })()`))
+  if (!label) {
+    fail('inspector X scrub handle not found')
+  } else {
+    const histBefore = await evaluate(`globalThis.__polyform.documentStore.history.undoStack.length`)
+    const startX = await evaluate(`globalThis.__polyform.documentStore.scene.getNode('${built.inFrame}').x`)
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: label.x, y: label.y, button: 'left', clickCount: 1 })
+    const live = []
+    for (let i = 1; i <= 3; i++) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: label.x + i * 12, y: label.y, button: 'left', buttons: 1 })
+      await sleep(120)
+      live.push(await evaluate(`globalThis.__polyform.documentStore.scene.getNode('${built.inFrame}').x`))
+    }
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: label.x + 36, y: label.y, button: 'left', clickCount: 1 })
+    await sleep(350)
+    const histAfter = await evaluate(`globalThis.__polyform.documentStore.history.undoStack.length`)
+    const moved = live.filter((v) => v !== startX).length
+    if (moved < 2) fail(`inspector scrub did not update the canvas live: start=${startX} samples=${JSON.stringify(live)}`)
+    if (histAfter - histBefore !== 1) fail(`inspector scrub made ${histAfter - histBefore} history entries, expected 1`)
+    await evaluate(`globalThis.__polyform.documentStore.undo()`)
+    await sleep(250)
+    const undone = await evaluate(`globalThis.__polyform.documentStore.scene.getNode('${built.inFrame}').x`)
+    if (undone !== startX) fail(`one undo should restore x=${startX}, got ${undone}`)
+    if (process.exitCode !== 1) console.log('E2E PASS: inspector scrub is live and undoes in one step')
+  }
+
 } catch (err) {
   fail(String(err))
 } finally {

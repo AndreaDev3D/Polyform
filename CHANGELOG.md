@@ -4,6 +4,14 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.5.0 "3D Model Import"
 
+### Fixed
+
+- **Double-click works again — everywhere** (F-19): the canvas read its click count from `PointerEvent.detail`, which the spec defines as always 0, so `isDouble` was never true. Every double-click gesture in the app had been silently dead since v0.1: drilling into groups and frames, opening an existing text layer for editing, entering vector-edit mode (masked by the Enter shortcut), and 3D orbit mode. Click counts are now timed (400 ms / 6 px), which also makes the gestures work for pen and touch input, which never report a click count at all.
+- **Layers inside frames are selectable on canvas** (F-19): clicking anything in a frame used to select the whole frame, and with drill-down broken the contents were reachable only from the layers panel. Frames and components are now transparent to clicks the way Figma treats them — you click the layer you see — while groups, booleans and instances stay atomic and open with a double-click.
+- **Inspector values apply live while you drag them**: scrubbing X/Y/W/H, rotation, opacity, corner radius, font size, effect and 3D pose fields now updates the canvas continuously instead of jumping only on release. The whole drag still collapses into exactly one undo entry — the coalescing moved to the commit sink, so every inspector control inherits it.
+
+### Added
+
 - **Place 3D models on the canvas** (File → Place 3D Model…, ADR-020): **GLB/glTF meshes** with real PBR lighting and **gaussian splats** (`.ply`, `.spz`, `.splat`, `.ksplat`, `.sog`) become first-class `MODEL3D` nodes — content-addressed in the bundle like images, journaled and undoable like every other edit. Polyform stays a 2D tool: this is render-of-3D-in-2D for composition, not a 3D editor.
 - **Double-click a model to orbit it.** Drag spins, Alt+drag dollies, Escape leaves; the whole gesture lands as one undo entry. The Inspector exposes yaw/pitch/distance/FOV numerically, a Reset view button, four procedural lighting presets for meshes (Studio / Neutral / Dramatic / Flat — no HDRI assets ship), and an Upright toggle for splat captures.
 - **Framing is automatic**: the model's bounding sphere is fitted to the node box, so distance is a multiplier of that fit and a pose survives resizing the node or swapping the asset.

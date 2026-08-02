@@ -2,6 +2,7 @@
 // segmented controls, sections.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { beginScrub, endScrub } from '../state/actions'
 
 export function Section({ title, actions, children }: { title: string; actions?: ReactNode; children?: ReactNode }) {
   return (
@@ -56,12 +57,15 @@ export function NumberInput({ label, value, onCommit, step = 1, min = -Infinity,
       if (!d) return
       const dx = ev.clientX - d.startX
       if (!d.active && Math.abs(dx) < 3) return
+      if (!d.active) beginScrub()
       d.active = true
-      // Preview in the field only while scrubbing; a single history entry
-      // is committed on release (per-pixel commits would flood the journal).
+      // Apply live so the canvas follows the scrub; the action layer
+      // coalesces the gesture into ONE history entry at endScrub()
+      // (per-pixel commits would flood the journal).
       lastVal = clampNum(d.startVal + dx * step, min, max)
       setEditing(true)
       setText(String(round(lastVal, precision)))
+      onCommit(lastVal)
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
@@ -71,6 +75,7 @@ export function NumberInput({ label, value, onCommit, step = 1, min = -Infinity,
       if (wasActive) {
         setEditing(false)
         onCommit(lastVal)
+        endScrub()
       }
     }
     window.addEventListener('pointermove', onMove)

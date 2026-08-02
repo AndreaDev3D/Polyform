@@ -152,23 +152,36 @@ export function hitTest(scene: SceneGraph, index: SpatialIndex, worldPt: Vec2, o
 }
 
 /**
- * Figma-style click resolution: return the top-level ancestor of the deepest
- * hit (or a child of `container` when drilling inside it).
+ * Figma-style click resolution: frames/components are transparent to
+ * selection (their contents are clicked directly), groups/booleans/instances
+ * are atomic, and `container` narrows to a drilled-into scope.
  */
 export function resolveClickTarget(
   scene: SceneGraph,
   deepest: NodeId,
   container: NodeId | null,
 ): NodeId {
-  if (container === null) return scene.topLevelAncestor(deepest)
-  // Walk up from the deepest hit until the direct child of `container`.
-  let cur = deepest
-  for (;;) {
-    const p = scene.parentOf(cur)
-    if (p === null) return cur
-    if (p === container) return cur
-    cur = p
+  if (container !== null) {
+    // Drilled into a container: select its direct child on the hit path.
+    let cur = deepest
+    for (;;) {
+      const p = scene.parentOf(cur)
+      if (p === null || p === container) return cur
+      cur = p
+    }
   }
+  // No drill-down context. Frames and components are containers, not
+  // selection units — clicking their contents selects the content itself
+  // (Figma semantics). Groups, booleans and instances ARE atomic: click
+  // anywhere inside and the outermost one is selected, and you double-click
+  // to drill in.
+  let atomic: NodeId | null = null
+  for (let p = scene.parentOf(deepest); p !== null; p = scene.parentOf(p)) {
+    const node = scene.getNode(p)
+    if (!node) break
+    if (node.type === 'GROUP' || node.type === 'BOOLEAN' || node.type === 'INSTANCE') atomic = p
+  }
+  return atomic ?? deepest
 }
 
 /** Top-level (root-child) nodes whose AABB intersects the marquee rect. */
