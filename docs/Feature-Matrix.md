@@ -8,7 +8,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Status | Meaning |
 | :--- | :--- |
-| ✅ | **Implemented** — working in the current release (v0.3.0) |
+| ✅ | **Implemented** — working in the current build |
 | 🟡 | **Partial** — implemented with known gaps or approximations vs. Figma |
 | 📋 | **Planned** — on the roadmap, not yet implemented |
 | ❌ | **Out of scope** — deliberately excluded (local-first, single-user product) |
@@ -317,7 +317,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 🟡 | Beta: lyon-tessellated batched pipeline, 9/9 pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all blend modes (ADR-017); text rasters until the glyph atlas (Sprint E) |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | Beta: lyon-tessellated batched pipeline, **11/11** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017) and shaped text from the glyph atlas (ADR-018); Canvas2D stays the default pending soak time |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
 | 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) in the WebGPU beta; Canvas2D default targets typical documents |
@@ -353,4 +353,4 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above (mechanically recounted each release). Statuses reflect the actual implementation as of **v0.3.0 plus the v0.4 Sprints A–E** (Rust/WASM engine core, exact-CSG booleans, WebGPU renderer beta with the effects/blend compositor, rustybuzz text shaping) — remaining approximations (stroke-align clipping, shape-clip masks, nearest-instance override capture, single-run text shaping) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-02: 131 ✅ / 23 🟡 / 57 📋 / 23 ❌ = 234). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the v0.6 agent-connectivity spike. Remaining approximations (stroke-align clipping, shape-clip masks, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

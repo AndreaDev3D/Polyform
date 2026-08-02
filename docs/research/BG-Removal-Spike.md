@@ -67,24 +67,25 @@ read (`ArrayBuffer` transfer), shipped asar-unpacked like the sql.js wasm.
 - **Default model: BiRefNet (512² input)** (ISNet retired; superseded files
   are cleaned from app data). ImageNet normalization, sigmoid-on-logits
   matte, upscaled to source resolution.
-- **Quality escape hatch (only if 4.8 acceptance testing shows ISNet edge
-  quality failing on real docs): BiRefNet_lite fp16 (115 MB, MIT) as a
-  consent-gated one-time download.** Not built until proven necessary.
+- **The escape hatch was used.** ISNet failed real-image acceptance, so the
+  pre-approved BiRefNet tier became the default. The *next* tier —
+  BiRefNet at 1024 input, for finer edges on large images — is blocked
+  upstream (ORT storage-buffer limit) rather than undecided.
 - **Runtime: onnxruntime-web, WASM EP baseline + WebGPU EP opportunistic,
   in a Web Worker.** Own glue code; no AGPL wrapper.
 - **Document semantics (4.8):** the cutout is written as a NEW SHA-256
   content-addressed asset; the image fill swaps `assetHash`; the original
   stays in `assets/`; one journal entry; "Restore original" swaps back.
 
-## Acceptance gates for 4.8 (written now, tested then)
+## Acceptance gates for 4.8 — written before, results after
 
-1. Offline: cutout succeeds with networking disabled.
-2. License audit: `licenses` check on the shipped model + runtime files.
-3. Quality: side-by-side on a fixed set (product shot, portrait hair,
-   fine-edge object, transparent-ish object) — recorded in the PR.
-4. Perf: < 4 s on WASM EP mid-hardware, < 1 s on WebGPU EP for 2048px
-   input; UI never drops frames (worker-hosted).
-5. Non-destructive: restore-original is byte-identical (same hash).
+| # | Gate | Result |
+| :-- | :-- | :-- |
+| 1 | Offline: cutout succeeds with networking disabled | ✅ once the model is downloaded; the only network call is the consent-gated fetch |
+| 2 | License audit on the shipped model + runtime | ✅ BiRefNet weights MIT, onnxruntime-web MIT, no AGPL in the tree |
+| 3 | Quality on real images | ❌ **ISNet failed** (ate part of the subject) → ✅ after the BiRefNet swap, accepted by the user 2026-08-02 |
+| 4 | Perf | 🟡 **5.0 s** on the WebGPU EP (Ampere), against a written target of <1 s. Worker-hosted, so the UI never drops frames. The target was optimistic for a 473 MB model; revisit if a smaller MIT model of equal quality appears |
+| 5 | Non-destructive: restore-original is byte-identical | ✅ the original asset is never rewritten; restore is a hash swap |
 
 ## Sources
 

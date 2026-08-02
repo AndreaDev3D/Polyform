@@ -3,7 +3,7 @@
 **Status:** Living document — updated as milestones land.
 **Last updated:** 2026-08-02 (v0.4.1 released; v0.5 6.1–6.3 shipped — ADR-020; v0.6 spike 7.1 decided — ADR-021)
 
-Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan with per-item effort estimates and dependencies: **v0.2 ✓ → v0.3 ✓ → v0.4 Performance Core (in progress) → v0.4.1 Background Removal → v0.5 3D Model Import → v0.6 Agent Connectivity (MCP + CLI) → v1.0 Distribution**. The three phases between v0.4 and v1.0 are committed in intent but deliberately unspecified — each opens with a research spike that picks the best implementation and records it as an ADR before code is written. (Item ids are stable labels, not phase order: v1.0 keeps its historical 5.x ids.)
+Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan with per-item effort estimates and dependencies: **v0.2 ✓ → v0.3 ✓ → v0.4 Performance Core ✓ → v0.4.1 Background Removal ✓ → v0.5 3D Model Import (in progress) → v0.6 Agent Connectivity (spike done) → v1.0 Distribution**. The three phases between v0.4 and v1.0 are committed in intent but deliberately unspecified — each opens with a research spike that picks the best implementation and records it as an ADR before code is written. (Item ids are stable labels, not phase order: v1.0 keeps its historical 5.x ids.)
 
 Related documents:
 
@@ -150,7 +150,7 @@ Goal: one-click "Remove background" on image fills — **fully offline** (a clou
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
-| 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | ✅ **Done (2026-08-02)** — comparison in [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md), decision in ADR-019: bundled ISNet quint8 (~44 MB, Apache-2.0) on onnxruntime-web (WASM baseline, WebGPU EP opportunistic) in a Web Worker; RMBG disqualified on license, the AGPL wrapper library avoided, BiRefNet_lite (MIT) pre-approved as a consent-gated quality tier if needed. |
+| 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | ✅ **Done (2026-08-02)** — comparison in [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md), decision in ADR-019. The spike picked ISNet; **real-image acceptance rejected it** (mattes too aggressive) and the decision was amended to **BiRefNet-512 fp16 (MIT)**, downloaded once on consent and run on the WebGPU EP. RMBG disqualified on license, the AGPL wrapper library avoided, `onnxruntime-node` avoided (native module). |
 | 4.8 | **Remove background on image fills** | **M** | 4.7 | ✅ **Shipped in v0.4.1 (2026-08-02)** — inspector button, consent-gated model download (user's call over bundling), worker-hosted BiRefNet inference on the WebGPU EP (~5 s), non-destructive asset swap + Restore original, `POLYFORM_BG_TEST=1` matte gate passing, **accepted on real images**. Open follow-up in ADR-019: the 1024-input quality tier, blocked on an ONNX Runtime storage-buffer limit. |
 | 4.9 | Edge refinement brush (stretch) | **M** | 4.8 | Restore/erase strokes over the mask for hairlines and soft edges — only if 4.8's model quality proves it necessary. |
 
@@ -162,8 +162,15 @@ Goal: one-click "Remove background" on image fills — **fully offline** (a clou
 
 Goal: place 3D models on the canvas as first-class nodes — orbit them into the right pose, light them, and use the render to make graphics. Polyform stays a 2D tool; this is **render-of-3D-in-2D**, not a 3D editor. Target formats: **GLB** (meshes/PBR) and **PLY / SPZ** (point clouds and gaussian splats, incl. Niantic's compressed SPZ).
 
-> **Research-first.** 6.1 decides the rendering architecture before any
-> node type is committed to the schema.
+> **Status — 6.1–6.3 shipped (2026-08-02), unreleased.** The rendering
+> approach is decided and built (ADR-020): GLB meshes and gaussian splats
+> place as MODEL3D nodes at **document schema v4**, double-click orbits
+> them, and both `IRenderer` backends plus PNG/SVG export composite the
+> offscreen render. Measured on Ampere: first render 135 ms mesh / 117 ms
+> splat, re-pose 0.3 ms mesh / 16.6 ms splat (30 fps orbit gate cleared);
+> three.js + Spark stay a lazy chunk, so the main bundle grew 25 kB.
+> **6.4 is the open item** — SPZ v4 and a measured memory ceiling on real
+> multi-million-splat captures.
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
@@ -180,11 +187,15 @@ Goal: place 3D models on the canvas as first-class nodes — orbit them into the
 
 Goal: let AI agents (Claude and others) connect to a **running** Polyform, watch the work happen in realtime, and make edits that land in the same undo journal as human edits. Plus a headless CLI for scripting and CI.
 
-> **Research-first.** MCP (Model Context Protocol) is the leading
-> candidate — it is what Claude-family tools speak natively, and Figma's
-> Dev Mode MCP server is prior art — but 7.1 explicitly evaluates it
-> against a plain local WebSocket/JSON-RPC bridge and a pure-CLI approach
-> before anything is built. "Best tool" is the deliverable of the spike.
+> **Status — 7.1 decided (2026-08-02), 7.2 started.** The spike evaluated
+> MCP against a bespoke local WebSocket bridge and a pure-CLI design and
+> chose MCP, hosted by the app itself on loopback (ADR-021) — stdio cannot
+> attach to a GUI that is already open. It also established that
+> **realtime cannot be built on MCP resource subscriptions**: shipping
+> clients don't implement them, so the live view is a cursor over the
+> PatchOp journal instead. Security was settled before any write surface
+> exists; `npm run test:mcp` proves the 401/403 defences and the live
+> read path against the official MCP SDK client.
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |

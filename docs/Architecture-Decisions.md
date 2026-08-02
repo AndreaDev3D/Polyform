@@ -1,12 +1,12 @@
 # Architecture Decision Records
 
 **Project:** Polyform — local-first, open-source desktop vector design tool
-**Scope:** v0.1 implementation decisions
+**Scope:** every load-bearing decision, v0.1 through v0.6 (ADR-001…021)
 **Companion documents:** [Product-Overview.md](./Product-Overview.md), [Technical-Specification.md](./Technical-Specification.md), [Findings-and-Concerns.md](./Findings-and-Concerns.md)
 
 Each record follows the same shape: **Context** (the forces at play), **Decision** (what we chose), **Consequences** (what we gained and what we pay for it), and **Revisit when** (the concrete trigger that reopens the decision). Decisions are numbered in the order they were made and are never renumbered.
 
-Status legend: **Accepted** — in force for v0.1. **Accepted (transitional)** — in force now, with a documented replacement already planned.
+Status legend: **Accepted** — in force. **Accepted (transitional)** — in force now, with a documented replacement already planned. Records are amended in place when a decision changes; the amendment says what changed and why, so the reasoning stays auditable.
 
 ---
 
@@ -396,17 +396,17 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
-## ADR-019: Background removal runs ISNet on onnxruntime-web, bundled and offline (v0.4.1)
+## ADR-019: Background removal runs BiRefNet on onnxruntime-web, downloaded once on consent and offline thereafter (v0.4.1)
 
 **Context.** v0.4.1's one feature is one-click background removal on image fills. The local-first contract forbids cloud APIs; the MIT license forbids the strongest-marketed weights (BRIA RMBG is non-commercial without an agreement) and the popular wrapper library (`@imgly/background-removal` is AGPL); the zero-native-modules rule (ADR-005 precedent) forbids onnxruntime-node. Full comparison: [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md).
 
 **Decision** *(amended twice: distribution flipped to download-on-first-use on user direction; model flipped to BiRefNet after real-image acceptance failed on ISNet — mattes too aggressive/imprecise. The user asked for "RMBG or better"; RMBG-2.0 **is** the BiRefNet architecture with non-commercially-licensed weights, so BiRefNet delivers that quality tier license-clean).* **BiRefNet (full) at 512×512 input, fp16 file (MIT, ~473 MB, onnx-community export, SHA-256 `1b254749…` verified on download and on every session's first read) downloads once on explicit consent** — the installer stays slim, the model lives in `userData/models`, and the feature is fully offline afterwards. The model's `inputSize` rides in the pin (the worker letterboxes to it); superseded model files are deleted from `userData` on the next ensure().
 
-**Why 512-full and not 1024-lite** (all measured, see Consequences): BiRefNet_lite@1024 is unrunnable in onnxruntime-web on Windows today — its fused decoder kernel needs 11 storage buffers against Dawn's *adapter-level* max of 10 on the WebGPU EP (all optimization levels; adapter probe + raised-limits device injection can't help because the adapter itself caps at 10), and 1024² activations blow wasm32's memory ceiling (`std::bad_alloc` with shared or non-shared memory, arena on or off, fp16 or fp32, ort 1.27 and 1.29-dev). The full model at 512² stays under the storage-buffer limit **and** runs on the GPU. Inference runs on **onnxruntime-web (MIT)** inside a **Web Worker**: WASM execution provider as the universal baseline, WebGPU EP attempted first; ORT's runtime .mjs/.wasm are handed to the worker as blob: URLs from a main-process read (packaged renderers cannot fetch file:// — ADR-015 lesson). Pre/post-processing (1024² resize, −0.5 normalize, min-max matte, upscale, alpha composite, PNG encode) is our own glue — no AGPL code. Document semantics are non-destructive: the cutout becomes a new SHA-256 asset, the fill swaps hashes in one journal entry, `originalAssetHash` (additive optional field) keeps the pre-cutout asset addressable, and "Restore original" swaps back. BiRefNet_lite fp16 (115 MB, MIT) stays pre-approved as a quality tier **only if** real-document acceptance shows ISNet failing.
+**Why 512-full and not 1024-lite** (all measured, see Consequences): BiRefNet_lite@1024 is unrunnable in onnxruntime-web on Windows today — its fused decoder kernel needs 11 storage buffers against Dawn's *adapter-level* max of 10 on the WebGPU EP (all optimization levels; adapter probe + raised-limits device injection can't help because the adapter itself caps at 10), and 1024² activations blow wasm32's memory ceiling (`std::bad_alloc` with shared or non-shared memory, arena on or off, fp16 or fp32, ort 1.27 and 1.29-dev). The full model at 512² stays under the storage-buffer limit **and** runs on the GPU. Inference runs on **onnxruntime-web (MIT)** inside a **Web Worker**: WASM execution provider as the universal baseline, WebGPU EP attempted first; ORT's runtime .mjs/.wasm are handed to the worker as blob: URLs from a main-process read (packaged renderers cannot fetch file:// — ADR-015 lesson). Pre/post-processing is our own glue — no AGPL code: stretch to 512², ImageNet mean/std normalize, sigmoid-on-logits (autodetected) then min-max stretch of the matte, upscale to source resolution, multiply into the original alpha, PNG encode. Document semantics are non-destructive: the cutout becomes a new SHA-256 asset, the fill swaps hashes in one journal entry, `originalAssetHash` (additive optional field) keeps the pre-cutout asset addressable, and "Restore original" swaps back.
 
 **Consequences — measured (`POLYFORM_BG_TEST=1` harness, NVIDIA Ampere, ort-web 1.27 stable).** **Final config: BiRefNet-512 fp16 on the WebGPU EP — 5.0 s per image** (first run, including shader compilation; matte gates pass: subject alpha 255, background 0). Control points from the investigation, kept because they encode real constraints: ort 1.27's WebGPU EP requires the **asyncify** runtime pair (the jsep files are pre-1.2x and lack `webgpuInit`); ISNet ran at 2.9 s on WebGPU (pipe proof); do **not** force-enable Chromium's SharedArrayBuffer flag for threads — ort's threaded runtime then uses shared wasm memory with a lower growth ceiling and big models `bad_alloc` even at one thread. Robustness in code: a session ladder (webgpu/all → webgpu/basic → wasm; no unfused-webgpu rung — it shader-compiles for minutes) degrading at RUN time where EP failures actually surface, a single-threaded-worker retry on allocation failures, and a 300 s watchdog that terminates wedged runs. The 1024-input BiRefNet tier (finer edges on large images) unblocks when ORT lifts the storage-buffer constraint upstream.
 
-**Revisit when.** The WebGPU EP fix lands (drop the 12.5 s note), acceptance on real documents fails (activate the BiRefNet tier / 4.9 brush), or a better Apache/MIT model ships (runtime and glue are model-agnostic).
+**Revisit when.** ONNX Runtime lifts the WebGPU storage-buffer limit (unblocks the sharper 1024-input tier), real-document quality regresses (the 4.9 edge-refinement brush is the written fallback), or a better MIT/Apache model ships — the runtime and glue are model-agnostic, so a swap is a pin change plus a re-measure.
 
 ---
 
@@ -466,7 +466,7 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 016 | WebGPU: baked world-space arenas + segment stream + stencil stack | Partially | Glyph atlas (Sprint E); incremental bake if profiling demands |
 | 017 | GPU effects: bake-time layer pre-render; scene pass splits only for backdrop effects | Partially | Fx-layer content caching; nested backdrop effects; Sprint E glyph shadows |
 | 018 | Engine-owned shaping (rustybuzz) + glyph atlas; Canvas2D path as per-node fallback | Partially | Bidi/complex scripts; OpenType feature UI; worker-side auto-resize |
-| 019 | Background removal: bundled ISNet on onnxruntime-web (WASM/WebGPU) in a worker | Partially | BiRefNet consent-gated tier if quality demands; better MIT/Apache weights |
+| 019 | Background removal: BiRefNet-512 on onnxruntime-web (WebGPU EP) in a worker, downloaded on consent | Partially | ORT lifts the storage-buffer limit (1024 tier); better MIT/Apache weights |
 | 020 | 3D = offscreen three.js+Spark WebGL2 island; document composites snapshot textures | Partially | Spark WebGPU/SPZ-v4; KHR splats-in-GLB ratification; live composite if profiling demands |
 | 021 | Agents: in-app loopback MCP server; realtime = journal cursor, not subscriptions | Partially | Channels/`ws` push when generally available; MCP 2026-07-28 becomes the negotiated default |
 

@@ -1,17 +1,17 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform v0.1
+**Project:** Polyform — current through v0.6 (F-01…F-20)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
-This is the honest ledger of where v0.1 cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the v0.1 feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes.
+This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
 
-Severity scale: **High** — can lose user data or block core workflows; **Med** — visible quality/performance defects in normal use; **Low** — edge-case or cosmetic, acceptable for v0.1 with disclosure.
+Severity scale: **High** — can lose user data or block core workflows; **Med** — visible quality/performance defects in normal use; **Low** — edge-case or cosmetic, acceptable with disclosure. **Fixed** — the failure is gone and a gate holds it that way.
 
 | # | Finding | Severity |
 | :-- | :-- | :-- |
-| [F-01](#f-01) | Canvas2D performance ceiling | Med (High at scale) |
+| [F-01](#f-01) | Canvas2D performance ceiling | Med (GPU beta is the measured escape hatch, ADR-016) |
 | [F-02](#f-02) | Text fidelity gaps without HarfBuzz | Low (shaping shipped v0.4, ADR-018; bidi/caret/feature-UI open) |
-| [F-03](#f-03) | Boolean precision on curves | Med |
+| [F-03](#f-03) | Boolean precision on curves | Low (exact CSG default since v0.4; TS fallback + SVG export unchanged) |
 | [F-04](#f-04) | Stroke-align approximation artifacts | Low |
 | [F-05](#f-05) | sql.js memory-resident DB + persistence/corruption | High |
 | [F-06](#f-06) | Electron packaging pitfalls (asar + WASM) | High (at release time) |
@@ -19,7 +19,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-08](#f-08) | Undo journal growth and compaction | Med |
 | [F-09](#f-09) | .poly portability caveats (fonts not embedded) | Med |
 | [F-10](#f-10) | Future auto-update security | High (deferred, groundwork now) |
-| [F-11](#f-11) | Memory for large images | Med |
+| [F-11](#f-11) | Memory for large images (and 3D models since v0.5) | Med |
 | [F-12](#f-12) | Instance sync hashing cost (v0.3) | Med (High with big/many components) |
 | [F-13](#f-13) | Nested-instance override capture depth (v0.3) | Med |
 | [F-14](#f-14) | Library updates can orphan overrides (v0.3) | Med |
@@ -27,13 +27,24 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Low (resolved in GPU mode, ADR-017; Canvas2D default unchanged) |
 | [F-17](#f-17) | Plugin preview is CSP-blocked in the built app (v0.3) | Med |
 | [F-18](#f-18) | Add-text deleted its own node via a mid-gesture focus bounce (≤v0.3, fixed v0.4) | Fixed (High while live) |
+| [F-19](#f-19) | Every double-click gesture was dead — `PointerEvent.detail` is always 0 (v0.1–v0.5, fixed v0.5) | Fixed (High while live) |
+| [F-20](#f-20) | The agent endpoint is a local network listener inside the app (v0.6) | Med (accepted, mitigations shipped with it) |
 
 ---
 
 <a id="f-01"></a>
 ## F-01. Canvas2D performance ceiling — and when WebGPU stops being optional
 
-**Severity: Med** today; **High** once documents grow past v0.1-typical sizes.
+> **Status (v0.4): the escape hatch exists and is measured.** The WebGPU
+> backend shipped as a beta (View → GPU Rendering, ADR-016/017/018) and
+> pans **100,000 shapes at 60 fps** — 0.18 ms CPU per frame, one draw
+> call — against the Canvas2D reference at 11/11 pixel-parity fixtures.
+> Canvas2D is still the default renderer, so the ceiling below is still
+> what most users hit; the difference is that escaping it is now a toggle
+> rather than a project. This entry closes when GPU mode becomes the
+> default.
+
+**Severity: Med** on the default (Canvas2D) renderer; mitigated by the GPU beta.
 
 ### The problem
 
@@ -109,9 +120,11 @@ v0.1 shapes and measures text with Canvas2D (`measureText` + `fillText`), which 
 > automatic fallback, and SVG export still emits flattened rings for boolean
 > results (curve-preserving export lands with the Sprint C/D export work).
 
-**Severity: Med** — output is correct in topology, approximate in geometry.
+**Severity: Low** (was Med) — exact on the default Rust path; the description
+below now applies only to the TypeScript fallback and to SVG export of
+boolean results.
 
-### The problem
+### The problem (as it stands on the TS fallback)
 
 Boolean groups flatten beziers to polylines before clipping (ADR-007). Consequences:
 
@@ -298,7 +311,7 @@ Auto-update from GitHub Releases is planned (CI groundwork ships in v0.1). An au
 ---
 
 <a id="f-11"></a>
-## F-11. Memory for large images
+## F-11. Memory for large images (and, since v0.5, 3D models)
 
 **Severity: Med** — the failure mode is renderer OOM or GPU-memory thrash on image-heavy documents.
 
@@ -377,7 +390,8 @@ Shipped: explicit file pick each run (no auto-run, no plugin folder scanning), a
 <a id="f-16"></a>
 ## F-16. Background blur's backdrop pass is a full-canvas self-draw
 
-**Severity: Med** — purely a performance concern.
+**Severity: Low** (was Med) — purely a performance concern, and resolved on
+the GPU backend; open only while Canvas2D is the default.
 
 ### The problem
 Each node with background blur clips to its shape, then redraws the *entire canvas* through a blur filter (backdrop capture). Several such nodes stack full-canvas passes per frame; on a 4K viewport this is the single most expensive effect in the renderer.
@@ -443,6 +457,29 @@ Fixed in two parts:
 
 ---
 
+<a id="f-20"></a>
+## F-20. The agent endpoint is a local network listener inside the app
+
+**Severity: Med — accepted, with the mitigations built in from the first commit** (v0.6, ADR-021).
+
+### The problem
+Agent connectivity works by Polyform *listening*: an MCP server runs inside the app and an agent connects to it over loopback HTTP. That is a genuinely new class of surface for this codebase — every other integration point so far has been the app reaching out (file dialogs, a model download) or code we load deliberately (plugins, F-15). A listener can be reached by anything already running on the machine, and — the non-obvious one — by any **web page in the user's browser**, since a page can POST to `127.0.0.1` and can be pointed there by DNS rebinding. Once the write surface lands (7.3), reaching it means editing the user's document.
+
+### Mitigation
+Shipped with the spike, before anything can write:
+
+- **Off by default.** No listener until the user starts it; no autostart, no background port.
+- **Loopback only.** Binds `127.0.0.1`; never `0.0.0.0`, so nothing off-machine can route to it.
+- **Ephemeral port.** Port 0 — the OS assigns it, so there is no well-known port to scan for or squat.
+- **Per-session bearer token**, freshly generated on start and compared in constant time. `npm run test:mcp` asserts an unauthenticated request gets `401`.
+- **Origin/Host validation** against the loopback origin, which is what actually stops the browser-page case. The gate asserts a request carrying a foreign `Origin` gets `403`.
+- **Read-only today.** The prototype exposes three read tools; writes are roadmap 7.3 and get their own consent, separate from reads.
+
+### What is still owed (7.2/7.3)
+A visible "agent connected" indicator, a consent surface that shows *which* capabilities a session holds, and per-capability approval for writes. Until those exist, the endpoint should be treated as a developer feature. The F-15 lesson applies unchanged: a consent-gated capability is only honest if the consent is visible and revocable.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -450,3 +487,5 @@ Three themes run through every entry:
 1. **Approximations are disclosed and containable.** F-02/F-03/F-04 (text, booleans, strokes) are quality approximations whose *replacements* are already architecturally placed (HarfBuzz behind text metrics, exact CSG behind non-destructive evaluation, true stroking behind `IRenderer`). None require file-format or UI breakage to fix.
 2. **Durability gets the strictest treatment.** F-05/F-06/F-07/F-08 are the data-integrity cluster; the shipped invariants (atomic tmp+rename everywhere, journal quarantine over document hostage, gesture coalescing, packaging smoke test) are the non-negotiables of v0.1.
 3. **Deferred features have present-tense obligations.** F-10 (auto-update) doesn't exist yet, but pinned CI actions and published checksums are obligations *now*; F-09's missing-font notice is cheap now and much cheaper than support tickets later.
+4. **Anything that lets outside code in gets its defences before its features.** F-15 (plugins) and F-20 (the agent endpoint) are the same shape: capability first draws a threat model, then ships the gate, then ships the capability. F-20's 401/403 checks were written in the same commit as the server, not after it.
+5. **Input-layer bugs are invisible to unit and pixel tests.** F-18 and F-19 both survived multiple releases with a green suite, and both were found only by driving the built app with synthetic OS-level input. That is why `npm run test:e2e` exists and why it keeps growing.

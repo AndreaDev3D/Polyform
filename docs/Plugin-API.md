@@ -1,4 +1,4 @@
-# Polyform Plugin API — Design Sketch (v0.3)
+# Polyform Plugin API — Design Sketch (v0.3, unchanged through v0.6)
 
 > Status: **dev preview**, deliberately a sketch per [Roadmap 3.4](Roadmap.md). The
 > stable, sandboxed API ships post-1.0 once the Rust core settles the object
@@ -58,7 +58,7 @@ committed. Throwing rolls back everything the plugin did.
 - **Isolation**: plugins run in a dedicated `Worker` (no DOM), talking to the editor over a **typed message bridge** (`postMessage` + JSON-schema-validated commands). The API object above becomes async (`await polyform.getNode(...)`).
 - **Capability gating**: manifest permissions are surfaced at install time; `scene:write` plugins get the OpRecorder path, read-only plugins get snapshots.
 - **UI surface**: plugins may request a panel (rendered as a sandboxed `iframe` with its own CSP) — never direct DOM access to the editor.
-- **Versioning**: the API is versioned with the scene schema (`schemaVersion`); the bridge negotiates the highest common version at load.
+- **Versioning**: the API is versioned with the scene schema (`schemaVersion`, currently **v4**); the bridge negotiates the highest common version at load.
 - **Rust-core note**: the API intentionally mirrors the engine's public surface (node CRUD via patch ops) so the WASM core can serve the same bridge without renderer changes.
 
 ## Non-goals
