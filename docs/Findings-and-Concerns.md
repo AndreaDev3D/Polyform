@@ -486,6 +486,9 @@ The first draft of the consent panel was **bypassable, and not through the netwo
 
 The general lesson is worth more than the fix: **a consent surface is only as strong as the weakest path to the thing it guards**, and in an app that executes user-supplied code in its own realm, the weakest path is usually not the one being consented to.
 
+### Known limit: the session count over-reports
+A `StreamableHTTPServerTransport` has no way to notice a client that vanishes without sending `DELETE` — between calls, gone and merely idle look identical. Such a session stays counted until the endpoint is stopped, so the indicator can say an agent is attached after it has died. That is the **conservative** direction for a security light (over-reporting beats under-reporting), and the panel's *last read* line is how you tell live from stale. A well-behaved client, including Claude Code, terminates cleanly and is dropped immediately; `npm run test:mcp` gates that path.
+
 ### What is still owed (7.3)
 Per-capability approval for *writes*, which should default to off rather than on as the read capabilities do, and attribution in the history browser so an agent's edits are distinguishable from the user's at a glance. Plugin isolation stays open under F-15; until it lands, the argument above rests on ordering (startup claims before any plugin can load) rather than on isolation.
 

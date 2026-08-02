@@ -92,6 +92,26 @@ function fail(msg) {
   process.exitCode = 1
 }
 
+// A leftover Electron from an earlier run keeps the CDP port, and this
+// probe would then happily drive THAT app — reporting results for stale
+// code. It burned an hour once: a fixed bug still "failed" because the
+// zombie predated the fix. Refuse to run rather than lie either way.
+try {
+  const live = await fetch(`http://127.0.0.1:${PORT}/json/version`, {
+    signal: AbortSignal.timeout(1500),
+  })
+  if (live.ok) {
+    console.error(
+      `MCP FAIL: something is already listening on the debug port ${PORT} — ` +
+        `a stale Electron from an earlier run. Close it first ` +
+        `(the probe would otherwise test that app, not this build).`,
+    )
+    process.exit(1)
+  }
+} catch {
+  /* nothing there: good */
+}
+
 const electron = spawn(
   process.platform === 'win32' ? 'npx.cmd' : 'npx',
   ['electron', 'out/main/index.js', `--remote-debugging-port=${PORT}`],
@@ -359,6 +379,64 @@ try {
   } else {
     console.log(`MCP PASS: live edit visible to the agent ("${after.entries[0].label}" on ${after.entries[0].nodeIds.join(', ')})`)
   }
+
+  // --- a client must be able to reconnect, and two may attach ------------
+  // A StreamableHTTPServerTransport binds to ONE session for life, so a
+  // single shared transport silently caps the endpoint at one connection
+  // ever — and a client that reconnects (Claude Code does, with backoff)
+  // gets "Server already initialized" until the user restarts the endpoint.
+  const connect = async (name) => {
+    const c = new Client({ name, version: '1.0.0' })
+    const t = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { Authorization: `Bearer ${status.token}` } },
+    })
+    await c.connect(t)
+    // close() only tears down the client side; DELETE is what tells the
+    // server the session is over, and it is what keeps the indicator's
+    // count honest.
+    return { client: c, bye: async () => { await t.terminateSession(); await c.close() } }
+  }
+
+  const second = await connect('polyform-probe-2')
+  const secondDoc = JSON.parse(
+    (await second.client.callTool({ name: 'get_document', arguments: {} })).content[0].text,
+  )
+  if (secondDoc.project !== 'Probe') fail('a second concurrent agent could not read the document')
+  else console.log('MCP PASS: a second agent attaches concurrently and reads')
+
+  const bothCounted = await evaluate(`globalThis.__polyformAgentStatus().clients`)
+  if (bothCounted !== 2) fail(`status should count 2 sessions, got ${bothCounted}`)
+  else console.log('MCP PASS: both sessions counted in status')
+
+  await second.bye()
+  await sleep(400)
+  const afterBye = await evaluate(`globalThis.__polyformAgentStatus().clients`)
+  if (afterBye !== 1) fail(`a departed agent is still counted: ${afterBye} sessions`)
+  else console.log('MCP PASS: a departing agent stops being counted')
+
+  // Reconnect from scratch — the case that was broken.
+  const again = await connect('polyform-probe-again')
+  const againDoc = JSON.parse(
+    (await again.client.callTool({ name: 'get_document', arguments: {} })).content[0].text,
+  )
+  if (againDoc.project !== 'Probe') fail('a reconnecting client could not read the document')
+  else console.log('MCP PASS: a client can disconnect and reconnect')
+  await again.bye()
+  await sleep(400)
+
+  // A stale session id must be told to re-initialize, not silently served.
+  const stale = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      authorization: `Bearer ${status.token}`,
+      'mcp-session-id': 'session-that-never-existed',
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  })
+  if (stale.status !== 404) fail(`unknown session id should be 404, got ${stale.status}`)
+  else console.log('MCP PASS: unknown session id is rejected 404')
 
   // --- the app must SHOW that an agent is attached (7.2, F-20) ------------
   const live = await evaluate(`globalThis.__polyformAgentStatus()`)

@@ -15,7 +15,12 @@
 // The document itself lives in the renderer, so every tool call round-trips
 // through one IPC bridge; the main process holds no scene state.
 
-import { createServer, type Server as HttpServer } from 'node:http'
+import {
+  createServer,
+  type IncomingMessage,
+  type Server as HttpServer,
+  type ServerResponse,
+} from 'node:http'
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto'
 import { McpServer, type RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -40,17 +45,28 @@ export const DEFAULT_GRANTS: McpGrants = {
   render: true,
 }
 
+/**
+ * One connected agent. A `StreamableHTTPServerTransport` binds to exactly
+ * one MCP session for its lifetime — a second `initialize` on the same
+ * transport is rejected with "Server already initialized" — so a transport
+ * per session is not an optimization, it is the only way a client can
+ * reconnect or a second agent can attach at all.
+ */
+interface Session {
+  transport: StreamableHTTPServerTransport
+  server: McpServer
+  /** Tool name → the capability that gates it. Several may share one. */
+  tools: Map<string, { cap: McpCapability; tool: RegisteredTool }>
+}
+
 let http: HttpServer | null = null
-let mcp: McpServer | null = null
 let token: string | null = null
 let port: number | null = null
 let grants: McpGrants = { ...DEFAULT_GRANTS }
 let calls = 0
 let lastCall: McpCapability | null = null
 let lastCallAt: number | null = null
-const sessions = new Set<string>()
-/** Tool name → the capability that gates it. Several may share one. */
-const tools = new Map<string, { cap: McpCapability; tool: RegisteredTool }>()
+const sessions = new Map<string, Session>()
 
 /** Status pushes drive the UI indicator — polling would lie between polls. */
 const watchers = new Set<(s: McpStatus) => void>()
@@ -125,7 +141,8 @@ function guarded<A>(
   }
 }
 
-function buildServer(query: SceneQuery): McpServer {
+function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
+  const tools = new Map<string, { cap: McpCapability; tool: RegisteredTool }>()
   const server = new McpServer(
     { name: 'polyform', version: '0.6.0' },
     {
@@ -137,8 +154,6 @@ function buildServer(query: SceneQuery): McpServer {
         'tool that worked earlier may start refusing.',
     },
   )
-
-  tools.clear()
 
   tools.set('get_document', {
     cap: 'document',
@@ -284,16 +299,21 @@ function buildServer(query: SceneQuery): McpServer {
     ),
   })
 
-  syncTools()
-  return server
+  syncSession(tools)
+  return { server, tools }
 }
 
-/** Reflect the current grants onto the live server; fires tools/list_changed. */
-function syncTools(): void {
+/** Reflect the current grants onto one session; fires tools/list_changed. */
+function syncSession(tools: Session['tools']): void {
   for (const { cap, tool } of tools.values()) {
     if (grants[cap] && !tool.enabled) tool.enable()
     else if (!grants[cap] && tool.enabled) tool.disable()
   }
+}
+
+/** ...and onto every session that is currently attached. */
+function syncTools(): void {
+  for (const session of sessions.values()) syncSession(session.tools)
 }
 
 /**
@@ -326,9 +346,8 @@ export async function mcpStart(query: SceneQuery, next?: Partial<McpGrants>): Pr
   lastCallAt = null
 
   // The host/origin allowlists must carry the port, and the port isn't
-  // known until the socket is bound — so listen first, then build the
-  // transport, then let requests through.
-  let transport: StreamableHTTPServerTransport | null = null
+  // known until the socket is bound — so listen first, then serve.
+  let ready = false
   http = createServer((req, res) => {
     if (!req.url?.startsWith('/mcp')) {
       res.writeHead(404).end()
@@ -340,11 +359,27 @@ export async function mcpStart(query: SceneQuery, next?: Partial<McpGrants>): Pr
       )
       return
     }
-    if (!transport) {
+    if (!ready) {
       res.writeHead(503).end()
       return
     }
-    void transport.handleRequest(req, res)
+
+    const sid = req.headers['mcp-session-id']
+    const existing = typeof sid === 'string' ? sessions.get(sid) : undefined
+    if (existing) {
+      void existing.transport.handleRequest(req, res)
+      return
+    }
+    if (sid) {
+      // A client resuming a session we no longer have (endpoint restarted,
+      // or the session was closed). Say so plainly; clients re-initialize.
+      res.writeHead(404, { 'content-type': 'application/json' }).end(
+        JSON.stringify({ error: 'unknown session — reconnect to start a new one' }),
+      )
+      return
+    }
+    // No session id: a new agent initializing. Give it its own transport.
+    void openSession(query, req, res)
   })
 
   await new Promise<void>((resolve, reject) => {
@@ -354,10 +389,23 @@ export async function mcpStart(query: SceneQuery, next?: Partial<McpGrants>): Pr
   })
   const addr = http.address()
   port = typeof addr === 'object' && addr ? addr.port : null
+  ready = true
+  announce()
+  return mcpStatus()
+}
 
-  const server = buildServer(query)
-  mcp = server
-  transport = new StreamableHTTPServerTransport({
+/**
+ * Stand up a fresh session for an initializing client. Each gets its own
+ * transport AND its own McpServer, because both are single-session objects
+ * in the SDK; sharing one is why a reconnect used to fail outright.
+ */
+async function openSession(
+  query: SceneQuery,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const { server, tools } = buildServer(query)
+  const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     // The spec requires Origin validation to stop a web page in the user's
     // browser from driving this server (DNS rebinding). Loopback only.
@@ -365,7 +413,7 @@ export async function mcpStart(query: SceneQuery, next?: Partial<McpGrants>): Pr
     allowedHosts: [`127.0.0.1:${port}`, `localhost:${port}`],
     allowedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
     onsessioninitialized: (id) => {
-      sessions.add(id)
+      sessions.set(id, { transport, server, tools })
       announce()
     },
     onsessionclosed: (id) => {
@@ -373,22 +421,31 @@ export async function mcpStart(query: SceneQuery, next?: Partial<McpGrants>): Pr
       announce()
     },
   })
-  await server.connect(transport)
-  announce()
-  return mcpStatus()
+  // Covers the paths onsessionclosed does not: a dropped socket, or the
+  // transport erroring out. Without this a vanished agent stays "connected"
+  // in the indicator forever.
+  transport.onclose = () => {
+    if (transport.sessionId && sessions.delete(transport.sessionId)) announce()
+  }
+  try {
+    await server.connect(transport)
+    await transport.handleRequest(req, res)
+  } catch (err) {
+    console.warn('[polyform] mcp: session failed to open:', err)
+    if (!res.headersSent) res.writeHead(500).end()
+    await server.close().catch(() => undefined)
+  }
 }
 
 export async function mcpStop(): Promise<McpStatus> {
   const server = http
-  const server_ = mcp
+  const open = [...sessions.values()]
   http = null
-  mcp = null
   token = null
   port = null
   sessions.clear()
-  tools.clear()
-  // Drop the MCP session state first, then the socket.
-  if (server_) await server_.close().catch(() => undefined)
+  // Drop every session's MCP state first, then the socket.
+  await Promise.all(open.map((s) => s.server.close().catch(() => undefined)))
   if (server) {
     // close() alone only stops NEW connections and then waits for existing
     // ones to drain — and an attached agent holds a keep-alive socket open
