@@ -29,6 +29,11 @@ if (bootParams.has('m3dTest')) {
   void import('./dev/model3d-test').then((m) => m.runModel3dTest())
 }
 
+// Agent bridge (v0.6 spike 7.1): answers MCP tool calls from the live
+// document. Installing the listener is inert until the user starts the
+// server from the app.
+void import('./agent/bridge').then((m) => m.installAgentBridge())
+
 // Debug/automation handle (local desktop app; also used by dev tooling).
 void Promise.all([
   import('./state/document'),

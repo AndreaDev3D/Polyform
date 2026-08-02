@@ -7,6 +7,7 @@ import path from 'node:path'
 import type { SaveProjectPayload } from '../shared/types'
 import { ProjectManager } from './project'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
+import { mcpStart, mcpStop, mcpStatus } from './mcp'
 import { listRecents, pushRecent } from './recents'
 import { installMenu } from './menu'
 
@@ -216,6 +217,36 @@ function registerIpc(): void {
   ipcMain.handle('assets:write', (_e, bytes: Uint8Array, ext: string) =>
     projects.writeAssetBytes(bytes, ext),
   )
+
+  // Agent connectivity (v0.6 spike 7.1, ADR-021): a loopback MCP endpoint.
+  // The document lives in the renderer, so every tool call round-trips over
+  // this one bridge; the main process keeps no scene state of its own.
+  let sceneSeq = 0
+  const scenePending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+  ipcMain.on('mcp:sceneReply', (_e, id: number, ok: boolean, payload: unknown) => {
+    const waiter = scenePending.get(id)
+    if (!waiter) return
+    scenePending.delete(id)
+    if (ok) waiter.resolve(payload)
+    else waiter.reject(new Error(String(payload)))
+  })
+  const sceneQuery = (method: string, params: unknown): Promise<unknown> =>
+    new Promise((resolve, reject) => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        reject(new Error('Polyform has no window open'))
+        return
+      }
+      const id = ++sceneSeq
+      scenePending.set(id, { resolve, reject })
+      mainWindow.webContents.send('mcp:sceneRequest', id, method, params)
+      setTimeout(() => {
+        if (scenePending.delete(id)) reject(new Error(`scene query timed out: ${method}`))
+      }, 10_000)
+    })
+
+  ipcMain.handle('mcp:status', () => mcpStatus())
+  ipcMain.handle('mcp:start', () => mcpStart(sceneQuery))
+  ipcMain.handle('mcp:stop', () => mcpStop())
 
   // Background-removal model (v0.4.1, ADR-019): consent-gated download.
   ipcMain.handle('bgmodel:status', () => bgModelStatus())

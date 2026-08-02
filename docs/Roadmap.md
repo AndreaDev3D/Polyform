@@ -1,7 +1,7 @@
 # Polyform Roadmap
 
 **Status:** Living document — updated as milestones land.
-**Last updated:** 2026-08-02 (v0.4.1 released; v0.5 spike 6.1 decided and items 6.2/6.3 shipped — ADR-020)
+**Last updated:** 2026-08-02 (v0.4.1 released; v0.5 6.1–6.3 shipped — ADR-020; v0.6 spike 7.1 decided — ADR-021)
 
 Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan with per-item effort estimates and dependencies: **v0.2 ✓ → v0.3 ✓ → v0.4 Performance Core (in progress) → v0.4.1 Background Removal → v0.5 3D Model Import → v0.6 Agent Connectivity (MCP + CLI) → v1.0 Distribution**. The three phases between v0.4 and v1.0 are committed in intent but deliberately unspecified — each opens with a research spike that picks the best implementation and records it as an ADR before code is written. (Item ids are stable labels, not phase order: v1.0 keeps its historical 5.x ids.)
 
@@ -188,8 +188,8 @@ Goal: let AI agents (Claude and others) connect to a **running** Polyform, watch
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
-| 7.1 | **Research spike: protocol & transport** | **M** | — | MCP server inside the Electron main process vs a sidecar `polyform` CLI bridging into the app over a local socket; stdio vs WebSocket/SSE transports; what Claude Code and other agent clients support best today. Security model up front: localhost-only, explicit in-app consent per agent session, visible "agent connected" indicator — the F-15/F-17 lessons say no silent remote control, ever. Output: ADR. |
-| 7.2 | **Read surface: see the work** | **M** | 7.1 | Resources/tools: document JSON (scene graph, styles, components), selection state, viewport + per-node PNG snapshots (the render-to-canvas path exists), and **live change notifications** by subscribing to the op journal — an agent can literally watch edits stream in. |
+| 7.1 | **Research spike: protocol & transport** | **M** | — | ✅ **Done (2026-08-02)** — survey in [research/Agent-Connectivity-Spike.md](research/Agent-Connectivity-Spike.md), decision in ADR-021: **MCP over a loopback Streamable HTTP endpoint hosted inside the app** (stdio can't attach to a running GUI); server in main, document in the renderer, one IPC bridge. **Realtime is a `poll_changes(cursor)` feed over the PatchOp journal, not resource subscriptions** — those are not supported by shipping clients. Security fixed up front (off by default, loopback, per-session bearer token, Origin validation). Prototype gate `npm run test:mcp` passes against the official MCP SDK client. |
+| 7.2 | **Read surface: see the work** | **M** | 7.1 | 🟡 **Started** — the spike prototype ships read-only `get_document`, `get_selection` and `poll_changes` (the live change feed). Remaining: styles/components detail, viewport + per-node PNG snapshots (mind Claude Code's ~25k-token tool-output budget), the consent UI, and the visible "agent connected" indicator. |
 | 7.3 | **Write surface: journaled agent edits** | **L** | 7.2 | Agent mutations go through the SAME PatchOp journal (ADR-008): undoable, labeled as agent actions in the history browser, rollback-able as one entry; per-capability consent prompts. |
 | 7.4 | **Headless CLI** | **M** | 7.1 | `polyform` CLI: open/query/export (PNG/SVG/PDF) a `.poly` bundle without the GUI, sharing the engine — useful standalone, in CI, and as the agent bridge if 7.1 lands on the sidecar design. |
 

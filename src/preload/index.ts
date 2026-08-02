@@ -24,6 +24,16 @@ const api: PolyformApi = {
   bgModelEnsure: () => ipcRenderer.invoke('bgmodel:ensure'),
   bgModelRead: () => ipcRenderer.invoke('bgmodel:read'),
   bgOrtRuntime: () => ipcRenderer.invoke('bgmodel:ort'),
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
+  mcpStart: () => ipcRenderer.invoke('mcp:start'),
+  mcpStop: () => ipcRenderer.invoke('mcp:stop'),
+  mcpSceneReply: (id, ok, payload) => ipcRenderer.send('mcp:sceneReply', id, ok, payload),
+  onMcpSceneRequest: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, id: number, method: string, params: unknown) =>
+      cb(id, method, params)
+    ipcRenderer.on('mcp:sceneRequest', listener)
+    return () => ipcRenderer.removeListener('mcp:sceneRequest', listener)
+  },
   onBgModelProgress: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, p: { received: number; total: number }) =>
       cb(p.received, p.total)

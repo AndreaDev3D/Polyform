@@ -426,6 +426,24 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-021: Agents connect over MCP to a loopback server inside the app; realtime is a journal cursor, not a subscription (v0.6)
+
+**Context.** v0.6 lets an AI agent connect to a **running** Polyform, watch the work happen live, and make journaled edits. Three things had to be decided before any of that is built: the protocol, the transport, and how "realtime" actually works. Constraints: local-first (no cloud relay), and the F-15/F-17 rule that nothing gets silent remote control of the app. Full survey: [research/Agent-Connectivity-Spike.md](research/Agent-Connectivity-Spike.md).
+
+**Decision.** **MCP, over a Streamable HTTP endpoint that Polyform itself hosts on loopback.** MCP wins on interoperability — agent clients speak it with a two-line config entry instead of a bespoke adapter — and it already models tools, readable resources, and change notifications, which is exactly the 7.2/7.3 surface. Its reference TypeScript SDK is MIT and runs unmodified in Electron's main process. A hand-rolled local WebSocket/JSON-RPC bridge was rejected as the primary (cheaper only until the second client, then it is re-specifying MCP badly), and a pure CLI was rejected as the primary but **kept as 7.4** — a CLI cannot see the running app's unsaved state, but it is the right tool for scripting `.poly` bundles on disk. **stdio is not usable here**: it requires the client to spawn the server, which cannot attach to an app the user already has open — so the app listens and the agent dials in, the same shape as Figma's desktop Dev Mode server. **The MCP server runs in the main process; the document lives in the renderer**, so every tool call round-trips over one IPC bridge and the main process holds no scene state of its own.
+
+**Realtime is a cursor over the PatchOp journal, not a resource subscription.** This is the spike's most consequential finding and it inverts the obvious design. MCP specifies `resources/subscribe` → `notifications/resources/updated`, but that half of the protocol is thinly implemented across clients and is **not documented as supported by Claude Code** — building the live view on it would have shipped a feature that silently does nothing. Instead a `poll_changes(cursor)` tool returns everything committed since a cursor: it works on every client today, the cursor doubles as a resume token across disconnects, it costs nothing when nobody asks, and it reuses the journal that already exists (ADR-008). `list_changed` (which *is* supported) signals structural changes; Claude Code's Channels feature is the right shape for true push but is a research preview gated to an Anthropic-maintained plugin allowlist, and the `ws` transport is a later upgrade — neither changes the data model when adopted.
+
+**Security, fixed now rather than retrofitted.** Off by default (no background listener); binds `127.0.0.1` only; an ephemeral OS-assigned port; a per-session bearer token compared in constant time; and `Origin`/`Host` validation so a web page in the user's browser cannot drive the app through DNS rebinding — the MCP spec requires this of local servers and it is the difference between a design tool and a remote-control hole. Agent writes (7.3) will go through the same journal as human edits: undoable, attributed, and rollback-able, never a side channel around history.
+
+**Protocol revision.** Built against **2025-11-25**. MCP's 2026-07-28 revision retires sessions, replaces the GET stream and `resources/subscribe` with `subscriptions/listen`, and deprecates roots/sampling/logging on a 12-month runway — our migration is cheap *because* the realtime surface is a tool call, and tools are unchanged across the revision.
+
+**Consequences — measured** (`npm run test:mcp`, which boots the built app and connects with the **official MCP SDK client** over Streamable HTTP, the same code path a real agent uses). All passing: unauthenticated request rejected **401**; cross-origin request rejected **403**; client connect + initialize; `tools/list` returns `get_document`, `get_selection`, `poll_changes`; a live document read sees the open project and its geometry; the user's on-canvas selection is visible; **an edit made in the app appears in the change feed** with its label and touched node ids; the server stops cleanly and releases the port. The prototype is read-only by design — the write surface is 7.3, behind its own consent. Costs: one new production dependency (`@modelcontextprotocol/sdk`, MIT) plus `zod` for tool schemas, and a main↔renderer bridge with a 10 s timeout per call.
+
+**Revisit when.** Channels leaves research preview or opens to third-party servers (true push without polling); resource subscriptions gain real client support; the 2026-07-28 revision becomes the negotiated default; or the CLI (7.4) needs the endpoint to speak to more than one running instance.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -450,5 +468,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 018 | Engine-owned shaping (rustybuzz) + glyph atlas; Canvas2D path as per-node fallback | Partially | Bidi/complex scripts; OpenType feature UI; worker-side auto-resize |
 | 019 | Background removal: bundled ISNet on onnxruntime-web (WASM/WebGPU) in a worker | Partially | BiRefNet consent-gated tier if quality demands; better MIT/Apache weights |
 | 020 | 3D = offscreen three.js+Spark WebGL2 island; document composites snapshot textures | Partially | Spark WebGPU/SPZ-v4; KHR splats-in-GLB ratification; live composite if profiling demands |
+| 021 | Agents: in-app loopback MCP server; realtime = journal cursor, not subscriptions | Partially | Channels/`ws` push when generally available; MCP 2026-07-28 becomes the negotiated default |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

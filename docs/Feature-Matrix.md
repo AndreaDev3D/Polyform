@@ -32,8 +32,8 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
-| [Extensibility](#extensibility) | 1 | 1 | 2 | 4 | 8 |
-| **Total** | **131** | **22** | **58** | **23** | **234** |
+| [Extensibility](#extensibility) | 1 | 2 | 1 | 4 | 8 |
+| **Total** | **131** | **23** | **57** | **23** | **234** |
 
 ---
 
@@ -347,7 +347,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | REST API | Cloud API for files, nodes, images | ❌ | No cloud service; the file format is the API |
 | Webhooks | Server-side event notifications | ❌ | No server |
 | Dev Mode / code inspect | Measurements, tokens, code snippets for devs | 📋 | |
-| Agent connectivity (MCP) + headless CLI | Dev Mode MCP server | 📋 | Roadmap v0.6: AI agents connect to the running app with explicit consent — realtime document/viewport reads, journaled (undoable, attributed) edits, plus a headless CLI; protocol chosen by a research spike (MCP is the lead candidate) |
+| Agent connectivity (MCP) + headless CLI | Dev Mode MCP server | 🟡 | v0.6 in progress (ADR-021): an in-app loopback **MCP server** — agents read the live document, selection, and a cursor-based feed of edits as they happen; off by default, bearer-token + Origin protected. Remaining: consent UI, snapshots, journaled agent writes, headless CLI |
 | Open-source codebase | Proprietary, closed source | ✅ | Polyform is fully open source |
 | Plugin community / marketplace | Hosted plugin discovery and installs | ❌ | Cloud distribution platform; plugins (when they land) will load locally |
 

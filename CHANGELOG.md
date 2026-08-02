@@ -2,6 +2,13 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
+## Unreleased — 0.6.0 "Agent Connectivity" (research phase)
+
+- **Protocol decided** (spike 7.1 → ADR-021): AI agents will connect to the **running** app over **MCP**, on a Streamable HTTP endpoint Polyform hosts on `127.0.0.1` — stdio can't attach to a GUI that is already open, so the app listens and the agent dials in (the shape Figma's desktop Dev Mode server uses). The server lives in the main process, the document stays in the renderer, and one IPC bridge connects them.
+- **Realtime is a change feed, not a subscription.** MCP's resource-subscription mechanism is not supported by shipping clients today, so watching the work happen is a `poll_changes(cursor)` tool over the existing PatchOp journal — ordered, gap-free, resumable after a disconnect, and it works on every client. Full reasoning and the client-support matrix in [docs/research/Agent-Connectivity-Spike.md](docs/research/Agent-Connectivity-Spike.md).
+- **Security settled before the write surface exists**: off by default, loopback-only, an ephemeral OS-assigned port, a per-session bearer token, and `Origin`/`Host` validation so a web page can't drive the app by DNS rebinding.
+- **Prototype gate** `npm run test:mcp`: boots the built app and connects with the official MCP SDK client — 401 without a token, 403 cross-origin, tools discovered, the live document and selection read back, and **an edit made in the app appears in the agent's change feed**.
+
 ## Unreleased — 0.5.0 "3D Model Import"
 
 ### Fixed

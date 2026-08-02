@@ -69,6 +69,13 @@ export interface AssetData {
   mime: string
 }
 
+export interface McpStatus {
+  running: boolean
+  port: number | null
+  token: string | null
+  clients: number
+}
+
 export type MenuActionId =
   | 'file.new'
   | 'file.open'
@@ -134,6 +141,12 @@ export interface PolyformApi {
   /** Write renderer-produced bytes as a content-addressed project asset. */
   assetsWrite: (bytes: Uint8Array, ext: string) => Promise<{ hash: string; mime: string } | null>
   /** Background-removal model (v0.4.1): consent-gated one-time download. */
+  /** Agent connectivity (v0.6 spike, ADR-021): the loopback MCP endpoint. */
+  mcpStatus: () => Promise<McpStatus>
+  mcpStart: () => Promise<McpStatus>
+  mcpStop: () => Promise<McpStatus>
+  mcpSceneReply: (id: number, ok: boolean, payload: unknown) => void
+  onMcpSceneRequest: (cb: (id: number, method: string, params: unknown) => void) => () => void
   bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number; inputSize: number }>
   bgModelEnsure: () => Promise<{ ok: boolean; error?: string }>
   bgModelRead: () => Promise<Uint8Array | null>
