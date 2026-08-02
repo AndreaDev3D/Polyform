@@ -192,6 +192,8 @@ export interface PolyformApi {
   bgModelRead: () => Promise<Uint8Array | null>
   bgOrtRuntime: () => Promise<{ mjs: Uint8Array; wasm: Uint8Array } | null>
   onBgModelProgress: (cb: (received: number, total: number) => void) => () => void
+  /** CLI mode only (7.4): signal the bundle is loaded and the bridge is live. */
+  cliReady: () => void
   setDirty: (dirty: boolean) => void
   setTitle: (title: string) => void
   onMenuAction: (cb: (id: MenuActionId) => void) => () => void

@@ -6,6 +6,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { McpGrants, SaveProjectPayload } from '../shared/types'
 import { ProjectManager } from './project'
+import { parseCliCommand, runCli } from './cli'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
 import { mcpStart, mcpStop, mcpStatus, mcpSetGrants, onMcpStatus } from './mcp'
 import { listRecents, pushRecent } from './recents'
@@ -22,6 +23,21 @@ let mainWindow: BrowserWindow | null = null
 let isDirty = false
 let closeConfirmed = false
 
+// Headless CLI (7.4, ADR-023): `polyform new|query|export|mcp serve …`.
+// Detected before any window exists; the GUI path is untouched when null.
+const cliCommand = parseCliCommand(process.argv)
+// In serve mode the REAL stdout belongs to the relay child (it inherits the
+// fd and speaks MCP on it). Anything this GUI process would print — ours or
+// a dependency's — must go to stderr instead, or it corrupts the protocol.
+if (cliCommand?.verb === 'serve') {
+  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write
+}
+let cliReadyResolve: (() => void) | null = null
+const cliReady = new Promise<void>((resolve) => {
+  cliReadyResolve = resolve
+})
+let sceneQueryForCli: ((method: string, params: unknown) => Promise<unknown>) | null = null
+
 function windowTitle(): string {
   const title = projects.current?.manifest.title
   const dot = isDirty ? ' •' : ''
@@ -32,7 +48,7 @@ function refreshTitle(): void {
   mainWindow?.setTitle(windowTitle())
 }
 
-function createWindow(): void {
+function createWindow(hidden = false): void {
   mainWindow = new BrowserWindow({
     width: 1520,
     height: 960,
@@ -49,9 +65,10 @@ function createWindow(): void {
     },
   })
 
-  installMenu(mainWindow)
-
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  if (!hidden) {
+    installMenu(mainWindow)
+    mainWindow.on('ready-to-show', () => mainWindow?.show())
+  }
 
   mainWindow.on('close', (e) => {
     if (closeConfirmed) return
@@ -83,6 +100,10 @@ function createWindow(): void {
   if (process.env['POLYFORM_BG_TEST'] === '1') params.set('bgTest', '1')
   if (process.env['POLYFORM_3D_TEST'] === '1') params.set('m3dTest', '1')
   if (process.env['POLYFORM_AGENT_TEST'] === '1') params.set('agentTest', '1')
+  if (hidden && cliCommand) {
+    params.set('cli', '1')
+    params.set('cliBundle', cliCommand.bundle)
+  }
   const renderTest = params.size > 0 ? `?${params.toString()}` : ''
   if (process.env['ELECTRON_RENDERER_URL']) {
     void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + renderTest)
@@ -91,6 +112,16 @@ function createWindow(): void {
       search: renderTest || undefined,
     })
   }
+}
+
+/** Open-failure reporting: dialog in the app, stderr + exit code headless. */
+function failOpen(title: string, detail: string): void {
+  if (cliCommand) {
+    process.stderr.write(`polyform ${cliCommand.verb}: ${title}: ${detail.replace(/\n/g, ' ')}\n`)
+    app.exit(1)
+    return
+  }
+  dialog.showErrorBox(title, detail)
 }
 
 function setupPermissions(): void {
@@ -148,21 +179,21 @@ function registerIpc(): void {
     try {
       await fs.access(path.join(bundlePath, 'manifest.json'))
     } catch {
-      dialog.showErrorBox(
-        'Not a Polyform project',
-        `The selected folder does not contain a manifest.json:\n${bundlePath}`,
-      )
+      // Headless mode must NEVER raise a dialog — a modal on a hidden
+      // window blocks the process and lands on the user's screen (it did).
+      failOpen('Not a Polyform project', `The selected folder does not contain a manifest.json:\n${bundlePath}`)
       return null
     }
     try {
       const opened = await projects.open(bundlePath)
-      await pushRecent(opened.info.path, opened.info.manifest.title)
+      // CLI runs shouldn't rewrite the user's recents in the app.
+      if (!cliCommand) await pushRecent(opened.info.path, opened.info.manifest.title)
       isDirty = false
       closeConfirmed = false
       refreshTitle()
       return opened
     } catch (err) {
-      dialog.showErrorBox('Failed to open project', String(err))
+      failOpen('Failed to open project', String(err))
       return null
     }
   })
@@ -262,6 +293,14 @@ function registerIpc(): void {
         if (scenePending.delete(id)) reject(new Error(`scene query timed out: ${method}`))
       }, timeout)
     })
+
+  // CLI mode: the hidden renderer opens its bundle through the normal
+  // project:open path (which takes an explicit path without a dialog),
+  // then signals readiness — after which the CLI verb drives the bridge.
+  if (cliCommand) {
+    ipcMain.on('cli:ready', () => cliReadyResolve?.())
+    sceneQueryForCli = sceneQuery
+  }
 
   ipcMain.handle('mcp:status', () => mcpStatus())
   ipcMain.handle('mcp:start', (_e, grants?: Partial<McpGrants>) => mcpStart(sceneQuery, grants))
@@ -378,7 +417,32 @@ function registerIpc(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (cliCommand) {
+    // `new` needs no renderer at all; everything else boots one, hidden.
+    if (cliCommand.verb === 'new') {
+      try {
+        const title = cliCommand.flags.get('title') ?? path.basename(cliCommand.bundle).replace(/\.poly$/i, '')
+        const { info } = await projects.create(cliCommand.bundle, title)
+        process.stdout.write(info.path + '\n')
+        app.exit(0)
+      } catch (err) {
+        process.stderr.write(`polyform new: ${err instanceof Error ? err.message : String(err)}\n`)
+        app.exit(1)
+      }
+      return
+    }
+    setupPermissions()
+    registerIpc()
+    createWindow(true)
+    void runCli(cliCommand, {
+      projects,
+      sceneQuery: (method, params) => sceneQueryForCli!(method, params),
+      rendererReady: cliReady,
+    })
+    return
+  }
+
   setupPermissions()
   registerIpc()
   createWindow()

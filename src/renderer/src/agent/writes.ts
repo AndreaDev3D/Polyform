@@ -179,6 +179,17 @@ function sanitize(props: Record<string, unknown>, where: string): Record<string,
       case 'textAlignV':
         out[key] = String(value)
         break
+      case 'autoResize': {
+        // NONE keeps the box you set — without it, text boxes shrink to
+        // their content and "centred" type ends up hugging the left edge
+        // (the poster-centring lesson).
+        const v = String(value)
+        if (!['NONE', 'HEIGHT', 'WIDTH_AND_HEIGHT'].includes(v)) {
+          throw new Error(`${where}.autoResize: must be NONE | HEIGHT | WIDTH_AND_HEIGHT`)
+        }
+        out.autoResize = v
+        break
+      }
       case 'pointCount':
         out.pointCount = Math.max(3, Math.min(60, Math.trunc(num(value, `${where}.pointCount`))))
         break

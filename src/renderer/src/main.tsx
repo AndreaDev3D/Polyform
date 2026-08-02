@@ -33,6 +33,19 @@ if (bootParams.has('m3dTest')) {
 // document. Installing the listener is inert until the user starts the
 // server from the app.
 void import('./agent/bridge').then((m) => m.installAgentBridge())
+
+// Headless CLI boot (7.4): open the bundle the CLI was pointed at through
+// the normal project-open path, then tell main the bridge can be driven.
+if (bootParams.has('cli')) {
+  void Promise.all([import('./state/document'), import('./state/editor')]).then(async ([d, e]) => {
+    const bundle = bootParams.get('cliBundle')
+    if (bundle) {
+      const viewport = await d.documentStore.openProject(bundle)
+      if (viewport) e.editor.set({ hasProject: true })
+    }
+    window.polyform.cliReady()
+  })
+}
 void import('./agent/status').then((m) => {
   m.installAgentStatus()
   // Read-only peek at the endpoint state for `npm run test:mcp`. Gated on

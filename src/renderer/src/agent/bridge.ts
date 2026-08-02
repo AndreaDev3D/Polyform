@@ -297,12 +297,25 @@ function componentInventory(): unknown[] {
     }))
 }
 
+/** CLI mode (7.4): the bundle is at rest, so every write must reach disk
+ * before the tool call returns — "edited" must mean "saved". */
+const CLI_MODE = new URLSearchParams(window.location.search).has('cli')
+
+async function persistIfCli(): Promise<void> {
+  if (!CLI_MODE) return
+  const { saveFlow } = await import('../state/actions')
+  const ok = await saveFlow(false)
+  if (!ok) throw new Error('edit applied but saving the bundle failed')
+}
+
 const HANDLERS: Record<string, (params: Record<string, unknown>) => unknown | Promise<unknown>> = {
   // Writes (7.3). Validation, atomicity and attribution live in writes.ts;
   // lazy-loaded so the read-only path never pays for it.
   'document.edit': async (params) => {
     const { applyEdits } = await import('./writes')
-    return applyEdits(params.edits, params.label)
+    const result = applyEdits(params.edits, params.label)
+    await persistIfCli()
+    return result
   },
 
   'asset.import': async (params) => {
@@ -312,7 +325,39 @@ const HANDLERS: Record<string, (params: Record<string, unknown>) => unknown | Pr
 
   'bg.remove': async (params) => {
     const { removeBackgroundForAgent } = await import('./writes')
-    return removeBackgroundForAgent(params.id, params.fillIndex)
+    const result = await removeBackgroundForAgent(params.id, params.fillIndex)
+    await persistIfCli()
+    return result
+  },
+
+  // CLI export (7.4): full-resolution PNG of one frame through the SAME
+  // path as File → Export — pixel parity with the app is the contract.
+  'render.export': async (params) => {
+    const { exportPng } = await import('../engine/export/png')
+    const { assetCache } = await import('../engine/assets')
+    const want = String(params.frame ?? '')
+    const scene = documentStore.scene
+    const id =
+      scene.rootIds().find((r) => r === want) ??
+      scene.rootIds().find((r) => scene.getNode(r)?.name === want)
+    if (!id) {
+      const names = scene.rootIds().map((r) => scene.getNode(r)?.name).filter(Boolean)
+      throw new Error(`no top-level frame ${JSON.stringify(want)} — have: ${names.join(', ')}`)
+    }
+    const scale = Number(params.scale) || 1
+    const bytes = await exportPng(scene, documentStore.index, [id], scale, assetCache, null)
+    if (!bytes) throw new Error('nothing to render')
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    const node = scene.getNode(id)!
+    return {
+      base64: btoa(binary),
+      width: Math.ceil(node.width * scale),
+      height: Math.ceil(node.height * scale),
+      name: node.name,
+    }
   },
 
   'render.viewport': (params) => {

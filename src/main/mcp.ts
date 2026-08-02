@@ -303,7 +303,8 @@ function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
           '{gradient: "LINEAR"|"RADIAL", stops: [{at, color}], start?, end?} in 0..1 node ' +
           'space; null clears), strokeWeight, strokeAlign, strokeDash, characters, ' +
           'fontFamily, fontWeight, fontSize, lineHeight, letterSpacing, italic, textAlignH, ' +
-          'textAlignV, pointCount, innerRatio, clipsContent. `update`/`move`/`delete` take ' +
+          'textAlignV, autoResize (set NONE to keep your box — otherwise TEXT shrinks to its ' +
+          'content and centring is lost), pointCount, innerRatio, clipsContent. `update`/`move`/`delete` take ' +
           'an id. Instance internals are off-limits. Use get_node_image afterwards to see ' +
           'what you made.',
         inputSchema: {
@@ -568,6 +569,13 @@ export async function mcpStop(): Promise<McpStatus> {
   announce()
   return mcpStatus()
 }
+
+// NOTE (7.4, ADR-023): there is deliberately NO in-process stdio transport
+// here. An Electron GUI process on Windows never delivers piped stdin to
+// the main process — a StdioServerTransport connects and then reads
+// nothing, forever. `polyform mcp serve` instead starts THIS loopback
+// endpoint (grants all-on via mcpStart's override) and bridges it to the
+// real stdio through a RUN_AS_NODE relay child; see cli.ts + relay.ts.
 
 export function mcpStatus(): McpStatus {
   return {

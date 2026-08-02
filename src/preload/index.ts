@@ -37,6 +37,7 @@ const api: PolyformApi = {
     ipcRenderer.on('bgmodel:progress', listener)
     return () => ipcRenderer.removeListener('bgmodel:progress', listener)
   },
+  cliReady: () => ipcRenderer.send('cli:ready'),
   setDirty: (dirty) => ipcRenderer.send('app:set-dirty', dirty),
   setTitle: () => ipcRenderer.send('app:set-title'),
   onMenuAction: (cb) => {

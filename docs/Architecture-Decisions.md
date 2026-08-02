@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 **Project:** Polyform — local-first, open-source desktop vector design tool
-**Scope:** every load-bearing decision, v0.1 through v0.6 (ADR-001…022)
+**Scope:** every load-bearing decision, v0.1 through v0.6 (ADR-001…023)
 **Companion documents:** [Product-Overview.md](./Product-Overview.md), [Technical-Specification.md](./Technical-Specification.md), [Findings-and-Concerns.md](./Findings-and-Concerns.md)
 
 Each record follows the same shape: **Context** (the forces at play), **Decision** (what we chose), **Consequences** (what we gained and what we pay for it), and **Revisit when** (the concrete trigger that reopens the decision). Decisions are numbered in the order they were made and are never renumbered.
@@ -444,6 +444,26 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-023: The CLI is the same binary running headless; files at rest speak stdio MCP with all capabilities on (v0.6)
+
+**Context.** Roadmap 7.4 wanted a `polyform` CLI for scripting and CI. By the time it was built, 7.1–7.3 had shipped an in-app MCP endpoint that reads and writes the live document — which ate the CLI's original "agent bridge" role. What remained was everything a *session* can't do: headless contexts (CI has no human to click Start), many-files work, shell composability, and working on bundles **without the app open**. The user's poster session also demonstrated the cost of session ceremony concretely: three app restarts purely to mint new ports and tokens for work that never needed a live session.
+
+**Decision.** **One binary, two postures.** `polyform new | query | export | mcp serve` boots the same Electron app with a hidden window and drives it over the same main↔renderer bridge the MCP server uses. No second renderer: a CLI export goes through the exact `exportPng` path as File → Export, so it is pixel-identical by construction — a Node-side renderer would be a parity trap of precisely the kind ADR-015's fuzz gates exist to prevent. `new` runs window-less (pure ProjectManager, ~1s). stdout carries only payload (JSON for `query`, a path for `export`/`new`, protocol for `serve`); everything human-facing goes to stderr.
+
+**`mcp serve <bundle>` inverts the trust model, deliberately.** The in-app endpoint defends a live session from a *foreign* agent: bearer token, Origin checks, per-capability grants, visible indicator, writes off by default (ADR-021/022). `mcp serve` is the user spawning a process over a file they own, with their OS user's authority — **that act is the consent**, so all capabilities including `edit` are on from the start. Nothing listens for outsiders: the client spawned the process and owns its pipes. Registered once (`claude mcp add polyform -- polyform mcp serve <file>`), it works forever: no restart-and-repaste loop, because there is nothing to restart.
+
+**The measured finding that shaped serve: an Electron GUI process on Windows never delivers piped stdin to the main process.** The obvious design — `StdioServerTransport` in-process — *connects*, logs success, and then reads nothing, forever: `initialize` never arrives, and neither does EOF, so the process cannot even notice its client hung up (this manifested as three distinct multi-minute hangs before the root cause was isolated by writing raw protocol at a hand-spawned child). Serve is therefore **two processes**: the hidden GUI hosts the document on the *same hardened loopback endpoint as the app* (ADR-021 — grants all-on via the existing override), and a ~70-line relay child runs under `ELECTRON_RUN_AS_NODE` — a plain Node process, where stdio just works — inheriting the real stdin/stdout and pumping JSON-RPC between the two transports. No new protocol code: a pipe with two battle-tested ends. The GUI's own stdout is redirected to stderr wholesale in serve mode, so nothing can corrupt the protocol stream it no longer owns.
+
+**Headless means NO dialogs, ever.** The first gate run popped a modal "Not a Polyform project" error box from the hidden window onto the user's screen — and sat blocked on it, which on an unattended CI box is an eternal hang (the user's OK click was load-bearing). Every open-failure now routes through one helper: dialog in the app, **stderr + exit 1** in CLI mode. CLI runs also stop touching the app's recents list.
+
+**Edits must mean disk.** In the app, an agent edit lands in the journal and autosave handles the bundle. A file at rest has no autosave loop to lean on, so in CLI mode every `edit_document` / `remove_background` call saves the bundle **before returning** — "edited" and "saved" are the same event, and the gate proves it by reading the bundle back in a *fresh* process.
+
+**Consequences.** CI can render-diff `.poly` files per commit with no display ceremony (v1.0 groundwork); batch exports are a shell loop; agents work on files at rest with zero ceremony. Costs: CLI startup pays the full Electron boot (~1s windowless, a few seconds with the hidden renderer); serve is two processes instead of one; `get_view_image` over `serve` renders the default camera, which is close to meaningless without a session; and the gate runs a real Electron per verb, so `npm run test:cli` is the slowest gate in the suite. Two pipe subtleties cost real hours and are now written down: a spawned child's **piped stderr must be drained** (64KB of backpressure freezes the child), and on Windows a killed direct child **orphans its grandchildren** — the serve chain (shim→cli.js→electron→relay) must be torn down as a tree, or surviving members hold pipe handles that keep the test process alive forever.
+
+**Revisit when.** Packaged builds ship (the `bin` entry and PATH story land with electron-builder, v1.0); someone needs `query --all` across directories (trivially added); headless GPU in CI misbehaves (SwiftShader fallback exists but is unmeasured); or Electron fixes Windows main-process stdin (the relay then becomes removable, though it costs little).
+
+---
+
 ## ADR-022: Agent access is a set of individually revocable capabilities, and the controls are not reachable from the page (v0.6)
 
 **Context.** ADR-021 settled how an agent connects. This settles what it is allowed to see and how the person at the keyboard stays in charge of that — the obligation F-20 recorded when the listener shipped. Two things were unsatisfying about a single on/off switch: it makes "connected" an all-or-nothing bargain, and it gives the user nothing to do when they want an agent to read the layer tree but not photograph their canvas.
@@ -492,5 +512,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 020 | 3D = offscreen three.js+Spark WebGL2 island; document composites snapshot textures | Partially | Spark WebGPU/SPZ-v4; KHR splats-in-GLB ratification; live composite if profiling demands |
 | 021 | Agents: in-app loopback MCP server; realtime = journal cursor, not subscriptions | Partially | Channels/`ws` push when generally available; MCP 2026-07-28 becomes the negotiated default |
 | 022 | Agent access = individually revocable capabilities (writes default OFF); endpoint controls claimed once, unreachable from plugin-realm code | Yes | Plugin worker isolation (F-15); write patterns outgrowing one-batch commits |
+| 023 | CLI = same binary headless (one renderer, pixel-identical exports); `mcp serve` = loopback endpoint + RUN_AS_NODE stdio relay (Windows GUI stdin is dead), all-on grants (spawning IS consent), save-on-edit, no dialogs headless | Yes | Packaged `bin` story (v1.0); cross-directory query; Electron fixing Windows main stdin |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

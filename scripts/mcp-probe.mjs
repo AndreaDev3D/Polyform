@@ -452,6 +452,13 @@ try {
           props: { name: 'Bar', x: 110, y: 90, width: 70, height: 12, fill: '#EEEEEE', cornerRadius: 6 },
         },
         { op: 'update', id: '$bar', props: { opacity: 0.8, rotation: -8 } },
+        {
+          op: 'create',
+          type: 'TEXT',
+          parentId: '$bg',
+          ref: 'cap',
+          props: { name: 'Cap', x: 0, y: 120, width: 200, height: 24, characters: 'hi', fontSize: 16, autoResize: 'NONE' },
+        },
       ],
     },
   })
@@ -470,10 +477,20 @@ try {
     `globalThis.__polyform.documentStore.history.entriesApplied().length`,
   )
   if (entriesAfter !== entriesBefore + 1) {
-    fail(`a 4-edit batch made ${entriesAfter - entriesBefore} journal entries — must be exactly 1`)
+    fail(`a 5-edit batch made ${entriesAfter - entriesBefore} journal entries — must be exactly 1`)
   } else {
     console.log('MCP PASS: a whole batch is ONE journal entry')
   }
+
+  // autoResize: NONE must keep the box the agent set (the centring lesson).
+  const capWidth = await evaluate(`(() => {
+    const s = globalThis.__polyform.documentStore.scene
+    const frame = [...Object.values(s.doc.nodes)].find((n) => n.name === 'Agent Frame')
+    const cap = frame && frame.children.map((c) => s.getNode(c)).find((n) => n && n.name === 'Cap')
+    return cap ? cap.width : null
+  })()`)
+  if (capWidth !== 200) fail(`autoResize NONE did not hold the box (width ${capWidth}, wanted 200)`)
+  else console.log('MCP PASS: autoResize NONE keeps the agent-set text box')
   const topLabel = await evaluate(`globalThis.__polyform.documentStore.history.peekUndoLabel()`)
   if (topLabel !== 'Agent: Test composition') fail(`entry not agent-attributed: ${JSON.stringify(topLabel)}`)
   else console.log('MCP PASS: entry attributed in history ("Agent: …")')
@@ -485,7 +502,7 @@ try {
     if (!frame) return null
     return { children: frame.children.map((c) => s.getNode(c)?.name), w: frame.width }
   })()`)
-  if (!madeState || madeState.children.join(',') !== 'Glow,Bar') {
+  if (!madeState || madeState.children.join(',') !== 'Glow,Bar,Cap') {
     fail(`created structure wrong: ${JSON.stringify(madeState)}`)
   } else {
     console.log(`MCP PASS: nodes exist, parented and z-ordered (${madeState.children.join(' → ')})`)

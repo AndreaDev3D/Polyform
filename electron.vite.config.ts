@@ -5,6 +5,17 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: 'src/main/index.ts',
+          // The stdio↔loopback relay for `polyform mcp serve` (ADR-023).
+          // Runs under ELECTRON_RUN_AS_NODE because Electron GUI processes
+          // on Windows never deliver piped stdin to the main process.
+          relay: 'src/main/relay.ts',
+        },
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

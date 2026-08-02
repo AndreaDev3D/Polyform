@@ -17,6 +17,8 @@
     "test:rust": "cargo test --workspace",
     "test:e2e": "node scripts/e2e-text.mjs",
     "test:mcp": "node scripts/mcp-probe.mjs",
+    "test:cli": "node scripts/cli-test.mjs",
+    "cli": "electron out/main/index.js",
     "build:wasm": "node scripts/build-wasm.mjs",
     "bench": "vitest bench --run",
     "dist": "electron-vite build && electron-builder --publish never",
