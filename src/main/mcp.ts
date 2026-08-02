@@ -35,14 +35,20 @@ export const ALL_CAPABILITIES: readonly McpCapability[] = [
   'selection',
   'changes',
   'render',
+  'edit',
 ]
 
-/** Reads only, and the user still opts in per capability before starting. */
+/**
+ * Reads default on (the user still opts in by starting the endpoint at
+ * all); `edit` defaults OFF — changing the document is a separate decision,
+ * made per session, never inherited from having once allowed reading.
+ */
 export const DEFAULT_GRANTS: McpGrants = {
   document: true,
   selection: true,
   changes: true,
   render: true,
+  edit: false,
 }
 
 /**
@@ -272,6 +278,62 @@ function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
         (args: { id: string; maxEdge?: number }) =>
           query('render.node', { id: args.id, maxEdge: args.maxEdge }),
         asImage,
+      ),
+    ),
+  })
+
+  // The write surface (7.3). One call = one batch = ONE undo entry, the
+  // same contract as a human gesture (ADR-008). Gated on `edit`, which
+  // defaults OFF — and the user can pull it mid-session like any grant.
+  tools.set('edit_document', {
+    cap: 'edit',
+    tool: server.registerTool(
+      'edit_document',
+      {
+        title: 'Edit the document',
+        description:
+          'Apply a batch of edits to the open document as ONE undoable entry, attributed ' +
+          'to you in the history browser. Ops run in order and atomically — if any fails, ' +
+          'nothing is applied. `create` accepts type (RECTANGLE, ELLIPSE, LINE, POLYGON, ' +
+          'STAR, TEXT, FRAME), optional parentId (a FRAME id, or omit for the page root), ' +
+          'optional index (z-order among siblings, 0 = back), optional ref (name it, then ' +
+          'use "$ref" as id/parentId in later ops of the SAME call), and props. Writable ' +
+          'props: name, x, y, width, height (parent-relative), rotation, opacity, visible, ' +
+          'locked, blendMode, cornerRadius, fill, stroke ("#RRGGBB", "#RRGGBBAA", or ' +
+          '{gradient: "LINEAR"|"RADIAL", stops: [{at, color}], start?, end?} in 0..1 node ' +
+          'space; null clears), strokeWeight, strokeAlign, strokeDash, characters, ' +
+          'fontFamily, fontWeight, fontSize, lineHeight, letterSpacing, italic, textAlignH, ' +
+          'textAlignV, pointCount, innerRatio, clipsContent. `update`/`move`/`delete` take ' +
+          'an id. Instance internals are off-limits. Use get_node_image afterwards to see ' +
+          'what you made.',
+        inputSchema: {
+          label: z
+            .string()
+            .min(1)
+            .max(60)
+            .describe('Names the undo entry the user sees, e.g. "Background composition"'),
+          edits: z
+            .array(
+              z
+                .object({
+                  op: z.enum(['create', 'update', 'move', 'delete']),
+                  type: z.string().optional(),
+                  ref: z.string().max(40).optional(),
+                  id: z.string().optional(),
+                  parentId: z.string().nullable().optional(),
+                  index: z.number().int().min(0).optional(),
+                  props: z.record(z.string(), z.unknown()).optional(),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(100)
+            .describe('Executed in order, atomically'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+      },
+      guarded('edit', (args: { label: string; edits: unknown[] }) =>
+        query('document.edit', { label: args.label, edits: args.edits }),
       ),
     ),
   })

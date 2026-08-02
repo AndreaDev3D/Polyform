@@ -69,8 +69,12 @@ export interface AssetData {
   mime: string
 }
 
-/** What an agent may read. Each is granted separately and revocable live. */
-export type McpCapability = 'document' | 'selection' | 'changes' | 'render'
+/**
+ * What an agent may do. Each is granted separately and revocable live.
+ * Read capabilities default on when the user starts the endpoint; `edit`
+ * — the one that CHANGES the document — defaults off (ADR-022).
+ */
+export type McpCapability = 'document' | 'selection' | 'changes' | 'render' | 'edit'
 
 export type McpGrants = Record<McpCapability, boolean>
 

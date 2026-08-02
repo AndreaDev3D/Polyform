@@ -63,7 +63,18 @@ export function HistoryModal() {
             >
               <span className="flex-1 truncate">
                 {row.state === 'pending' ? '↷ ' : '• '}
-                {row.label}
+                {/* Agent-attributed entries (7.3) get a visible mark — the
+                    label prefix is the attribution, the chip makes it scannable. */}
+                {row.label.startsWith('Agent: ') ? (
+                  <>
+                    <span className="inline-block text-[9px] bg-[#d8a13a] text-black rounded px-1 mr-1 align-middle">
+                      AGENT
+                    </span>
+                    {row.label.slice(7)}
+                  </>
+                ) : (
+                  row.label
+                )}
                 {row.position === cursor ? '  ← current' : ''}
               </span>
               <span className="text-[10px] text-[var(--pf-text-dim)]">{formatTime(row.at)}</span>

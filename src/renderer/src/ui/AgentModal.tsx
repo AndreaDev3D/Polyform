@@ -23,6 +23,15 @@ interface CapabilityInfo {
   detail: string
 }
 
+const WRITE_CAPABILITY: CapabilityInfo = {
+  key: 'edit',
+  tool: 'edit_document',
+  label: 'Change the document',
+  detail:
+    'Create, restyle, move and delete layers. Every change lands in your history as ' +
+    'one "Agent:" entry — one Ctrl+Z removes it. Off unless you turn it on.',
+}
+
 const CAPABILITIES: CapabilityInfo[] = [
   {
     key: 'document',
@@ -181,6 +190,36 @@ export function AgentModal() {
                 Nothing is granted — a connected agent can see no part of your document.
               </div>
             )}
+          </div>
+
+          <div className="px-4 py-3 border-b border-[var(--pf-border)]">
+            <div className="text-[11px] font-semibold mb-2 flex items-center gap-1.5">
+              What the agent may change
+              <span
+                className={`text-[9px] font-normal px-1.5 py-px rounded ${
+                  status.grants.edit ? 'bg-[#d8a13a] text-black' : 'bg-[var(--pf-bg-3)] text-[var(--pf-text-dim)]'
+                }`}
+              >
+                {status.grants.edit ? 'WRITES ON' : 'off by default'}
+              </span>
+            </div>
+            <label className="flex items-start gap-2 py-1.5 cursor-default hover:bg-[var(--pf-bg-2)] -mx-2 px-2 rounded">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-[#d8a13a]"
+                checked={status.grants.edit}
+                onChange={(e) => run(() => setAgentGrants({ edit: e.target.checked }))}
+              />
+              <span className="flex-1">
+                <span className="text-[11px]">{WRITE_CAPABILITY.label}</span>
+                <span className="block text-[10px] text-[var(--pf-text-dim)]">
+                  {WRITE_CAPABILITY.detail}
+                </span>
+              </span>
+              <code className="text-[10px] text-[var(--pf-text-dim)] shrink-0">
+                {WRITE_CAPABILITY.tool}
+              </code>
+            </label>
           </div>
 
           {status.running && url && status.token && (

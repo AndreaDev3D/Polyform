@@ -298,6 +298,13 @@ function componentInventory(): unknown[] {
 }
 
 const HANDLERS: Record<string, (params: Record<string, unknown>) => unknown | Promise<unknown>> = {
+  // Writes (7.3). Validation, atomicity and attribution live in writes.ts;
+  // lazy-loaded so the read-only path never pays for it.
+  'document.edit': async (params) => {
+    const { applyEdits } = await import('./writes')
+    return applyEdits(params.edits, params.label)
+  },
+
   'render.viewport': (params) => {
     const edge = Number(params.maxEdge)
     return viewportSnapshot(Number.isFinite(edge) ? edge : undefined)

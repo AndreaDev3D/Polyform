@@ -380,6 +380,181 @@ try {
     console.log(`MCP PASS: live edit visible to the agent ("${after.entries[0].label}" on ${after.entries[0].nodeIds.join(', ')})`)
   }
 
+  // --- writes (7.3): OFF by default, one entry when granted ---------------
+  if (names.includes('edit_document')) {
+    fail('edit_document is listed while the edit grant is off — writes must default OFF')
+  } else {
+    console.log('MCP PASS: write tool hidden while the edit grant is off (default)')
+  }
+  let refusedWrite = false
+  try {
+    const r = await client.callTool({
+      name: 'edit_document',
+      arguments: { label: 'Sneaky', edits: [{ op: 'create', type: 'RECTANGLE' }] },
+    })
+    refusedWrite = r.isError === true
+  } catch {
+    refusedWrite = true
+  }
+  if (!refusedWrite) fail('an ungranted write was accepted')
+  else console.log('MCP PASS: ungranted write refused')
+
+  // Grant writes the way a user would — the panel checkbox.
+  const grantEdit = await evaluate(`(() => {
+    globalThis.__polyform.editor.set({ showAgent: true })
+    return true
+  })()`)
+  if (!grantEdit) throw new Error('could not open the consent panel for the write grant')
+  await sleep(400)
+  const editToggled = await evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find((l) => l.innerText.includes('edit_document'))
+    const box = label && label.querySelector('input[type=checkbox]')
+    if (!box || box.checked) return false
+    box.click()
+    return true
+  })()`)
+  if (!editToggled) fail('could not find the edit consent checkbox')
+  await sleep(500)
+
+  const entriesBefore = await evaluate(
+    `globalThis.__polyform.documentStore.history.entriesApplied().length`,
+  )
+  const written = await client.callTool({
+    name: 'edit_document',
+    arguments: {
+      label: 'Test composition',
+      edits: [
+        {
+          op: 'create',
+          type: 'FRAME',
+          ref: 'bg',
+          props: { name: 'Agent Frame', x: 500, y: 500, width: 200, height: 150, fill: '#222831' },
+        },
+        {
+          op: 'create',
+          type: 'ELLIPSE',
+          parentId: '$bg',
+          index: 0,
+          props: { name: 'Glow', x: 20, y: 15, width: 80, height: 80, fill: '#76ABAE55' },
+        },
+        {
+          op: 'create',
+          type: 'RECTANGLE',
+          parentId: '$bg',
+          ref: 'bar',
+          props: { name: 'Bar', x: 110, y: 90, width: 70, height: 12, fill: '#EEEEEE', cornerRadius: 6 },
+        },
+        { op: 'update', id: '$bar', props: { opacity: 0.8, rotation: -8 } },
+      ],
+    },
+  })
+  if (written.isError) {
+    fail(`granted write failed: ${written.content.map((c) => c.text).join(' ')}`)
+  } else {
+    const result = JSON.parse(written.content.find((c) => c.type === 'text').text)
+    if (result.committed !== 'Agent: Test composition' || !result.created.bg?.id) {
+      fail(`write result malformed: ${JSON.stringify(result)}`)
+    } else {
+      console.log(`MCP PASS: granted write landed ("${result.committed}", ${result.edits} edits)`)
+    }
+  }
+
+  const entriesAfter = await evaluate(
+    `globalThis.__polyform.documentStore.history.entriesApplied().length`,
+  )
+  if (entriesAfter !== entriesBefore + 1) {
+    fail(`a 4-edit batch made ${entriesAfter - entriesBefore} journal entries — must be exactly 1`)
+  } else {
+    console.log('MCP PASS: a whole batch is ONE journal entry')
+  }
+  const topLabel = await evaluate(`globalThis.__polyform.documentStore.history.peekUndoLabel()`)
+  if (topLabel !== 'Agent: Test composition') fail(`entry not agent-attributed: ${JSON.stringify(topLabel)}`)
+  else console.log('MCP PASS: entry attributed in history ("Agent: …")')
+
+  // The nodes must actually exist, parented and z-ordered as asked.
+  const madeState = await evaluate(`(() => {
+    const s = globalThis.__polyform.documentStore.scene
+    const frame = [...Object.values(s.doc.nodes)].find((n) => n.name === 'Agent Frame')
+    if (!frame) return null
+    return { children: frame.children.map((c) => s.getNode(c)?.name), w: frame.width }
+  })()`)
+  if (!madeState || madeState.children.join(',') !== 'Glow,Bar') {
+    fail(`created structure wrong: ${JSON.stringify(madeState)}`)
+  } else {
+    console.log(`MCP PASS: nodes exist, parented and z-ordered (${madeState.children.join(' → ')})`)
+  }
+
+  // One Ctrl+Z removes the whole composition; redo restores it.
+  const undone = await evaluate(`(() => {
+    globalThis.__polyform.documentStore.undo()
+    const s = globalThis.__polyform.documentStore.scene
+    return ![...Object.values(s.doc.nodes)].some((n) => n.name === 'Agent Frame')
+  })()`)
+  if (!undone) fail('one undo did not remove the whole agent batch')
+  else console.log('MCP PASS: one undo removes the whole composition')
+  const redone = await evaluate(`(() => {
+    globalThis.__polyform.documentStore.redo()
+    const s = globalThis.__polyform.documentStore.scene
+    return [...Object.values(s.doc.nodes)].some((n) => n.name === 'Agent Frame')
+  })()`)
+  if (!redone) fail('redo did not restore the agent batch')
+  else console.log('MCP PASS: redo restores it')
+
+  // Atomicity: a batch with a bad op must land NOTHING.
+  const nodesBeforeBad = await evaluate(
+    `Object.keys(globalThis.__polyform.documentStore.scene.doc.nodes).length`,
+  )
+  const bad = await client.callTool({
+    name: 'edit_document',
+    arguments: {
+      label: 'Half legal',
+      edits: [
+        { op: 'create', type: 'RECTANGLE', props: { x: 0, y: 0, width: 10, height: 10 } },
+        { op: 'delete', id: 'does-not-exist' },
+      ],
+    },
+  })
+  const nodesAfterBad = await evaluate(
+    `Object.keys(globalThis.__polyform.documentStore.scene.doc.nodes).length`,
+  )
+  if (!bad.isError) fail('a batch with an invalid op reported success')
+  else if (nodesAfterBad !== nodesBeforeBad) {
+    fail(`failed batch leaked ${nodesAfterBad - nodesBeforeBad} node(s) — not atomic`)
+  } else {
+    console.log('MCP PASS: failed batch lands nothing (atomic)')
+  }
+
+  // The agent's own commit shows up in the change feed like any edit.
+  const feed = JSON.parse(
+    (await client.callTool({ name: 'poll_changes', arguments: { cursor: 0 } })).content[0].text,
+  )
+  if (!feed.entries.some((e) => e.label === 'Agent: Test composition')) {
+    fail('agent commit missing from the change feed')
+  } else {
+    console.log('MCP PASS: agent commit visible in the change feed')
+  }
+
+  // Revoke writes again; reads must keep working.
+  await evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find((l) => l.innerText.includes('edit_document'))
+    const box = label && label.querySelector('input[type=checkbox]')
+    if (box && box.checked) box.click()
+    return true
+  })()`)
+  await sleep(400)
+  let writeRevoked = false
+  try {
+    const r = await client.callTool({
+      name: 'edit_document',
+      arguments: { label: 'After revoke', edits: [{ op: 'create', type: 'RECTANGLE' }] },
+    })
+    writeRevoked = r.isError === true
+  } catch {
+    writeRevoked = true
+  }
+  if (!writeRevoked) fail('write still accepted after the grant was revoked')
+  else console.log('MCP PASS: write refused after revoke; endpoint back to read-only')
+
   // --- a client must be able to reconnect, and two may attach ------------
   // A StreamableHTTPServerTransport binds to ONE session for life, so a
   // single shared transport silently caps the endpoint at one connection

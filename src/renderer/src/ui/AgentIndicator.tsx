@@ -26,7 +26,9 @@ export function AgentIndicator() {
   const reading = isReading(status, now)
   const connected = status.clients > 0
   const label = reading
-    ? `Agent reading ${status.lastCall}`
+    ? status.lastCall === 'edit'
+      ? 'Agent editing'
+      : `Agent reading ${status.lastCall}`
     : connected
       ? `Agent connected${status.clients > 1 ? ` (${status.clients})` : ''}`
       : 'Agent endpoint on'
