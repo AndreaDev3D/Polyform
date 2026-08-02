@@ -460,7 +460,9 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 **Consequences.** Consent is a surface the user can inspect, not a promise in a changelog: the panel lists each capability in plain language beside the tools it enables, and the gates prove revocation reaches a live session. Two defects surfaced only because the gates drive the real UI — the plugin-realm reach above, and `Stop` hanging while an agent was attached, because `server.close()` waits for keep-alive sockets to drain (now destroyed; 58 ms measured, gated at 2 s). Cost: four capability flags to keep in sync across the panel, the server, and the docs, and one more moving part in preload.
 
-**Revisit when.** The write surface (7.3) lands — writes get their own capabilities and, unlike reads, should default to *off*. Also when plugins move to worker isolation (F-15), which would let the control surface go back to being ordinary API.
+**Amended (2026-08-02) — the write surface landed on this model.** 7.3 added a fifth capability, `edit`, and it follows the rule this record set in advance: **it defaults off**, where the four read capabilities default on. One tool (`edit_document`) takes a batch of create/update/move/delete ops and commits them through the same OpRecorder as every editor command — so one agent batch is **one journal entry**: label `Agent: <label>`, an AGENT chip in the history browser, one Ctrl+Z to remove, atomic on failure (a bad op rolls the whole batch back, nothing lands). The renderer enforces the boundaries rather than trusting the wire: a per-key props whitelist (`id`/`type`/`children`/component linkage unreachable), parents restricted to page root/FRAME/COMPONENT, instance internals untouchable, 100 edits per call. The indicator says "Agent editing" while it happens.
+
+**Revisit when.** Plugins move to worker isolation (F-15), which would let the control surface go back to being ordinary API; or agent write patterns outgrow the single-batch tool (e.g. long-running generative sessions wanting incremental commits).
 
 ---
 
@@ -489,6 +491,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 019 | Background removal: BiRefNet-512 on onnxruntime-web (WebGPU EP) in a worker, downloaded on consent | Partially | ORT lifts the storage-buffer limit (1024 tier); better MIT/Apache weights |
 | 020 | 3D = offscreen three.js+Spark WebGL2 island; document composites snapshot textures | Partially | Spark WebGPU/SPZ-v4; KHR splats-in-GLB ratification; live composite if profiling demands |
 | 021 | Agents: in-app loopback MCP server; realtime = journal cursor, not subscriptions | Partially | Channels/`ws` push when generally available; MCP 2026-07-28 becomes the negotiated default |
-| 022 | Agent access = individually revocable capabilities; endpoint controls claimed once, unreachable from plugin-realm code | Partially | Write capabilities (7.3, default off); plugin worker isolation (F-15) |
+| 022 | Agent access = individually revocable capabilities (writes default OFF); endpoint controls claimed once, unreachable from plugin-realm code | Yes | Plugin worker isolation (F-15); write patterns outgrowing one-batch commits |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.
