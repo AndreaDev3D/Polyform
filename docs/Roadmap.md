@@ -151,10 +151,10 @@ Goal: one-click "Remove background" on image fills — **fully offline** (a clou
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
 | 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | ✅ **Done (2026-08-02)** — comparison in [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md), decision in ADR-019: bundled ISNet quint8 (~44 MB, Apache-2.0) on onnxruntime-web (WASM baseline, WebGPU EP opportunistic) in a Web Worker; RMBG disqualified on license, the AGPL wrapper library avoided, BiRefNet_lite (MIT) pre-approved as a consent-gated quality tier if needed. |
-| 4.8 | **Remove background on image fills** | **M** | 4.7 | ✅ **Shipped (2026-08-02)** — inspector button, consent-gated model download (user's call over bundling), worker-hosted inference, non-destructive asset swap + Restore original, `POLYFORM_BG_TEST=1` matte gate passing. Follow-ups in ADR-019: WebGPU EP fix (~1s target vs ~12.5s wasm today), real-photo quality validation. |
+| 4.8 | **Remove background on image fills** | **M** | 4.7 | ✅ **Shipped in v0.4.1 (2026-08-02)** — inspector button, consent-gated model download (user's call over bundling), worker-hosted BiRefNet inference on the WebGPU EP (~5 s), non-destructive asset swap + Restore original, `POLYFORM_BG_TEST=1` matte gate passing, **accepted on real images**. Open follow-up in ADR-019: the 1024-input quality tier, blocked on an ONNX Runtime storage-buffer limit. |
 | 4.9 | Edge refinement brush (stretch) | **M** | 4.8 | Restore/erase strokes over the mask for hairlines and soft edges — only if 4.8's model quality proves it necessary. |
 
-**Exit criteria:** subject cutout works with the network cable unplugged, on a license-clean model, and undo restores the original pixel-for-pixel.
+**Exit criteria:** subject cutout works with the network cable unplugged, on a license-clean model, and undo restores the original pixel-for-pixel. **Met — shipped as v0.4.1**; 4.9 (edge-refinement brush) stays unbuilt by its own "only if quality demands it" rule.
 
 ---
 

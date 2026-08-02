@@ -1,6 +1,6 @@
 {
   "name": "polyform",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Polyform — a local-first, self-contained, open-source vector design tool for the desktop.",
   "main": "./out/main/index.js",
   "type": "module",

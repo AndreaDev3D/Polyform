@@ -8,7 +8,7 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 - **Prototype harness**: `POLYFORM_3D_TEST=1` renders a byte-round-tripped GLB and a synthetic 4,000-splat PLY through the real stack in the built app — parse/render/snapshot timings recorded, all pixel gates passing.
 - Renderer CSP now allows self-contained `data:`/`blob:` content (`connect-src`, explicit `worker-src`) — required by Spark's inlined WASM and blob-spawned sort worker; no network surface widened.
 
-## Unreleased — 0.4.1 "Image Background Removal"
+## 0.4.1 — Image Background Removal (2026-08-02)
 
 - **Remove background on image fills** (ADR-019): one click in the inspector cuts out the subject with an on-device AI model — **fully offline**; the model downloads once (SHA-256-verified, explicit consent dialog) and lives in local app data. No cloud APIs, ever.
 - **Model: BiRefNet (MIT, 512² input, ~473 MB fp16)** — upgraded from ISNet after real-image acceptance showed its mattes too aggressive/imprecise. BiRefNet is the architecture RMBG-2.0 is built on, without RMBG's non-commercial weight license; superseded model files are cleaned from app data automatically. (The 1024-input lite variant is unrunnable in onnxruntime-web on Windows today — WebGPU storage-buffer limit + wasm32 memory ceiling, both measured and documented in ADR-019.)
