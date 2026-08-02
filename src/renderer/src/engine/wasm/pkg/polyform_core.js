@@ -369,6 +369,87 @@ export function booleanOp(data, op, accuracy, flatten_tolerance) {
 }
 
 /**
+ * [r, g, b, a] or empty (parse failure — TS returns null).
+ * @param {string} hex
+ * @param {number} alpha
+ * @returns {Float64Array}
+ */
+export function colorHexToRgba(hex, alpha) {
+    const ptr0 = passStringToWasm0(hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.colorHexToRgba(ptr0, len0, alpha);
+    var v2 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v2;
+}
+
+/**
+ * @param {number} h
+ * @param {number} s
+ * @param {number} v
+ * @returns {Float64Array}
+ */
+export function colorHsvToRgb(h, s, v) {
+    const ret = wasm.colorHsvToRgb(h, s, v);
+    var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v1;
+}
+
+/**
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @returns {Float64Array}
+ */
+export function colorRgbToHsv(r, g, b) {
+    const ret = wasm.colorRgbToHsv(r, g, b);
+    var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v1;
+}
+
+/**
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @param {number} extra_opacity
+ * @returns {string}
+ */
+export function colorRgbaToCss(r, g, b, a, extra_opacity) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.colorRgbaToCss(r, g, b, a, extra_opacity);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @returns {string}
+ */
+export function colorRgbaToHex(r, g, b) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.colorRgbaToHex(r, g, b);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * @param {string} child_json
  * @param {number} snap_x
  * @param {number} snap_y

@@ -61,6 +61,19 @@ export function applyMat(m: Float64Array, x: number, y: number): Float64Array;
  */
 export function booleanOp(data: Float64Array, op: number, accuracy: number, flatten_tolerance: number): Float64Array;
 
+/**
+ * [r, g, b, a] or empty (parse failure — TS returns null).
+ */
+export function colorHexToRgba(hex: string, alpha: number): Float64Array;
+
+export function colorHsvToRgb(h: number, s: number, v: number): Float64Array;
+
+export function colorRgbToHsv(r: number, g: number, b: number): Float64Array;
+
+export function colorRgbaToCss(r: number, g: number, b: number, a: number, extra_opacity: number): string;
+
+export function colorRgbaToHex(r: number, g: number, b: number): string;
+
 export function constrainChildJson(child_json: string, snap_x: number, snap_y: number, snap_w: number, snap_h: number, old_w: number, old_h: number, new_w: number, new_h: number): string;
 
 export function decodeSceneJson(bytes: Uint8Array): string;
@@ -149,6 +162,11 @@ export interface InitOutput {
     readonly aabbOfPoints: (a: number, b: number) => [number, number];
     readonly applyMat: (a: number, b: number, c: number, d: number) => [number, number];
     readonly booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly colorHexToRgba: (a: number, b: number, c: number) => [number, number];
+    readonly colorHsvToRgb: (a: number, b: number, c: number) => [number, number];
+    readonly colorRgbToHsv: (a: number, b: number, c: number) => [number, number];
+    readonly colorRgbaToCss: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly colorRgbaToHex: (a: number, b: number, c: number) => [number, number];
     readonly constrainChildJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number];
     readonly decodeSceneJson: (a: number, b: number) => [number, number, number, number];
     readonly distToSegment: (a: number, b: number, c: number, d: number, e: number, f: number) => number;

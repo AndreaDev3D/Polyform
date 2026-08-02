@@ -723,3 +723,38 @@ pub fn glyph_sub_paths_export(id: u32, glyph_id: u32) -> Vec<f64> {
     })
     .unwrap_or_default()
 }
+
+// ---------------------------------------------------------------------------
+// Color (P4): parity twins of engine/color.ts
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = colorRgbaToCss)]
+pub fn color_rgba_to_css(r: f64, g: f64, b: f64, a: f64, extra_opacity: f64) -> String {
+    crate::color::rgba_to_css(r, g, b, a, extra_opacity)
+}
+
+#[wasm_bindgen(js_name = colorRgbaToHex)]
+pub fn color_rgba_to_hex(r: f64, g: f64, b: f64) -> String {
+    crate::color::rgba_to_hex(r, g, b)
+}
+
+/// [r, g, b, a] or empty (parse failure — TS returns null).
+#[wasm_bindgen(js_name = colorHexToRgba)]
+pub fn color_hex_to_rgba(hex: &str, alpha: f64) -> Vec<f64> {
+    match crate::color::hex_to_rgba(hex, alpha) {
+        Some(c) => c.to_vec(),
+        None => Vec::new(),
+    }
+}
+
+#[wasm_bindgen(js_name = colorHsvToRgb)]
+pub fn color_hsv_to_rgb(h: f64, s: f64, v: f64) -> Vec<f64> {
+    let (r, g, b) = crate::color::hsv_to_rgb(h, s, v);
+    vec![r, g, b]
+}
+
+#[wasm_bindgen(js_name = colorRgbToHsv)]
+pub fn color_rgb_to_hsv(r: f64, g: f64, b: f64) -> Vec<f64> {
+    let (h, s, v) = crate::color::rgb_to_hsv(r, g, b);
+    vec![h, s, v]
+}

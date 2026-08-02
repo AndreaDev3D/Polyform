@@ -2,7 +2,9 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.4.0 "Performance Core", Sprints A–E (2026-08-01)
+## 0.4.0 — Performance Core (2026-08-02)
+
+Sprints A–E below, plus the closeout: the `color.ts` Rust twin landed (exact parity, bit-identical string output under fuzz), completing the module inventory — **every portable engine module now has a fuzz-proven Rust twin**. The worker/scene-memory flip (Roadmap 4.3/4.6) is deferred out of v0.4 with a written re-entry trigger and precondition (op-coverage audit) in [docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md); the SVG import/export port stays unported by the plan's own "only if profiling demands" rule. Exit criteria verified: **100,000-shape scenes pan at 60fps** (in-app harness), byte-compatible document round-tripping against v0.3 files (serialization parity gates).
 
 ### Fixed
 
