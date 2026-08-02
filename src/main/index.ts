@@ -80,6 +80,7 @@ function createWindow(): void {
   if (process.env['POLYFORM_RENDER_TEST'] === '1') params.set('renderTest', '1')
   if (process.env['POLYFORM_GPU'] === '1') params.set('gpu', '1')
   if (process.env['POLYFORM_BG_TEST'] === '1') params.set('bgTest', '1')
+  if (process.env['POLYFORM_3D_TEST'] === '1') params.set('m3dTest', '1')
   const renderTest = params.size > 0 ? `?${params.toString()}` : ''
   if (process.env['ELECTRON_RENDERER_URL']) {
     void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + renderTest)

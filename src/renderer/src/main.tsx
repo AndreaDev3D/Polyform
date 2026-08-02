@@ -24,6 +24,10 @@ if (bootParams.has('gpu')) {
 if (bootParams.has('bgTest')) {
   void import('./dev/bg-test').then((m) => m.runBgTest())
 }
+// v0.5 spike 6.1 offscreen 3D prototype (POLYFORM_3D_TEST=1).
+if (bootParams.has('m3dTest')) {
+  void import('./dev/model3d-test').then((m) => m.runModel3dTest())
+}
 
 // Debug/automation handle (local desktop app; also used by dev tooling).
 void Promise.all([

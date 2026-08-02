@@ -268,7 +268,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
 | .fig import | Open Figma's native files | 📋 | |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
-| 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 📋 | Roadmap v0.5: models as composable canvas nodes — orbit/light a render-of-3D-in-2D for graphics, incl. gaussian splats; rendering approach decided by a research spike |
+| 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 📋 | Roadmap v0.5: models as composable canvas nodes — orbit/light a render-of-3D-in-2D for graphics, incl. gaussian splats; approach decided (ADR-020): offscreen three.js+Spark island → snapshot textures, prototype gates passing |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |
 
 ## Files, Data & History

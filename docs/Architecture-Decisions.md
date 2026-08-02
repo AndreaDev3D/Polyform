@@ -410,6 +410,18 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-020: 3D renders in an offscreen three.js+Spark island; the document sees only textures (v0.5)
+
+**Context.** v0.5 places GLB models and PLY/SPZ gaussian splats on the canvas as posable MODEL3D nodes — render-of-3D-in-2D, explicitly not a 3D editor. Constraints: MIT-clean engines only, fully offline, zero native modules, identical semantics through `IRenderer` on both the Canvas2D default and WebGPU beta backends, and deterministic `.poly` reproduction (pose is scene data; pixels re-derive). Roadmap 6.1 asked whether to embed a 3D engine or grow a bare WebGPU pipeline beside ADR-016's segment stream. Full comparison: [research/3D-Model-Spike.md](research/3D-Model-Spike.md).
+
+**Decision.** **Embed, don't build: one hidden offscreen WebGL2 canvas hosts three.js r185's `WebGLRenderer` (MIT) for GLB — `GLTFLoader.parseAsync` from content-addressed bytes, procedural PMREM/RoomEnvironment lighting presets (no HDRI assets) — and Spark 2.1 (`@sparkjsdev/spark`, MIT, World Labs) for splats — `SplatMesh({ fileBytes })` loading .ply/.spz/.splat/.ksplat/.sog, with LoD paging for multi-million-splat captures.** Spark requires three's WebGL2 renderer, which settles the island's backend; inside the island that choice is invisible. The compositing seam is **textures, not passes**: the island renders a node's posed view on demand, and an ImageBitmap snapshot composites through the image path both backends already have (Canvas2D `drawImage`, WebGPU `copyExternalImageToTexture`), caching by (asset, pose, lighting, size) so static documents pay zero per frame; orbit interaction re-renders the island per frame. A bare WebGPU pipeline was rejected — it would re-implement glTF PBR/IBL, splat sorting, and SH evaluation while leaving the Canvas2D default backend with nothing. Babylon (Apache-2.0, one-engine coverage incl. SPZ v4) is the recorded runner-up; PlayCanvas is SOG-first with no engine SPZ loader. Two measured CSP amendments ship with this: `connect-src` gains `data: blob:` (Spark fetches its bundle-inlined Rust/WASM as a data: URL) and `worker-src 'self' blob:` is now explicit (Spark's sort worker spawns from a blob; script-src was the fallback and blocked it). Both are self-contained content — no network surface is widened.
+
+**Consequences.** The committed `POLYFORM_3D_TEST=1` harness proves the architecture in the built file:// renderer: GLB parse 5 ms, first render (incl. PMREM bake) 26 ms, snapshot 76 ms first/cacheable, synthetic 4k-splat PLY initialized from bytes in 113 ms, first sorted splat frame ~830 ms including worker spin-up — all pixel gates passing (subject coverage, correct color, transparent background). Bundle cost is a **lazy** +6.5 MB renderer chunk (three + Spark, WASM inlined — packaging-safe by construction) that loads only when a 3D feature is used. Known limits, documented: Spark reads SPZ v3 today (v4, May 2026, pending upstream; Niantic's MIT `spz` reference and Spark's own `transcodeSpz` are the escape hatches), and WebGL2↔WebGPU texture sharing doesn't exist in Chromium, so the island's frames cross through ImageBitmap.
+
+**Revisit when.** Spark ships WebGPU or SPZ v4 support; KHR_gaussian_splatting ratifies (splats inside GLB — the one-island shape already covers it); or orbit-interaction profiling shows the snapshot path as the bottleneck (move the island to a live per-frame composite).
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -433,5 +445,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 017 | GPU effects: bake-time layer pre-render; scene pass splits only for backdrop effects | Partially | Fx-layer content caching; nested backdrop effects; Sprint E glyph shadows |
 | 018 | Engine-owned shaping (rustybuzz) + glyph atlas; Canvas2D path as per-node fallback | Partially | Bidi/complex scripts; OpenType feature UI; worker-side auto-resize |
 | 019 | Background removal: bundled ISNet on onnxruntime-web (WASM/WebGPU) in a worker | Partially | BiRefNet consent-gated tier if quality demands; better MIT/Apache weights |
+| 020 | 3D = offscreen three.js+Spark WebGL2 island; document composites snapshot textures | Partially | Spark WebGPU/SPZ-v4; KHR splats-in-GLB ratification; live composite if profiling demands |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

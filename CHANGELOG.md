@@ -2,6 +2,12 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
+## Unreleased — 0.5.0 "3D Model Import" (research phase)
+
+- **Rendering approach decided** (spike 6.1 → ADR-020): GLB models and PLY/SPZ gaussian splats will render in one offscreen WebGL2 island — three.js r185 for meshes/PBR + Spark 2.1 for splats, both MIT — and composite into both canvas backends as snapshot textures through the existing image path. Full landscape survey (Babylon, PlayCanvas, bare-WebGPU pipeline; SPZ v4; the Khronos KHR_gaussian_splatting standard) in [docs/research/3D-Model-Spike.md](docs/research/3D-Model-Spike.md).
+- **Prototype harness**: `POLYFORM_3D_TEST=1` renders a byte-round-tripped GLB and a synthetic 4,000-splat PLY through the real stack in the built app — parse/render/snapshot timings recorded, all pixel gates passing.
+- Renderer CSP now allows self-contained `data:`/`blob:` content (`connect-src`, explicit `worker-src`) — required by Spark's inlined WASM and blob-spawned sort worker; no network surface widened.
+
 ## Unreleased — 0.4.1 "Image Background Removal"
 
 - **Remove background on image fills** (ADR-019): one click in the inspector cuts out the subject with an on-device AI model — **fully offline**; the model downloads once (SHA-256-verified, explicit consent dialog) and lives in local app data. No cloud APIs, ever.

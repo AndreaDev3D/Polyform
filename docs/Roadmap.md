@@ -1,7 +1,7 @@
 # Polyform Roadmap
 
 **Status:** Living document — updated as milestones land.
-**Last updated:** 2026-08-01 (v0.4 Sprints A–E shipped; v0.4.1 / v0.5 / v0.6 phases added)
+**Last updated:** 2026-08-02 (v0.4.0 shipped; v0.4.1 built awaiting acceptance; v0.5 spike 6.1 decided — ADR-020)
 
 Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan with per-item effort estimates and dependencies: **v0.2 ✓ → v0.3 ✓ → v0.4 Performance Core (in progress) → v0.4.1 Background Removal → v0.5 3D Model Import → v0.6 Agent Connectivity (MCP + CLI) → v1.0 Distribution**. The three phases between v0.4 and v1.0 are committed in intent but deliberately unspecified — each opens with a research spike that picks the best implementation and records it as an ADR before code is written. (Item ids are stable labels, not phase order: v1.0 keeps its historical 5.x ids.)
 
@@ -167,7 +167,7 @@ Goal: place 3D models on the canvas as first-class nodes — orbit them into the
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
-| 6.1 | **Research spike: rendering approach** | **M** | v0.4 WebGPU backend | Candidates: an embedded 3D renderer (three.js/Babylon-class) rendering to texture, vs a bare WebGPU pipeline living beside ADR-016's texture segments; gaussian-splat renderers (the gsplat family) for PLY/SPZ. Decide: live texture in GPU mode with rasterized snapshots for the Canvas2D fallback and exports? Licensing + bundle size, memory ceilings for multi-million-splat captures, splat sort perf. Output: ADR + throwaway prototype. |
+| 6.1 | **Research spike: rendering approach** | **M** | v0.4 WebGPU backend | ✅ **Done (2026-08-02)** — comparison in [research/3D-Model-Spike.md](research/3D-Model-Spike.md), decision in ADR-020: one offscreen WebGL2 island (three.js r185 for GLB + Spark 2.1 for PLY/SPZ, both MIT) rendering on demand; both `IRenderer` backends composite snapshot textures through the existing image path. Prototype committed as the `POLYFORM_3D_TEST=1` harness — all pixel gates pass in the built app; bare-WebGPU-pipeline and Babylon/PlayCanvas alternatives recorded with rationale. |
 | 6.2 | **MODEL3D node type (schema v4)** | **L** | 6.1 | Node = content-addressed model asset (same `assets/` SHA-256 story as images) + camera orbit/FOV + lighting preset; v3→v4 migration; all edits journaled PatchOps like any node. |
 | 6.3 | **GLB rendering + orbit interaction** | **L** | 6.2 | Double-click to orbit (enter/exit like vector-edit mode), PBR-lite lighting presets; PNG export bakes the render; SVG export embeds the raster. |
 | 6.4 | **PLY / SPZ gaussian splats** | **L** | 6.3 | SPZ decode, splat sorting/perf gates on real captures; documented memory limits. |

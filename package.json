@@ -25,12 +25,14 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",
+    "@sparkjsdev/spark": "^2.1.0",
     "onnxruntime-web": "^1.27.0",
     "polygon-clipping": "^0.15.7",
     "rbush": "^4.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sql.js": "^1.13.0",
+    "three": "^0.185.1",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
@@ -39,6 +41,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/sql.js": "^1.4.9",
+    "@types/three": "^0.185.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@webgpu/types": "^0.1.71",
     "electron": "^38.0.0",
