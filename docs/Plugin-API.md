@@ -18,6 +18,13 @@ dialog and you should only run scripts you wrote or trust. The post-1.0
 plugin system will run plugins in isolated workers with a typed message
 bridge (see below).
 
+Because a plugin shares the renderer's realm, it reaches whatever is exposed
+there — not just the `polyform` object it is handed. Privileged surfaces are
+therefore kept **off** that realm rather than merely undocumented: the agent
+endpoint's controls (v0.6, ADR-022) are handed out once at startup, before any
+plugin can load, so a script cannot open a network listener without you. Treat
+that as the pattern for anything new that a plugin should not be able to do.
+
 ## Current API surface
 
 ```js

@@ -383,7 +383,7 @@ Shipped: the update is an explicit, user-initiated pull (never a background surp
 `Plugins → Run Plugin Script…` evaluates arbitrary JavaScript in the renderer. Context isolation + sandbox keep Node and the filesystem out of reach, but a hostile script can still read and mutate the open document, spam dialogs, or hang the renderer.
 
 ### Mitigation
-Shipped: explicit file pick each run (no auto-run, no plugin folder scanning), a plain-language consent dialog, all mutations in one rollback-able history entry, and `docs/Plugin-API.md` states the trust model in bold. Planned (post-1.0): worker isolation with a typed message bridge and manifest permissions — the current API surface was shaped so that migration is additive (`await` in front of the same calls).
+Shipped: explicit file pick each run (no auto-run, no plugin folder scanning), a plain-language consent dialog, all mutations in one rollback-able history entry, and `docs/Plugin-API.md` states the trust model in bold. **Since v0.6 this has a demonstrated second-order consequence**: because plugin code shares the renderer realm, it reaches whatever the preload exposes there — which nearly let a plugin start the agent endpoint without consent (F-20). New privileged surfaces are now handed out once, at startup, instead of being left on a global; that is a workaround for the missing isolation, not a substitute for it. Planned (post-1.0): worker isolation with a typed message bridge and manifest permissions — the current API surface was shaped so that migration is additive (`await` in front of the same calls).
 
 ---
 
@@ -460,7 +460,7 @@ Fixed in two parts:
 <a id="f-20"></a>
 ## F-20. The agent endpoint is a local network listener inside the app
 
-**Severity: Med — accepted, with the mitigations built in from the first commit** (v0.6, ADR-021).
+**Severity: Med — accepted; the consent debt this entry recorded is now paid** (v0.6, ADR-021/ADR-022).
 
 ### The problem
 Agent connectivity works by Polyform *listening*: an MCP server runs inside the app and an agent connects to it over loopback HTTP. That is a genuinely new class of surface for this codebase — every other integration point so far has been the app reaching out (file dialogs, a model download) or code we load deliberately (plugins, F-15). A listener can be reached by anything already running on the machine, and — the non-obvious one — by any **web page in the user's browser**, since a page can POST to `127.0.0.1` and can be pointed there by DNS rebinding. Once the write surface lands (7.3), reaching it means editing the user's document.
@@ -473,10 +473,21 @@ Shipped with the spike, before anything can write:
 - **Ephemeral port.** Port 0 — the OS assigns it, so there is no well-known port to scan for or squat.
 - **Per-session bearer token**, freshly generated on start and compared in constant time. `npm run test:mcp` asserts an unauthenticated request gets `401`.
 - **Origin/Host validation** against the loopback origin, which is what actually stops the browser-page case. The gate asserts a request carrying a foreign `Origin` gets `403`.
-- **Read-only today.** The prototype exposes three read tools; writes are roadmap 7.3 and get their own consent, separate from reads.
+- **Read-only today.** The tools only read; writes are roadmap 7.3 and get their own consent, separate from reads.
 
-### What is still owed (7.2/7.3)
-A visible "agent connected" indicator, a consent surface that shows *which* capabilities a session holds, and per-capability approval for writes. Until those exist, the endpoint should be treated as a developer feature. The F-15 lesson applies unchanged: a consent-gated capability is only honest if the consent is visible and revocable.
+Added in 7.2, closing what this entry said was owed:
+
+- **Per-capability consent, revocable live.** Four capabilities, granted individually in Agent → Agent Connection. Revoking one removes its tools from the connected session and refuses the call if a stale client makes it anyway (ADR-022).
+- **The endpoint is always visible while it listens** — a status-bar light that distinguishes attached from reading-right-now, pushed from the main process rather than polled, and clickable straight through to revoke.
+- **Stopping is immediate and total.** The port closes, the token dies, and sockets are destroyed rather than drained — the gate asserts the port refuses connections afterwards. The endpoint also stops when the last window closes.
+
+### What building it turned up
+The first draft of the consent panel was **bypassable, and not through the network**. Plugin scripts run in the renderer's own realm (F-15), so `window.polyform` is theirs too — a plugin could have called `mcpStart()` and opened the listener with no dialog, no light, and no user decision. The panel would have been describing a choice the user never got. The controls are now a one-shot handout claimed at startup, and `npm run test:mcp` runs a plugin-shaped script and asserts it is blocked.
+
+The general lesson is worth more than the fix: **a consent surface is only as strong as the weakest path to the thing it guards**, and in an app that executes user-supplied code in its own realm, the weakest path is usually not the one being consented to.
+
+### What is still owed (7.3)
+Per-capability approval for *writes*, which should default to off rather than on as the read capabilities do, and attribution in the history browser so an agent's edits are distinguishable from the user's at a glance. Plugin isolation stays open under F-15; until it lands, the argument above rests on ordering (startup claims before any plugin can load) rather than on isolation.
 
 ---
 

@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 **Project:** Polyform — local-first, open-source desktop vector design tool
-**Scope:** every load-bearing decision, v0.1 through v0.6 (ADR-001…021)
+**Scope:** every load-bearing decision, v0.1 through v0.6 (ADR-001…022)
 **Companion documents:** [Product-Overview.md](./Product-Overview.md), [Technical-Specification.md](./Technical-Specification.md), [Findings-and-Concerns.md](./Findings-and-Concerns.md)
 
 Each record follows the same shape: **Context** (the forces at play), **Decision** (what we chose), **Consequences** (what we gained and what we pay for it), and **Revisit when** (the concrete trigger that reopens the decision). Decisions are numbered in the order they were made and are never renumbered.
@@ -438,9 +438,27 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 **Protocol revision.** Built against **2025-11-25**. MCP's 2026-07-28 revision retires sessions, replaces the GET stream and `resources/subscribe` with `subscriptions/listen`, and deprecates roots/sampling/logging on a 12-month runway — our migration is cheap *because* the realtime surface is a tool call, and tools are unchanged across the revision.
 
-**Consequences — measured** (`npm run test:mcp`, which boots the built app and connects with the **official MCP SDK client** over Streamable HTTP, the same code path a real agent uses). All passing: unauthenticated request rejected **401**; cross-origin request rejected **403**; client connect + initialize; `tools/list` returns `get_document`, `get_selection`, `poll_changes`; a live document read sees the open project and its geometry; the user's on-canvas selection is visible; **an edit made in the app appears in the change feed** with its label and touched node ids; the server stops cleanly and releases the port. The prototype is read-only by design — the write surface is 7.3, behind its own consent. Costs: one new production dependency (`@modelcontextprotocol/sdk`, MIT) plus `zod` for tool schemas, and a main↔renderer bridge with a 10 s timeout per call.
+**Consequences — measured** (`npm run test:mcp`, which boots the built app and connects with the **official MCP SDK client** over Streamable HTTP, the same code path a real agent uses). **26 checks, all passing**: unauthenticated request rejected **401**; cross-origin request rejected **403**; client connect + initialize; `tools/list` returns the six read tools; a live document read sees the open project, its geometry, its shared styles and its components; the user's on-canvas selection is visible; **an edit made in the app appears in the change feed** with its label and touched node ids; both image tools return PNGs that are *decoded and checked for the document's own colours*; and the endpoint starts, revokes, and stops through the real consent panel. Read-only by design — the write surface is 7.3, behind its own consent. Costs: one new production dependency (`@modelcontextprotocol/sdk`, MIT) plus `zod` for tool schemas, and a main↔renderer bridge with a 10 s timeout per call (60 s for snapshots, which rasterize the scene and may settle 3D renders first).
 
 **Revisit when.** Channels leaves research preview or opens to third-party servers (true push without polling); resource subscriptions gain real client support; the 2026-07-28 revision becomes the negotiated default; or the CLI (7.4) needs the endpoint to speak to more than one running instance.
+
+---
+
+## ADR-022: Agent access is a set of individually revocable capabilities, and the controls are not reachable from the page (v0.6)
+
+**Context.** ADR-021 settled how an agent connects. This settles what it is allowed to see and how the person at the keyboard stays in charge of that — the obligation F-20 recorded when the listener shipped. Two things were unsatisfying about a single on/off switch: it makes "connected" an all-or-nothing bargain, and it gives the user nothing to do when they want an agent to read the layer tree but not photograph their canvas.
+
+**Decision.** **Four capabilities — `document`, `selection`, `render`, `changes` — granted individually and revocable while an agent is connected.** Each tool is bound to one; revoking one drops its tools from `tools/list` and notifies connected clients (`notifications/tools/list_changed`, which shipping clients *do* implement, unlike resource subscriptions). Because a client may hold a stale list, the grant is **also checked when the call arrives** — the list is a courtesy, the door check is the control. A refused call returns an error that names the capability and says who can grant it, so the agent can ask rather than guess.
+
+**The endpoint controls are a claimed capability, not a global.** This is the non-obvious half. Plugin scripts execute in the renderer's own realm via `new Function` (roadmap 3.4 / F-15), which means anything on `window.polyform` is theirs too — including, in the first draft of this work, `mcpStart()`. A plugin could have opened a network listener behind the user's back, which would have made the consent panel a decoration rather than a control. The agent surface is therefore exposed as a **one-shot handout**: the preload offers `polyformAgent.claim()`, Polyform's own startup code claims it before any plugin can be loaded (loading one requires a file dialog and a confirmation), and every later caller gets `null`. The status object carries the session token, so the same reasoning keeps *reading* status out of the shared surface. `npm run test:mcp` runs a plugin-shaped script through `new Function` and asserts it is blocked.
+
+**Visibility is not optional.** Whenever the endpoint listens, the status bar shows it; the light distinguishes *attached* from *reading right now*, and clicking it opens the panel that can revoke. Status is **pushed** from the main process rather than polled, because an indicator on a timer is wrong for however long the timer has left — and "is something reading my document right now" is exactly the question a stale answer fails at. The endpoint also stops when the last window closes: a live socket with no document behind it is the F-20 risk with none of the benefit.
+
+**Snapshots are budgeted and honest.** Image tools clamp the long edge to 1568 px (1024 default) and **report the scale they applied**, so an agent measuring pixels off the result is not misled by a silent downscale — a measured viewport costs about 1,073 image tokens against a client budget near 25k. Detail reads cap at 400 nodes and say so when they truncate; a silently trimmed tree reads as a complete one, which is worse than an error.
+
+**Consequences.** Consent is a surface the user can inspect, not a promise in a changelog: the panel lists each capability in plain language beside the tools it enables, and the gates prove revocation reaches a live session. Two defects surfaced only because the gates drive the real UI — the plugin-realm reach above, and `Stop` hanging while an agent was attached, because `server.close()` waits for keep-alive sockets to drain (now destroyed; 58 ms measured, gated at 2 s). Cost: four capability flags to keep in sync across the panel, the server, and the docs, and one more moving part in preload.
+
+**Revisit when.** The write surface (7.3) lands — writes get their own capabilities and, unlike reads, should default to *off*. Also when plugins move to worker isolation (F-15), which would let the control surface go back to being ordinary API.
 
 ---
 
@@ -469,5 +487,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 019 | Background removal: BiRefNet-512 on onnxruntime-web (WebGPU EP) in a worker, downloaded on consent | Partially | ORT lifts the storage-buffer limit (1024 tier); better MIT/Apache weights |
 | 020 | 3D = offscreen three.js+Spark WebGL2 island; document composites snapshot textures | Partially | Spark WebGPU/SPZ-v4; KHR splats-in-GLB ratification; live composite if profiling demands |
 | 021 | Agents: in-app loopback MCP server; realtime = journal cursor, not subscriptions | Partially | Channels/`ws` push when generally available; MCP 2026-07-28 becomes the negotiated default |
+| 022 | Agent access = individually revocable capabilities; endpoint controls claimed once, unreachable from plugin-realm code | Partially | Write capabilities (7.3, default off); plugin worker isolation (F-15) |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

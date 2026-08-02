@@ -104,7 +104,7 @@ revision. Statelessness is a good fit for a single-user desktop app.
 | Per-session bearer token | Freshly generated on each start; every request must carry it. Constant-time compare. |
 | DNS-rebinding defence | `Origin`/`Host` validated against the loopback origin (MCP spec requirement) so a web page in the user's browser cannot drive the app. |
 | Ephemeral port | Port 0 — the OS picks one. Nothing to squat, nothing to guess. |
-| Visible indicator | The UI shows when an agent is connected (7.2). |
+| Visible indicator | ✅ Shipped in 7.2: a status-bar light whenever the endpoint listens, distinguishing *attached* from *reading now*, clickable through to revoke. |
 | Writes are journaled | Agent edits go through the same PatchOp journal: undoable, attributed, rollback-able (7.3) — never a side channel around history. |
 
 ## Prototype (committed as `npm run test:mcp`)
@@ -113,8 +113,13 @@ revision. Statelessness is a good fit for a single-user desktop app.
 architecture end to end: the MCP server runs in the Electron **main**
 process; the document lives in the **renderer**; each tool call
 round-trips over one IPC bridge, so the main process holds no scene state.
-Three read-only tools ship in the prototype: `get_document`,
+Three read-only tools shipped in the prototype: `get_document`,
 `get_selection`, `poll_changes`.
+
+> **Superseded by 7.2 (2026-08-02).** The shipped read surface is six tools
+> across four individually revocable capabilities, and the gate is 26 checks
+> driven through the real consent panel. The prototype numbers below are kept
+> as the record of what the spike itself proved. See ADR-021/ADR-022.
 
 `scripts/mcp-probe.mjs` boots the built app and connects with the
 **official MCP SDK client** over Streamable HTTP — the same code path a
@@ -133,13 +138,18 @@ real agent client uses. Measured, all passing:
 
 ## Open questions for 7.2–7.4
 
-- **Consent UI**: where the enable toggle and token live, and how the
-  "agent connected" indicator is presented.
-- **Snapshots**: per-node PNG via the existing render-to-canvas path;
-  image results are supported by Claude Code but count against a 25k-token
-  output budget, so size and downscale deliberately.
+- ~~**Consent UI**~~ — **answered in 7.2 (ADR-022).** A panel under Agent →
+  Agent Connection holds the toggle, the token, and a per-capability grant
+  list that can be changed while an agent is connected. The finding that
+  shaped it was not about UI at all: plugin-realm code could reach the
+  endpoint controls, so the controls moved off the shared global.
+- ~~**Snapshots**~~ — **answered in 7.2.** Two tools, viewport and per-node,
+  through the existing render-to-canvas path. The long edge is clamped to
+  1568 px and the applied scale is reported, so a downscale is never silent;
+  a full viewport measures ~1,073 image tokens against the ~25k budget.
 - **Write surface (7.3)**: which mutations to expose, and per-capability
-  consent — reads and writes should not share one switch.
+  consent — reads and writes should not share one switch, and write
+  capabilities should default to *off* where the read ones default to on.
 - **CLI (7.4)**: whether `polyform` shells into a running instance via the
   same loopback endpoint or opens bundles directly (it should do both).
 

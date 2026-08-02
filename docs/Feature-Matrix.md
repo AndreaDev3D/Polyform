@@ -32,8 +32,8 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
-| [Extensibility](#extensibility) | 1 | 2 | 1 | 4 | 8 |
-| **Total** | **131** | **23** | **57** | **23** | **234** |
+| [Extensibility](#extensibility) | 2 | 2 | 2 | 4 | 10 |
+| **Total** | **132** | **23** | **58** | **23** | **236** |
 
 ---
 
@@ -347,10 +347,12 @@ This document tracks Polyform's feature parity against Figma, section by section
 | REST API | Cloud API for files, nodes, images | ❌ | No cloud service; the file format is the API |
 | Webhooks | Server-side event notifications | ❌ | No server |
 | Dev Mode / code inspect | Measurements, tokens, code snippets for devs | 📋 | |
-| Agent connectivity (MCP) + headless CLI | Dev Mode MCP server | 🟡 | v0.6 in progress (ADR-021): an in-app loopback **MCP server** — agents read the live document, selection, and a cursor-based feed of edits as they happen; off by default, bearer-token + Origin protected. Remaining: consent UI, snapshots, journaled agent writes, headless CLI |
+| Agent connectivity (MCP) | Dev Mode MCP server | 🟡 | v0.6, read surface complete (ADR-021/022): an in-app loopback **MCP server** — document structure, shared styles, components, per-layer appearance, PNG views of the canvas, live selection, and a cursor-based feed of edits as they happen. Off by default, bearer-token + Origin protected, four individually revocable capabilities with a visible indicator. Remaining: journaled agent **writes** (7.3) |
+| Agent consent + activity indicator | — (Figma has no equivalent) | ✅ | Agent → Agent Connection lists each capability beside the tools it enables; revoking reaches a connected session mid-flight. Status-bar light distinguishes attached from reading-now, pushed from main |
+| Headless CLI | — | 📋 | v0.6 item 7.4: open/query/export a `.poly` bundle without the GUI |
 | Open-source codebase | Proprietary, closed source | ✅ | Polyform is fully open source |
 | Plugin community / marketplace | Hosted plugin discovery and installs | ❌ | Cloud distribution platform; plugins (when they land) will load locally |
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-02: 131 ✅ / 23 🟡 / 57 📋 / 23 ❌ = 234). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the v0.6 agent-connectivity spike. Remaining approximations (stroke-align clipping, shape-clip masks, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-02: 132 ✅ / 23 🟡 / 58 📋 / 23 ❌ = 236). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the v0.6 agent read surface (items 7.1–7.2). Remaining approximations (stroke-align clipping, shape-clip masks, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

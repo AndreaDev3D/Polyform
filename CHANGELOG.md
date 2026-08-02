@@ -2,7 +2,23 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.6.0 "Agent Connectivity" (research phase)
+## Unreleased — 0.6.0 "Agent Connectivity"
+
+### Added
+
+- **Agents can see the design, not just its structure** (item 7.2). `get_document` reports shared styles with their resolved values and how many layers use each, main components with instance counts, and attached libraries; `get_node` returns fills, strokes, effects, corner radius, auto-layout, constraints, fonts, instance overrides and shared-style **names**; `get_view_image` and `get_node_image` return PNGs of what you are looking at, or of one layer.
+- **Agent → Agent Connection**: the consent panel. Four capabilities — read the document, read the selection, see the canvas, watch edits — each listed in plain language beside the tools it enables, each granted and **revoked individually while an agent is connected**. Revoking removes the tools from the live session and refuses the call if a stale client makes it anyway. The panel also hands you a paste-ready client command with the token masked by default.
+- **You can always tell when an agent is attached.** While the endpoint listens, the status bar shows a light that distinguishes *connected* from *reading right now*, and clicking it opens the panel to revoke. Status is pushed from the main process, not polled, so it is never stale about whether something is reading.
+- Snapshots are budgeted honestly: the long edge is clamped to 1568 px and the applied scale is reported, so an agent measuring off the image is not misled by a silent downscale. A full viewport costs about 1,073 image tokens against a ~25k client budget. Detail reads cap at 400 nodes and say when they truncate.
+
+### Fixed
+
+- **Stop now stops.** Closing the endpoint while an agent was attached would hang: `server.close()` waits for keep-alive sockets to drain and an attached client holds one open indefinitely. Sockets are destroyed instead — 58 ms measured, and the gate fails over 2 s and re-checks that the port itself refuses connections.
+- **A plugin could have started the agent endpoint without asking you.** Plugin scripts run in the renderer's own realm, so they could reach the endpoint controls on `window.polyform` — no dialog, no indicator, no decision. The controls are now handed out once at startup, before any plugin can load, and the test suite runs a plugin-shaped script to prove it is blocked. Plugins still have full document access by design (F-15); this closes the *network listener* path only.
+- The endpoint stops when the last window closes, rather than outliving the document it serves.
+
+### Research
+
 
 - **Protocol decided** (spike 7.1 → ADR-021): AI agents will connect to the **running** app over **MCP**, on a Streamable HTTP endpoint Polyform hosts on `127.0.0.1` — stdio can't attach to a GUI that is already open, so the app listens and the agent dials in (the shape Figma's desktop Dev Mode server uses). The server lives in the main process, the document stays in the renderer, and one IPC bridge connects them.
 - **Realtime is a change feed, not a subscription.** MCP's resource-subscription mechanism is not supported by shipping clients today, so watching the work happen is a `poll_changes(cursor)` tool over the existing PatchOp journal — ordered, gap-free, resumable after a disconnect, and it works on every client. Full reasoning and the client-support matrix in [docs/research/Agent-Connectivity-Spike.md](docs/research/Agent-Connectivity-Spike.md).

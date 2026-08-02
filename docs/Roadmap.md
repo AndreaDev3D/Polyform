@@ -187,21 +187,25 @@ Goal: place 3D models on the canvas as first-class nodes — orbit them into the
 
 Goal: let AI agents (Claude and others) connect to a **running** Polyform, watch the work happen in realtime, and make edits that land in the same undo journal as human edits. Plus a headless CLI for scripting and CI.
 
-> **Status — 7.1 decided (2026-08-02), 7.2 started.** The spike evaluated
-> MCP against a bespoke local WebSocket bridge and a pure-CLI design and
-> chose MCP, hosted by the app itself on loopback (ADR-021) — stdio cannot
-> attach to a GUI that is already open. It also established that
-> **realtime cannot be built on MCP resource subscriptions**: shipping
-> clients don't implement them, so the live view is a cursor over the
-> PatchOp journal instead. Security was settled before any write surface
-> exists; `npm run test:mcp` proves the 401/403 defences and the live
-> read path against the official MCP SDK client.
+> **Status — 7.1 decided and 7.2 shipped (2026-08-02), unreleased.** The
+> spike evaluated MCP against a bespoke local WebSocket bridge and a
+> pure-CLI design and chose MCP, hosted by the app itself on loopback
+> (ADR-021) — stdio cannot attach to a GUI that is already open. It also
+> established that **realtime cannot be built on MCP resource
+> subscriptions**: shipping clients don't implement them, so the live view
+> is a cursor over the PatchOp journal instead. 7.2 then built the read
+> surface an agent actually needs — styles, components, per-layer
+> appearance, and PNG views of the canvas — behind four individually
+> revocable capabilities with a visible indicator (ADR-022). Two defects
+> the gates caught are worth knowing: plugin-realm code could reach the
+> endpoint controls, and `Stop` hung while an agent was attached. Both
+> fixed, both now gated. **7.3 (writes) is the open item.**
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
 | 7.1 | **Research spike: protocol & transport** | **M** | — | ✅ **Done (2026-08-02)** — survey in [research/Agent-Connectivity-Spike.md](research/Agent-Connectivity-Spike.md), decision in ADR-021: **MCP over a loopback Streamable HTTP endpoint hosted inside the app** (stdio can't attach to a running GUI); server in main, document in the renderer, one IPC bridge. **Realtime is a `poll_changes(cursor)` feed over the PatchOp journal, not resource subscriptions** — those are not supported by shipping clients. Security fixed up front (off by default, loopback, per-session bearer token, Origin validation). Prototype gate `npm run test:mcp` passes against the official MCP SDK client. |
-| 7.2 | **Read surface: see the work** | **M** | 7.1 | 🟡 **Started** — the spike prototype ships read-only `get_document`, `get_selection` and `poll_changes` (the live change feed). Remaining: styles/components detail, viewport + per-node PNG snapshots (mind Claude Code's ~25k-token tool-output budget), the consent UI, and the visible "agent connected" indicator. |
-| 7.3 | **Write surface: journaled agent edits** | **L** | 7.2 | Agent mutations go through the SAME PatchOp journal (ADR-008): undoable, labeled as agent actions in the history browser, rollback-able as one entry; per-capability consent prompts. |
+| 7.2 | **Read surface: see the work** | **M** | 7.1 | ✅ **Shipped (2026-08-02)** — six read tools across four individually revocable capabilities (ADR-022). `get_document` now inventories shared styles (resolved values + usage counts), components (with instance counts) and libraries; `get_node` returns everything that decides how a layer looks; `get_view_image`/`get_node_image` return real PNGs of the user's current view or one layer, clamped to 1568 px and reporting the applied scale (~1,073 image tokens for a viewport, against a ~25k client budget). Consent panel under Agent → Agent Connection, plus a status-bar light that distinguishes *attached* from *reading now* and is pushed, not polled. `npm run test:mcp` grew to **26 checks**, including a decoded-pixel assertion on both images. |
+| 7.3 | **Write surface: journaled agent edits** | **L** | 7.2 | Agent mutations go through the SAME PatchOp journal (ADR-008): undoable, labeled as agent actions in the history browser, rollback-able as one entry. Write capabilities plug into the ADR-022 grant model but, unlike the read capabilities, **default to off**. |
 | 7.4 | **Headless CLI** | **M** | 7.1 | `polyform` CLI: open/query/export (PNG/SVG/PDF) a `.poly` bundle without the GUI, sharing the engine — useful standalone, in CI, and as the agent bridge if 7.1 lands on the sidecar design. |
 
 **Exit criteria:** an AI session connects with explicit consent, describes the open document, watches a human edit land live, and performs one edit that shows up attributed in the history browser and undoes cleanly.
