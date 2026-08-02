@@ -181,7 +181,13 @@ export async function runBgInference(
  * Remove the background of an IMAGE fill. Non-destructive: writes the
  * cutout as a new asset and swaps `assetHash`, remembering the original.
  */
-export async function removeBackground(nodeId: NodeId, fillIndex: number): Promise<void> {
+export async function removeBackground(
+  nodeId: NodeId,
+  fillIndex: number,
+  // The agent path (7.3) passes its own attributed label; in-app calls keep
+  // the original. Either way it is ONE journal entry.
+  label = 'Remove Background',
+): Promise<void> {
   if (state.phase === 'downloading' || state.phase === 'running' || state.phase === 'loading') return
   try {
     const scene = documentStore.scene
@@ -234,7 +240,7 @@ export async function removeBackground(nodeId: NodeId, fillIndex: number): Promi
     scene.updateNode(nodeId, { fills: after })
     documentStore.commit(
       [{ kind: 'update', id: nodeId, before: { fills: before }, after: { fills: after } }],
-      'Remove Background',
+      label,
       true,
     )
     setState({ phase: 'idle' })

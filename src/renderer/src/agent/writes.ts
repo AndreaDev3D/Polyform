@@ -84,6 +84,29 @@ function parseColor(value: unknown, where: string): Paint {
   throw new Error(`${where}: fill/stroke must be "#RRGGBB[AA]" or {gradient, stops[]}`)
 }
 
+/** A fill may also be an imported image: {image: <hash from import_image>}. */
+function parsePaint(value: unknown, where: string): Paint {
+  const img = value as { image?: unknown; scaleMode?: unknown }
+  if (img && typeof img === 'object' && 'image' in img) {
+    const hash = String(img.image)
+    if (!/^[0-9a-f]{64}$/.test(hash)) {
+      throw new Error(`${where}: image must be an assetHash returned by import_image`)
+    }
+    const scaleMode = img.scaleMode == null ? 'FIT' : String(img.scaleMode)
+    if (!['FILL', 'FIT', 'TILE', 'STRETCH'].includes(scaleMode)) {
+      throw new Error(`${where}: scaleMode must be FILL | FIT | TILE | STRETCH`)
+    }
+    return {
+      type: 'IMAGE',
+      visible: true,
+      opacity: 1,
+      assetHash: hash,
+      scaleMode: scaleMode as 'FILL' | 'FIT' | 'TILE' | 'STRETCH',
+    }
+  }
+  return parseColor(value, where)
+}
+
 function num(v: unknown, where: string): number {
   const n = Number(v)
   if (!Number.isFinite(n)) throw new Error(`${where}: not a finite number`)
@@ -132,7 +155,7 @@ function sanitize(props: Record<string, unknown>, where: string): Record<string,
         out.cornerRadius = uniformRadius(Math.max(0, num(value, `${where}.cornerRadius`)))
         break
       case 'fill':
-        out.fills = value === null ? [] : [parseColor(value, `${where}.fill`)]
+        out.fills = value === null ? [] : [parsePaint(value, `${where}.fill`)]
         break
       case 'stroke':
         out.strokes = value === null ? [] : [parseColor(value, `${where}.stroke`)]
@@ -286,6 +309,100 @@ export function applyEdits(rawEdits: unknown, rawLabel: unknown): EditResult {
     committed: `Agent: ${label}`,
     created,
     edits: rawEdits.length,
+    cursor: documentStore.history.entriesApplied().length,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Image import + background removal (the poster path)
+// ---------------------------------------------------------------------------
+
+/** Binary ceiling for one imported image. */
+const MAX_IMAGE_BYTES = 24 * 1024 * 1024
+const IMPORT_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'] as const
+
+/**
+ * Store agent-supplied image BYTES as a content-addressed bundle asset.
+ * Deliberately bytes, not a file path: the app never reads the agent's
+ * filesystem — the agent sends content it already holds, like a paste.
+ * Nothing is journaled here; the asset only matters once a fill uses it,
+ * and unused assets are garbage like any other.
+ */
+export async function importImageAsset(rawBase64: unknown, rawExt: unknown): Promise<unknown> {
+  const ext = String(rawExt ?? '').toLowerCase().replace(/^\./, '')
+  if (!(IMPORT_EXTS as readonly string[]).includes(ext)) {
+    throw new Error(`ext must be one of ${IMPORT_EXTS.join(', ')}`)
+  }
+  const base64 = String(rawBase64 ?? '')
+  if (!base64) throw new Error('base64 image data is required')
+  let bytes: Uint8Array
+  try {
+    const binary = atob(base64.replace(/^data:[^,]*,/, ''))
+    bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  } catch {
+    throw new Error('invalid base64 image data')
+  }
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    throw new Error(`image too large (${bytes.length} bytes > ${MAX_IMAGE_BYTES}) — downscale first`)
+  }
+
+  const written = await window.polyform.assetsWrite(bytes, ext)
+  if (!written) throw new Error('no project open to receive the asset')
+  const { assetCache } = await import('../engine/assets')
+  await assetCache.primeFromBytes(written.hash, bytes, written.mime)
+
+  // Report intrinsic size so the agent can shape its node to the image.
+  let width = 0
+  let height = 0
+  try {
+    const bmp = await createImageBitmap(new Blob([bytes.buffer as ArrayBuffer], { type: written.mime }))
+    width = bmp.width
+    height = bmp.height
+    bmp.close()
+  } catch {
+    throw new Error('the bytes are not a decodable image')
+  }
+  return { assetHash: written.hash, mime: written.mime, bytes: bytes.length, width, height }
+}
+
+/**
+ * Run the on-device background remover (v0.4.1, ADR-019) on a node's image
+ * fill. Refuses — rather than prompting — when the model is not on disk:
+ * an agent call must never pop a consent dialog on the user's screen; the
+ * one-time model download stays a decision the user makes in the app.
+ */
+export async function removeBackgroundForAgent(rawId: unknown, rawFillIndex: unknown): Promise<unknown> {
+  const id = String(rawId ?? '')
+  const fillIndex = rawFillIndex == null ? 0 : Math.trunc(Number(rawFillIndex))
+  const node = documentStore.scene.getNode(id)
+  if (!node) throw new Error(`no node with id ${JSON.stringify(id)}`)
+  const paint = node.fills[fillIndex]
+  if (!paint || paint.type !== 'IMAGE') {
+    throw new Error(`node ${JSON.stringify(node.name)} has no IMAGE fill at index ${fillIndex}`)
+  }
+
+  const status = await window.polyform.bgModelStatus()
+  if (!status.ready) {
+    throw new Error(
+      'the on-device background-removal model is not downloaded. Ask the user to run ' +
+        'Remove Background once from the app (right-click an image fill) and accept the ' +
+        `one-time ~${status.sizeMB} MB download — after that this tool works offline.`,
+    )
+  }
+
+  const bg = await import('../ui/bgremove')
+  await bg.removeBackground(id, fillIndex, 'Agent: Remove Background')
+  const state = bg.bgRemoveState()
+  if (state.phase === 'error') throw new Error(`background removal failed: ${state.message}`)
+
+  const after = documentStore.scene.getNode(id)
+  const newPaint = after?.fills[fillIndex]
+  if (!after || !newPaint || newPaint.type !== 'IMAGE') throw new Error('fill changed during processing')
+  return {
+    assetHash: newPaint.assetHash,
+    originalAssetHash: newPaint.originalAssetHash ?? null,
+    committed: 'Agent: Remove Background',
     cursor: documentStore.history.entriesApplied().length,
   }
 }

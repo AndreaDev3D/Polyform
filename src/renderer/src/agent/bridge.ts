@@ -305,6 +305,16 @@ const HANDLERS: Record<string, (params: Record<string, unknown>) => unknown | Pr
     return applyEdits(params.edits, params.label)
   },
 
+  'asset.import': async (params) => {
+    const { importImageAsset } = await import('./writes')
+    return importImageAsset(params.base64, params.ext)
+  },
+
+  'bg.remove': async (params) => {
+    const { removeBackgroundForAgent } = await import('./writes')
+    return removeBackgroundForAgent(params.id, params.fillIndex)
+  },
+
   'render.viewport': (params) => {
     const edge = Number(params.maxEdge)
     return viewportSnapshot(Number.isFinite(edge) ? edge : undefined)

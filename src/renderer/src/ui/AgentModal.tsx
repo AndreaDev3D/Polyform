@@ -25,11 +25,12 @@ interface CapabilityInfo {
 
 const WRITE_CAPABILITY: CapabilityInfo = {
   key: 'edit',
-  tool: 'edit_document',
+  tool: 'edit_document, import_image, remove_background',
   label: 'Change the document',
   detail:
-    'Create, restyle, move and delete layers. Every change lands in your history as ' +
-    'one "Agent:" entry — one Ctrl+Z removes it. Off unless you turn it on.',
+    'Create, restyle, move and delete layers, add images it sends over, and cut image ' +
+    'backgrounds on-device. Every change lands in your history as an "Agent:" entry — ' +
+    'one Ctrl+Z removes it. Off unless you turn it on.',
 }
 
 const CAPABILITIES: CapabilityInfo[] = [

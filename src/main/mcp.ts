@@ -338,6 +338,55 @@ function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
     ),
   })
 
+  // Images travel as BYTES, not paths: the app never reads the agent's
+  // filesystem — the agent sends content it already holds, like a paste.
+  tools.set('import_image', {
+    cap: 'edit',
+    tool: server.registerTool(
+      'import_image',
+      {
+        title: 'Import an image',
+        description:
+          'Store an image in the project as a content-addressed asset. Send the raw file ' +
+          'bytes as base64 (no data: prefix needed). Returns assetHash plus the intrinsic ' +
+          'width/height — then use fill: {image: assetHash, scaleMode?} on a RECTANGLE in ' +
+          'edit_document to place it. Nothing appears on the canvas until a fill uses it.',
+        inputSchema: {
+          ext: z.enum(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif']),
+          base64: z.string().min(4).describe('The image file bytes, base64-encoded'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      guarded('edit', (args: { ext: string; base64: string }) =>
+        query('asset.import', { ext: args.ext, base64: args.base64 }),
+      ),
+    ),
+  })
+
+  tools.set('remove_background', {
+    cap: 'edit',
+    tool: server.registerTool(
+      'remove_background',
+      {
+        title: 'Remove an image background',
+        description:
+          'Run Polyform\'s on-device background remover (BiRefNet, fully offline) on a ' +
+          'node\'s IMAGE fill. Non-destructive: the original stays in the bundle and the ' +
+          'result is one undoable "Agent: Remove Background" entry. Takes a few seconds. ' +
+          'Requires the model to already be on disk — if it is not, this refuses and the ' +
+          'user must accept the one-time download in the app first.',
+        inputSchema: {
+          id: z.string().min(1).describe('Node id whose image fill to cut out'),
+          fillIndex: z.number().int().min(0).optional().describe('Which fill (default 0)'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      guarded('edit', (args: { id: string; fillIndex?: number }) =>
+        query('bg.remove', { id: args.id, fillIndex: args.fillIndex }),
+      ),
+    ),
+  })
+
   tools.set('poll_changes', {
     cap: 'changes',
     tool: server.registerTool(

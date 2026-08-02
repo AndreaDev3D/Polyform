@@ -11,6 +11,9 @@
 // Usage: npm run build && node scripts/mcp-probe.mjs
 
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { inflateSync } from 'node:zlib'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -166,10 +169,14 @@ try {
 
   for (let i = 0; i < 40 && !(await evaluate('!!globalThis.__polyform')); i++) await sleep(250)
 
-  // Synthesize an open project with one named rectangle.
-  await evaluate(`globalThis.__polyform.documentStore.loadFromResult({
-    info: { path: 'mcp-probe.poly', manifest: { name: 'Probe', title: 'Probe', schemaVersion: 4 } },
-    sceneBytes: null, journal: { entries: [], cursor: 0 } })`)
+  // A REAL bundle on disk (harness hook), so asset writes hit the true
+  // pipeline; then shape the scene in-memory as before.
+  const bundleDir = path.join(os.tmpdir(), `polyform-mcp-probe-${Date.now()}`, 'Probe.poly')
+  const createdReal = await evaluate(
+    `window.__polyformTest.projectCreate(${JSON.stringify(bundleDir.replace(/\\/g, '/'))})
+       .then((r) => { globalThis.__polyform.documentStore.loadFromResult(r); return r.info.manifest.title })`,
+  )
+  if (createdReal !== 'Probe') throw new Error(`test project not created: ${JSON.stringify(createdReal)}`)
   await evaluate(`globalThis.__polyform.editor.set({ hasProject: true })`)
   await evaluate(`(() => {
     const s = globalThis.__polyform.documentStore.scene
@@ -534,6 +541,77 @@ try {
     console.log('MCP PASS: agent commit visible in the change feed')
   }
 
+  // --- image import: bytes in, pixels on the canvas -----------------------
+  // A 6x6 solid #FF4E00 PNG, generated once and inlined.
+  const ORANGE_PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAIAAABvrngfAAAAEklEQVR4nGP478eAhtD5VBYCAJIYLtV/nwpmAAAAAElFTkSuQmCC'
+  const imported = await client.callTool({
+    name: 'import_image',
+    arguments: { ext: 'png', base64: ORANGE_PNG },
+  })
+  if (imported.isError) {
+    fail(`import_image failed: ${imported.content.map((c) => c.text).join(' ')}`)
+  } else {
+    const asset = JSON.parse(imported.content.find((c) => c.type === 'text').text)
+    if (!/^[0-9a-f]{64}$/.test(asset.assetHash) || asset.width !== 6 || asset.height !== 6) {
+      fail(`import_image result malformed: ${JSON.stringify(asset)}`)
+    } else {
+      console.log(`MCP PASS: import_image stored the asset (${asset.width}x${asset.height}, ${asset.assetHash.slice(0, 8)}…)`)
+    }
+    const placed = await client.callTool({
+      name: 'edit_document',
+      arguments: {
+        label: 'Place imported image',
+        edits: [
+          {
+            op: 'create',
+            type: 'RECTANGLE',
+            ref: 'img',
+            props: { name: 'Imported', x: 900, y: 40, width: 120, height: 120, fill: { image: asset.assetHash, scaleMode: 'FILL' } },
+          },
+        ],
+      },
+    })
+    if (placed.isError) {
+      fail(`placing the imported image failed: ${placed.content.map((c) => c.text).join(' ')}`)
+    } else {
+      const imgId = JSON.parse(placed.content.find((c) => c.type === 'text').text).created.img.id
+      const shot = await client.callTool({ name: 'get_node_image', arguments: { id: imgId } })
+      const png = decodePng(Buffer.from(shot.content.find((c) => c.type === 'image').data, 'base64'))
+      if (!png.colors.has('#FF4E00')) {
+        fail(`imported image does not render (saw ${[...png.colors].slice(0, 4).join(', ')})`)
+      } else {
+        console.log('MCP PASS: imported image renders — bytes became canvas pixels')
+      }
+
+      // Background removal: on a machine with the model this runs a real
+      // ~5s inference; on one without it must refuse with instructions,
+      // never pop a dialog. Both are correct — assert whichever applies.
+      const cut = await client.callTool({
+        name: 'remove_background',
+        arguments: { id: imgId },
+      })
+      if (cut.isError) {
+        const msg = cut.content.map((c) => c.text).join(' ')
+        if (!/model is not downloaded/i.test(msg)) fail(`remove_background failed wrong: ${msg}`)
+        else console.log('MCP PASS: remove_background refuses cleanly without the model (no dialog)')
+      } else {
+        const res = JSON.parse(cut.content.find((c) => c.type === 'text').text)
+        if (res.committed !== 'Agent: Remove Background' || !res.originalAssetHash) {
+          fail(`remove_background result malformed: ${JSON.stringify(res)}`)
+        } else {
+          console.log('MCP PASS: remove_background ran on-device and committed attributed')
+        }
+      }
+    }
+  }
+  const badImport = await client.callTool({
+    name: 'import_image',
+    arguments: { ext: 'png', base64: 'bm90IGFuIGltYWdl' },
+  })
+  if (!badImport.isError) fail('import_image accepted non-image bytes')
+  else console.log('MCP PASS: import_image rejects non-image bytes')
+
   // Revoke writes again; reads must keep working.
   await evaluate(`(() => {
     const label = [...document.querySelectorAll('label')].find((l) => l.innerText.includes('edit_document'))
@@ -749,5 +827,16 @@ try {
   if (process.platform === 'win32') {
     spawn('taskkill', ['/F', '/T', '/PID', String(electron.pid)], { stdio: 'ignore', shell: true })
   }
-  setTimeout(() => process.exit(process.exitCode ?? 0), 1500)
+  setTimeout(() => {
+    // Remove the temp bundles the harness hook created (this run's and any
+    // a crashed earlier run left behind).
+    for (const d of fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('polyform-mcp-probe-'))) {
+      try {
+        fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true })
+      } catch {
+        /* a live handle on Windows — the next run sweeps it */
+      }
+    }
+    process.exit(process.exitCode ?? 0)
+  }, 1500)
 }

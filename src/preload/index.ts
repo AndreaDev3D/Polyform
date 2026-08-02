@@ -54,6 +54,13 @@ const api: PolyformApi = {
 
 contextBridge.exposeInMainWorld('polyform', api)
 
+// Harness-only hook (see main): absent unless the probe env flag is set.
+if (process.env['POLYFORM_AGENT_TEST'] === '1') {
+  contextBridge.exposeInMainWorld('__polyformTest', {
+    projectCreate: (dir: string) => ipcRenderer.invoke('test:projectCreate', dir),
+  })
+}
+
 // Agent endpoint control (v0.6, ADR-021 / F-20) is deliberately NOT on
 // `window.polyform`. Plugin scripts run in the renderer's own realm, so they
 // can read anything exposed there — and a plugin able to call `mcpStart()`

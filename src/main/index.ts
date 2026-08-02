@@ -102,6 +102,19 @@ function setupPermissions(): void {
 }
 
 function registerIpc(): void {
+  // Harness-only (POLYFORM_AGENT_TEST=1): create a real bundle at a given
+  // path with no dialog, so `npm run test:mcp` exercises the true asset
+  // pipeline — disk writes included — instead of a faked-in-memory project.
+  if (process.env['POLYFORM_AGENT_TEST'] === '1') {
+    ipcMain.handle('test:projectCreate', async (_e, dir: string) => {
+      const title = path.basename(dir).replace(/\.poly$/i, '')
+      const { info, journal } = await projects.create(dir, title)
+      isDirty = false
+      refreshTitle()
+      return { info, sceneBytes: null, journal }
+    })
+  }
+
   ipcMain.handle('project:new', async () => {
     if (!mainWindow) return null
     const result = await dialog.showSaveDialog(mainWindow, {
@@ -240,9 +253,11 @@ function registerIpc(): void {
       const id = ++sceneSeq
       scenePending.set(id, { resolve, reject })
       mainWindow.webContents.send('mcp:sceneRequest', id, method, params)
-      // Snapshots rasterize the scene and may have to settle 3D renders
-      // first (ADR-020), so they get a longer leash than a structure read.
-      const timeout = method.startsWith('render.') ? 60_000 : 10_000
+      // Snapshots rasterize the scene (and may settle 3D first, ADR-020);
+      // imports decode multi-MB images; bg removal runs ~5s of inference.
+      // All get a longer leash than a structure read.
+      const slow = method.startsWith('render.') || method.startsWith('asset.') || method.startsWith('bg.')
+      const timeout = slow ? 60_000 : 10_000
       setTimeout(() => {
         if (scenePending.delete(id)) reject(new Error(`scene query timed out: ${method}`))
       }, timeout)
