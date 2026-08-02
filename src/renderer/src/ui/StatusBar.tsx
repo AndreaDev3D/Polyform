@@ -2,6 +2,7 @@
 
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
+import { AgentIndicator } from './AgentIndicator'
 
 const TOOL_HINTS: Record<string, string> = {
   select: 'Click to select · drag to move · double-click to enter groups · Ctrl+click for deep select',
@@ -28,6 +29,7 @@ export function StatusBar() {
     <div className="flex items-center h-6 px-3 gap-4 text-[11px] text-[var(--pf-text-dim)] bg-[var(--pf-bg-0)] border-t border-[var(--pf-border)] shrink-0">
       <span className="truncate">{TOOL_HINTS[tool]}</span>
       <span className="flex-1" />
+      <AgentIndicator />
       {canUndo && undoLabel && <span className="truncate max-w-48">Last: {undoLabel}</span>}
       <span>{nodeCount} layers</span>
       <span>{Math.round(zoom * 100)}%</span>

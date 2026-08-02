@@ -1,7 +1,14 @@
 // Context-isolated bridge exposing the typed Polyform IPC API to the renderer.
 
 import { contextBridge, ipcRenderer } from 'electron'
-import type { MenuActionId, PolyformApi, SaveProjectPayload } from '../shared/types'
+import type {
+  McpStatus,
+  MenuActionId,
+  PolyformAgentApi,
+  PolyformAgentGate,
+  PolyformApi,
+  SaveProjectPayload,
+} from '../shared/types'
 
 const api: PolyformApi = {
   platform: process.platform,
@@ -24,16 +31,6 @@ const api: PolyformApi = {
   bgModelEnsure: () => ipcRenderer.invoke('bgmodel:ensure'),
   bgModelRead: () => ipcRenderer.invoke('bgmodel:read'),
   bgOrtRuntime: () => ipcRenderer.invoke('bgmodel:ort'),
-  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
-  mcpStart: () => ipcRenderer.invoke('mcp:start'),
-  mcpStop: () => ipcRenderer.invoke('mcp:stop'),
-  mcpSceneReply: (id, ok, payload) => ipcRenderer.send('mcp:sceneReply', id, ok, payload),
-  onMcpSceneRequest: (cb) => {
-    const listener = (_e: Electron.IpcRendererEvent, id: number, method: string, params: unknown) =>
-      cb(id, method, params)
-    ipcRenderer.on('mcp:sceneRequest', listener)
-    return () => ipcRenderer.removeListener('mcp:sceneRequest', listener)
-  },
   onBgModelProgress: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, p: { received: number; total: number }) =>
       cb(p.received, p.total)
@@ -56,3 +53,40 @@ const api: PolyformApi = {
 }
 
 contextBridge.exposeInMainWorld('polyform', api)
+
+// Agent endpoint control (v0.6, ADR-021 / F-20) is deliberately NOT on
+// `window.polyform`. Plugin scripts run in the renderer's own realm, so they
+// can read anything exposed there — and a plugin able to call `mcpStart()`
+// would reduce the consent panel to decoration. Instead the surface is
+// handed out exactly once: Polyform's own startup code claims it before any
+// plugin can be loaded (loading one needs a file dialog and a confirmation),
+// and every later caller gets null.
+const agentApi: PolyformAgentApi = {
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
+  mcpStart: (grants) => ipcRenderer.invoke('mcp:start', grants),
+  mcpStop: () => ipcRenderer.invoke('mcp:stop'),
+  mcpSetGrants: (grants) => ipcRenderer.invoke('mcp:setGrants', grants),
+  onMcpStatus: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, status: McpStatus) => cb(status)
+    ipcRenderer.on('mcp:status', listener)
+    return () => ipcRenderer.removeListener('mcp:status', listener)
+  },
+  mcpSceneReply: (id, ok, payload) => ipcRenderer.send('mcp:sceneReply', id, ok, payload),
+  onMcpSceneRequest: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, id: number, method: string, params: unknown) =>
+      cb(id, method, params)
+    ipcRenderer.on('mcp:sceneRequest', listener)
+    return () => ipcRenderer.removeListener('mcp:sceneRequest', listener)
+  },
+}
+
+let agentClaimed = false
+const agentGate: PolyformAgentGate = {
+  claim: () => {
+    if (agentClaimed) return null
+    agentClaimed = true
+    return agentApi
+  },
+}
+
+contextBridge.exposeInMainWorld('polyformAgent', agentGate)

@@ -50,6 +50,8 @@ interface EditorState {
   vectorSelection: number[]
   /** Version-history browser visibility. */
   showHistory: boolean
+  /** Agent-connection consent panel visibility. */
+  showAgent: boolean
   /** Left panel tab. */
   leftTab: 'layers' | 'assets'
   /** WebGPU scene rendering (beta); falls back to Canvas2D when unavailable. */
@@ -99,6 +101,7 @@ export const useEditor = create<EditorState>((set) => ({
   orbitingId: null,
   vectorSelection: [],
   showHistory: false,
+  showAgent: false,
   leftTab: 'layers' as const,
   gpuRender:
     typeof localStorage !== 'undefined' && localStorage.getItem('polyform.gpuRender') === '1',

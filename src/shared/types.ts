@@ -69,11 +69,51 @@ export interface AssetData {
   mime: string
 }
 
+/** What an agent may read. Each is granted separately and revocable live. */
+export type McpCapability = 'document' | 'selection' | 'changes'
+
+export type McpGrants = Record<McpCapability, boolean>
+
 export interface McpStatus {
   running: boolean
   port: number | null
   token: string | null
+  /** Connected agent sessions — drives the "agent connected" indicator. */
   clients: number
+  grants: McpGrants
+  /** Tool calls served since start; the indicator's "being read" signal. */
+  calls: number
+  /** Capability behind the most recent call, for the activity line. */
+  lastCall: McpCapability | null
+  /** Epoch ms of the most recent call. */
+  lastCallAt: number | null
+}
+
+/**
+ * Control of the agent endpoint (v0.6, ADR-021).
+ *
+ * Deliberately NOT part of `PolyformApi`: plugins execute in the renderer's
+ * own realm (`new Function`, roadmap 3.4 / F-15), so anything hanging off
+ * `window.polyform` is reachable by a plugin script — and a plugin that
+ * could call `mcpStart()` would make the consent panel a decoration. This
+ * surface is handed out once, to the first claimer, which is Polyform's own
+ * startup code; see `PolyformAgentGate`.
+ */
+export interface PolyformAgentApi {
+  mcpStatus: () => Promise<McpStatus>
+  mcpStart: (grants?: Partial<McpGrants>) => Promise<McpStatus>
+  mcpStop: () => Promise<McpStatus>
+  /** Grant or revoke a capability; takes effect on connected sessions. */
+  mcpSetGrants: (grants: Partial<McpGrants>) => Promise<McpStatus>
+  /** Pushed whenever the endpoint, its grants, or its activity change. */
+  onMcpStatus: (cb: (status: McpStatus) => void) => () => void
+  mcpSceneReply: (id: number, ok: boolean, payload: unknown) => void
+  onMcpSceneRequest: (cb: (id: number, method: string, params: unknown) => void) => () => void
+}
+
+/** One-shot handout of {@link PolyformAgentApi}; later callers get null. */
+export interface PolyformAgentGate {
+  claim: () => PolyformAgentApi | null
 }
 
 export type MenuActionId =
@@ -117,6 +157,7 @@ export type MenuActionId =
   | 'object.detachInstance'
   | 'view.history'
   | 'plugins.run'
+  | 'agent.connection'
   | 'help.about'
 
 export interface PolyformApi {
@@ -142,11 +183,6 @@ export interface PolyformApi {
   assetsWrite: (bytes: Uint8Array, ext: string) => Promise<{ hash: string; mime: string } | null>
   /** Background-removal model (v0.4.1): consent-gated one-time download. */
   /** Agent connectivity (v0.6 spike, ADR-021): the loopback MCP endpoint. */
-  mcpStatus: () => Promise<McpStatus>
-  mcpStart: () => Promise<McpStatus>
-  mcpStop: () => Promise<McpStatus>
-  mcpSceneReply: (id: number, ok: boolean, payload: unknown) => void
-  onMcpSceneRequest: (cb: (id: number, method: string, params: unknown) => void) => () => void
   bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number; inputSize: number }>
   bgModelEnsure: () => Promise<{ ok: boolean; error?: string }>
   bgModelRead: () => Promise<Uint8Array | null>

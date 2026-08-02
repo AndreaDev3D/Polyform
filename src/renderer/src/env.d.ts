@@ -7,11 +7,13 @@ declare module '*.wasm?inline' {
   export default dataUri
 }
 
-import type { PolyformApi } from '../../shared/types'
+import type { PolyformAgentGate, PolyformApi } from '../../shared/types'
 
 declare global {
   interface Window {
     polyform: PolyformApi
+    /** One-shot handout, claimed by `agent/control.ts` at startup. */
+    polyformAgent?: PolyformAgentGate
   }
 }
 

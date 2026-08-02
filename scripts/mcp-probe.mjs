@@ -27,7 +27,14 @@ function fail(msg) {
 const electron = spawn(
   process.platform === 'win32' ? 'npx.cmd' : 'npx',
   ['electron', 'out/main/index.js', `--remote-debugging-port=${PORT}`],
-  { cwd: ROOT, stdio: 'ignore', shell: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } },
+  {
+    cwd: ROOT,
+    stdio: 'ignore',
+    shell: true,
+    // POLYFORM_AGENT_TEST exposes a read-only status peek; the control
+    // surface itself stays unreachable, which is checked below.
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, POLYFORM_AGENT_TEST: '1' },
+  },
 )
 
 let ws
@@ -89,8 +96,39 @@ try {
   })()`)
   await sleep(300)
 
-  // --- start the in-app MCP server ---------------------------------------
-  const status = await evaluate(`window.polyform.mcpStart()`)
+  // --- consent: the endpoint starts from the panel, not from an API -------
+  // Nothing in the renderer's shared surface may open a listener; only the
+  // startup-claimed control handle can, and the user drives it (F-15/F-20).
+  const contained = await evaluate(`(() => {
+    // Exactly how the plugin runner executes an untrusted script (3.4).
+    const body = "return (window.polyform.mcpStart ? 'reachable' : 'blocked')"
+      + " + '/' + ((window.polyformAgent && window.polyformAgent.claim()) ? 'claimable' : 'claimed')"
+    try { return new Function('polyform', "'use strict';" + body)({}) }
+    catch (e) { return 'threw: ' + e.message }
+  })()`)
+  if (contained !== 'blocked/claimed') {
+    fail(`a plugin-shaped script can still reach the endpoint controls: ${contained}`)
+  } else {
+    console.log('MCP PASS: endpoint controls unreachable from plugin-realm code')
+  }
+
+  const started = await evaluate(`(() => {
+    globalThis.__polyform.editor.set({ showAgent: true })
+    return true
+  })()`)
+  if (!started) throw new Error('could not open the consent panel')
+  await sleep(400)
+  const clickedStart = await evaluate(`(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === 'Start endpoint')
+    if (!b) return false
+    b.click()
+    return true
+  })()`)
+  if (!clickedStart) throw new Error('no "Start endpoint" button in the consent panel')
+  await sleep(800)
+  console.log('MCP PASS: endpoint started from the consent panel')
+
+  const status = await evaluate(`globalThis.__polyformAgentStatus()`)
   if (!status?.running || !status.port || !status.token) {
     throw new Error(`server did not start: ${JSON.stringify(status)}`)
   }
@@ -168,11 +206,123 @@ try {
     console.log(`MCP PASS: live edit visible to the agent ("${after.entries[0].label}" on ${after.entries[0].nodeIds.join(', ')})`)
   }
 
-  await client.close()
+  // --- the app must SHOW that an agent is attached (7.2, F-20) ------------
+  const live = await evaluate(`globalThis.__polyformAgentStatus()`)
+  if (live?.clients !== 1) fail(`status should report 1 connected session, got ${live?.clients}`)
+  else console.log('MCP PASS: connected session counted in status')
+  if (!(live.calls > 0) || live.lastCall === null) fail(`reads not recorded: ${JSON.stringify(live)}`)
+  else console.log(`MCP PASS: read activity recorded (${live.calls} calls, last "${live.lastCall}")`)
+
+  const indicator = await evaluate(`(() => {
+    globalThis.__polyform.editor.set({ showAgent: false })
+    const b = document.querySelector('button[title^="Agent connection"]')
+    return b ? b.innerText : null
+  })()`)
+  if (!indicator) fail('no "agent connected" indicator is visible in the running app')
+  else console.log(`MCP PASS: indicator visible in the app UI ("${indicator.trim()}")`)
+
+  // --- consent: revoking a capability takes effect on a LIVE session ------
+  // Driven through the panel's checkbox, the way a user would revoke it.
+  const revoked = await evaluate(`(() => {
+    globalThis.__polyform.editor.set({ showAgent: true })
+    return true
+  })()`)
+  if (!revoked) throw new Error('could not reopen the consent panel')
+  await sleep(400)
+  const toggled = await evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find((l) => l.innerText.includes('get_selection'))
+    const box = label && label.querySelector('input[type=checkbox]')
+    if (!box || !box.checked) return false
+    box.click()
+    return true
+  })()`)
+  if (!toggled) fail('could not find the get_selection consent checkbox')
+  await sleep(500)
+  const afterRevoke = (await client.listTools()).tools.map((t) => t.name).sort()
+  if (afterRevoke.includes('get_selection')) {
+    fail(`revoked tool still listed: ${JSON.stringify(afterRevoke)}`)
+  } else {
+    console.log(`MCP PASS: revoked capability disappears from tools/list (${JSON.stringify(afterRevoke)})`)
+  }
+
+  // ...and a client holding a stale tool list is still refused.
+  let refusedOk = false
+  try {
+    const refused = await client.callTool({ name: 'get_selection', arguments: {} })
+    refusedOk = refused.isError === true
+  } catch {
+    refusedOk = true // the SDK rejects unknown/disabled tools outright
+  }
+  if (!refusedOk) fail('a revoked capability still answered a direct call')
+  else console.log('MCP PASS: revoked capability refuses a direct call')
+
+  // Revocation is per capability, not a blanket off switch.
+  const stillReads = await client.callTool({ name: 'get_document', arguments: {} })
+  if (JSON.parse(stillReads.content[0].text).project !== 'Probe') {
+    fail('revoking one capability broke another')
+  } else {
+    console.log('MCP PASS: other capabilities keep working')
+  }
+
+  const retoggled = await evaluate(`(() => {
+    const label = [...document.querySelectorAll('label')].find((l) => l.innerText.includes('get_selection'))
+    const box = label && label.querySelector('input[type=checkbox]')
+    if (!box || box.checked) return false
+    box.click()
+    return true
+  })()`)
+  if (!retoggled) fail('could not re-grant through the consent panel')
+  await sleep(500)
+  const regranted = await client.callTool({ name: 'get_selection', arguments: {} })
+  if (JSON.parse(regranted.content[0].text).count !== 1) fail('re-granting did not restore the tool')
+  else console.log('MCP PASS: re-granting restores the capability live')
+
+  // Cutting off an agent that is STILL ATTACHED is the case that matters —
+  // a keep-alive socket must not be able to hold the port open.
+  const stopMs = await evaluate(`(async () => {
+    const b = [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === 'Stop')
+    if (!b) return -1
+    const t0 = performance.now()
+    b.click()
+    for (let i = 0; i < 100; i++) {
+      if (!globalThis.__polyformAgentStatus().running) return performance.now() - t0
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    return -2
+  })()`)
+  if (stopMs === -1) fail('no Stop button in the consent panel')
+  else if (stopMs < 0) fail('endpoint did not stop while an agent was attached (held open by its socket)')
+  else if (stopMs > 2000) fail(`stop took ${Math.round(stopMs)}ms with an agent attached — not "immediately"`)
+  else console.log(`MCP PASS: stops with an agent still attached (${Math.round(stopMs)}ms)`)
+
+  // ...and the port really is closed, not just marked stopped.
+  let refusedAfterStop = false
+  try {
+    await fetch(`http://127.0.0.1:${status.port}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${status.token}` },
+      body: '{}',
+      signal: AbortSignal.timeout(2000),
+    })
+  } catch {
+    refusedAfterStop = true
+  }
+  if (!refusedAfterStop) fail('the port still accepts connections after Stop')
+  else console.log('MCP PASS: port refuses connections after Stop')
+
+  try {
+    await client.close()
+  } catch {
+    /* the socket is already gone — that is the point */
+  }
   client = null
-  const stopped = await evaluate(`window.polyform.mcpStop()`)
-  if (stopped?.running) fail('server did not stop')
-  else console.log('MCP PASS: server stops cleanly')
+
+  const goneFromUi = await evaluate(`(() => {
+    globalThis.__polyform.editor.set({ showAgent: false })
+    return !document.querySelector('button[title^="Agent connection"]')
+  })()`)
+  if (!goneFromUi) fail('indicator still shown after the endpoint stopped')
+  else console.log('MCP PASS: indicator disappears once the endpoint is off')
 
   if (process.exitCode !== 1) console.log('MCP PROBE: all checks passed')
 } catch (err) {

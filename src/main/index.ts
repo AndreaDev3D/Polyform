@@ -4,10 +4,10 @@
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { SaveProjectPayload } from '../shared/types'
+import type { McpGrants, SaveProjectPayload } from '../shared/types'
 import { ProjectManager } from './project'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
-import { mcpStart, mcpStop, mcpStatus } from './mcp'
+import { mcpStart, mcpStop, mcpStatus, mcpSetGrants, onMcpStatus } from './mcp'
 import { listRecents, pushRecent } from './recents'
 import { installMenu } from './menu'
 
@@ -82,6 +82,7 @@ function createWindow(): void {
   if (process.env['POLYFORM_GPU'] === '1') params.set('gpu', '1')
   if (process.env['POLYFORM_BG_TEST'] === '1') params.set('bgTest', '1')
   if (process.env['POLYFORM_3D_TEST'] === '1') params.set('m3dTest', '1')
+  if (process.env['POLYFORM_AGENT_TEST'] === '1') params.set('agentTest', '1')
   const renderTest = params.size > 0 ? `?${params.toString()}` : ''
   if (process.env['ELECTRON_RENDERER_URL']) {
     void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + renderTest)
@@ -245,8 +246,14 @@ function registerIpc(): void {
     })
 
   ipcMain.handle('mcp:status', () => mcpStatus())
-  ipcMain.handle('mcp:start', () => mcpStart(sceneQuery))
+  ipcMain.handle('mcp:start', (_e, grants?: Partial<McpGrants>) => mcpStart(sceneQuery, grants))
   ipcMain.handle('mcp:stop', () => mcpStop())
+  ipcMain.handle('mcp:setGrants', (_e, grants: Partial<McpGrants>) => mcpSetGrants(grants))
+  // Push status instead of letting the renderer poll: an indicator that only
+  // refreshes on a timer is wrong for however long the timer has left.
+  onMcpStatus((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mcp:status', status)
+  })
 
   // Background-removal model (v0.4.1, ADR-019): consent-gated download.
   ipcMain.handle('bgmodel:status', () => bgModelStatus())
@@ -364,7 +371,9 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  void projects.closeCurrent().finally(() => {
+  // Never leave the agent endpoint listening once there is no document
+  // behind it — a live socket with no window is exactly the F-20 risk.
+  void Promise.all([projects.closeCurrent(), mcpStop()]).finally(() => {
     if (process.platform !== 'darwin') app.quit()
   })
 })

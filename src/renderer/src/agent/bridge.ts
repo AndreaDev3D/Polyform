@@ -5,6 +5,7 @@
 // it from the live DocumentStore and replies. Read-only for the spike —
 // the journaled write surface is roadmap item 7.3.
 
+import { agentApi } from './control'
 import { documentStore } from '../state/document'
 import { editor } from '../state/editor'
 import type { NodeId, SceneNode } from '../engine/types'
@@ -86,13 +87,14 @@ let installed = false
 export function installAgentBridge(): void {
   if (installed) return
   installed = true
-  window.polyform.onMcpSceneRequest((id, method, params) => {
+  const api = agentApi()
+  api.onMcpSceneRequest((id, method, params) => {
     try {
       const handler = HANDLERS[method]
       if (!handler) throw new Error(`unknown scene method: ${method}`)
-      window.polyform.mcpSceneReply(id, true, handler((params ?? {}) as Record<string, unknown>))
+      api.mcpSceneReply(id, true, handler((params ?? {}) as Record<string, unknown>))
     } catch (err) {
-      window.polyform.mcpSceneReply(id, false, err instanceof Error ? err.message : String(err))
+      api.mcpSceneReply(id, false, err instanceof Error ? err.message : String(err))
     }
   })
 }

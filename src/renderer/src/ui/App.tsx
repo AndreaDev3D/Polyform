@@ -14,6 +14,7 @@ import { StatusBar } from './StatusBar'
 import { WelcomeScreen } from './WelcomeScreen'
 import { ContextMenu } from './ContextMenu'
 import { HistoryModal } from './HistoryModal'
+import { AgentModal } from './AgentModal'
 
 export function App() {
   const hasProject = useEditor((s) => s.hasProject)
@@ -61,6 +62,7 @@ export function App() {
       <StatusBar />
       <ContextMenu />
       <HistoryModal />
+      <AgentModal />
     </div>
   )
 }

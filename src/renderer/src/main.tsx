@@ -33,6 +33,15 @@ if (bootParams.has('m3dTest')) {
 // document. Installing the listener is inert until the user starts the
 // server from the app.
 void import('./agent/bridge').then((m) => m.installAgentBridge())
+void import('./agent/status').then((m) => {
+  m.installAgentStatus()
+  // Read-only peek at the endpoint state for `npm run test:mcp`. Gated on
+  // the harness flag because the status carries the session token, and a
+  // plugin sharing this realm must not be able to lift it (F-15 × F-20).
+  if (bootParams.has('agentTest')) {
+    ;(globalThis as Record<string, unknown>).__polyformAgentStatus = m.mcpStatusNow
+  }
+})
 
 // Debug/automation handle (local desktop app; also used by dev tooling).
 void Promise.all([

@@ -71,6 +71,10 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
       submenu: [{ label: 'Run Plugin Script…', click: () => send('plugins.run') }],
     },
     {
+      label: '&Agent',
+      submenu: [{ label: 'Agent Connection…', click: () => send('agent.connection') }],
+    },
+    {
       label: '&Object',
       submenu: [
         { label: 'Group Selection', accelerator: 'CmdOrCtrl+G', click: () => send('object.group') },

@@ -1444,6 +1444,9 @@ export function dispatchMenuAction(id: string): void {
     case 'plugins.run':
       void runPluginFlow()
       break
+    case 'agent.connection':
+      editor.set({ showAgent: !editor.get().showAgent })
+      break
     case 'object.group':
       groupSelection()
       break
