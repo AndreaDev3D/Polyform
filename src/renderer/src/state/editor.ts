@@ -44,6 +44,8 @@ interface EditorState {
   showRulers: boolean
   /** Vector node currently in edit mode (double-click a vector). */
   vectorEditId: NodeId | null
+  /** MODEL3D node currently in orbit mode (double-click a model). */
+  orbitingId: NodeId | null
   /** Selected vertex ids within vector edit mode. */
   vectorSelection: number[]
   /** Version-history browser visibility. */
@@ -94,6 +96,7 @@ export const useEditor = create<EditorState>((set) => ({
   viewportSize: { w: 1200, h: 800 },
   showRulers: true,
   vectorEditId: null,
+  orbitingId: null,
   vectorSelection: [],
   showHistory: false,
   leftTab: 'layers' as const,

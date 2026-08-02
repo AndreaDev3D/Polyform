@@ -30,8 +30,15 @@
 // effects inside an isolated layer fall back (bg blur skipped, exotic blend
 // renders NORMAL).
 
-import type { NodeId, Paint, SceneNode, BlendMode, DropShadowEffect } from '../../types'
+import type { NodeId, Paint, SceneNode, BlendMode, DropShadowEffect, Model3dNode } from '../../types'
 import { isFrameLike } from '../../types'
+import {
+  getSnapshot,
+  getStaleSnapshot,
+  requestSnapshot,
+  snapshotError,
+  snapshotSpec,
+} from '../../../render3d/snapshots'
 import type { SceneGraph } from '../../scene'
 import type { Mat, AABB } from '../../geometry'
 import { IDENTITY, matMultiply } from '../../geometry'
@@ -298,6 +305,8 @@ export class WebGPURenderer {
   private textures = new Map<string, GPUTexture>()
   /** Bind groups resolved lazily at execute time against the CURRENT uniform buffer. */
   private textureBindGroups = new Map<string, GPUBindGroup>()
+  /** Last snapshot uploaded per MODEL3D node, to detect pose changes. */
+  private model3dBitmaps = new Map<string, ImageBitmap>()
 
   // Shaped text (Sprint E): glyph quads from the shared atlas
   private glyphArena = new GrowBuffer() // interleaved: x, y, u, v, color
@@ -1138,6 +1147,63 @@ export class WebGPURenderer {
     this.segments.push({ kind: 'texture', blend, uniformOffset: offset, texKey, ...loc })
   }
 
+  /**
+   * A 3D model draws as one textured quad carrying its offscreen snapshot
+   * (ADR-020). Snapshot misses fall back to the same grey placeholder the
+   * Canvas2D backend paints, and the ready notification re-bakes.
+   */
+  private bakeModel3d(node: Model3dNode, m: Mat, opacity: number, blend: number): void {
+    if (node.width <= 0 || node.height <= 0) return
+    const deviceScale = this.bakeOpts.camera.zoom * this.bakeOpts.dpr
+    const spec = node.assetHash ? snapshotSpec(node, node.width, node.height, deviceScale) : null
+    let bitmap: ImageBitmap | undefined
+    if (spec) {
+      bitmap = getSnapshot(spec)
+      if (!bitmap) {
+        requestSnapshot(spec)
+        if (!snapshotError(spec)) bitmap = getStaleSnapshot(spec)
+      }
+    }
+    if (!bitmap) {
+      // Same grey placeholder the Canvas2D backend paints on a miss.
+      this.appendSolid(
+        new Float32Array([0, 0, node.width, 0, node.width, node.height, 0, node.height]),
+        new Uint32Array([0, 1, 2, 0, 2, 3]),
+        m,
+        [0.5, 0.5, 0.5, 0.35 * opacity],
+        blend,
+      )
+      return
+    }
+
+    const texKey = `m3d:${node.id}`
+    // The snapshot for a given view is content-identical, so the node id
+    // plus the bitmap identity is enough — but the pose changes the pixels,
+    // so retire the previous texture whenever the bitmap object differs.
+    if (this.model3dBitmaps.get(texKey) !== bitmap) {
+      this.retireTexture(texKey)
+      this.ensureTexture(texKey, bitmap)
+      this.model3dBitmaps.set(texKey, bitmap)
+    }
+    this.endBatch()
+    const quad = new Float32Array([0, 0, node.width, 0, node.width, node.height, 0, node.height])
+    const quadIdx = new Uint32Array([0, 1, 2, 0, 2, 3])
+    const loc = this.appendLocalMesh(quad, quadIdx)
+    const offset = this.allocUniform(TEXTURE_UNIFORM_SIZE)
+    const f = new Float32Array(this.uniformData.buffer, offset, TEXTURE_UNIFORM_SIZE / 4)
+    f.set([m.a, m.b, m.c, m.d, m.e, m.f, opacity, 0], 0)
+    f.set([1 / node.width, 1 / node.height, 0, 0], 8)
+    f.set([1, 1, 1, 0], 12)
+    this.segments.push({ kind: 'texture', blend, uniformOffset: offset, texKey, ...loc })
+  }
+
+  /** Free a texture and its bind group so a key can be re-uploaded. */
+  private retireTexture(key: string): void {
+    this.textures.get(key)?.destroy()
+    this.textures.delete(key)
+    this.textureBindGroups.delete(key)
+  }
+
   private paintColor(paint: Extract<Paint, { type: 'SOLID' }>, opacity: number): [number, number, number, number] {
     return [
       paint.color.r,
@@ -1654,6 +1720,9 @@ export class WebGPURenderer {
         break
       case 'TEXT':
         if (this.bakeOpts.editingTextId !== node.id) this.bakeText(node, m, opacity, blend)
+        break
+      case 'MODEL3D':
+        this.bakeModel3d(node, m, opacity, blend)
         break
       default: {
         // RECTANGLE / ELLIPSE / LINE / POLYGON / STAR / VECTOR / BOOLEAN

@@ -75,6 +75,7 @@ export type MenuActionId =
   | 'file.save'
   | 'file.saveAs'
   | 'file.placeImage'
+  | 'file.placeModel'
   | 'file.importSvg'
   | 'file.exportPng'
   | 'file.exportSvg'
@@ -120,7 +121,7 @@ export interface PolyformApi {
   recentsList: () => Promise<RecentEntry[]>
   historyAppend: (label: string, opsJson: string) => Promise<number>
   historySetCursor: (cursor: number) => Promise<void>
-  assetsImportDialog: () => Promise<ImportedAsset[] | null>
+  assetsImportDialog: (kind?: 'image' | 'model') => Promise<ImportedAsset[] | null>
   assetsRead: (hash: string) => Promise<AssetData | null>
   svgImportDialog: () => Promise<{ fileName: string; text: string }[] | null>
   /** Pick a .poly bundle to attach as a library. */

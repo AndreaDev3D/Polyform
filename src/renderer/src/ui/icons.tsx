@@ -211,6 +211,13 @@ export const HistoryIcon = (p: P) => (
     <path d="M8.5 5v3l2.2 1.8M3 8H1m1.2-2.5L1 4.5m1.2 6L1 11.5" />
   </I>
 )
+export const CubeIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 1.8l5.5 3v6.4L8 14.2l-5.5-3V4.8z" />
+    <path d="M2.5 4.8L8 7.9l5.5-3.1M8 7.9v6.3" />
+  </I>
+)
+
 export const ImageIcon = (p: P) => (
   <I {...p}>
     <rect x="2" y="2.5" width="12" height="11" rx="1" />

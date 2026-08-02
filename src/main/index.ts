@@ -187,11 +187,19 @@ function registerIpc(): void {
     projects.history.setCursor(cursor)
   })
 
-  ipcMain.handle('assets:importDialog', async () => {
+  ipcMain.handle('assets:importDialog', async (_e, kind: 'image' | 'model' = 'image') => {
     if (!mainWindow || !projects.current) return null
+    const filters =
+      kind === 'model'
+        ? [
+            { name: '3D Models', extensions: ['glb', 'gltf', 'ply', 'spz', 'splat', 'ksplat', 'sog'] },
+            { name: 'Meshes (glTF)', extensions: ['glb', 'gltf'] },
+            { name: 'Gaussian Splats', extensions: ['ply', 'spz', 'splat', 'ksplat', 'sog'] },
+          ]
+        : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'] }]
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Place Image',
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'] }],
+      title: kind === 'model' ? 'Place 3D Model' : 'Place Image',
+      filters,
       properties: ['openFile', 'multiSelections'],
     })
     if (result.canceled || result.filePaths.length === 0) return null

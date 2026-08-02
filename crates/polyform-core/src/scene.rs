@@ -659,7 +659,7 @@ mod tests {
 
     fn empty_doc() -> Value {
         json!({
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "nodes": {},
             "pages": [{ "id": "p1", "name": "Page 1", "rootIds": [], "guides": [], "viewport": null }],
             "activePageId": "p1",

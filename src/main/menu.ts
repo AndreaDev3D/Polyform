@@ -21,6 +21,7 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('file.saveAs') },
         { type: 'separator' },
         { label: 'Place Image…', accelerator: 'CmdOrCtrl+Shift+K', click: () => send('file.placeImage') },
+        { label: 'Place 3D Model…', click: () => send('file.placeModel') },
         { label: 'Import SVG…', click: () => send('file.importSvg') },
         { type: 'separator' },
         { label: 'Export PNG…', accelerator: 'CmdOrCtrl+Shift+E', click: () => send('file.exportPng') },

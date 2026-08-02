@@ -77,6 +77,8 @@ export function preciseHit(scene: SceneGraph, id: NodeId, worldPt: Vec2, tolWorl
     case 'LINE':
       return distToSegment(p, { x: 0, y: 0 }, { x: node.width, y: 0 }) <= strokeTol + 2
     case 'TEXT':
+    // A model's rendered snapshot fills its box; pick it like a text block.
+    case 'MODEL3D':
       return p.x >= 0 && p.y >= 0 && p.x <= node.width && p.y <= node.height
     case 'GROUP':
       return false // groups are hit through their children

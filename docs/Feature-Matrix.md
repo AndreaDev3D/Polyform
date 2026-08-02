@@ -27,13 +27,13 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
-| [Export & Import](#export--import) | 4 | 1 | 7 | 0 | 12 |
+| [Export & Import](#export--import) | 4 | 2 | 6 | 0 | 12 |
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 1 | 1 | 2 | 4 | 8 |
-| **Total** | **131** | **21** | **59** | **23** | **234** |
+| **Total** | **131** | **22** | **58** | **23** | **234** |
 
 ---
 
@@ -268,7 +268,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
 | .fig import | Open Figma's native files | 📋 | |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
-| 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 📋 | Roadmap v0.5: models as composable canvas nodes — orbit/light a render-of-3D-in-2D for graphics, incl. gaussian splats; approach decided (ADR-020): offscreen three.js+Spark island → snapshot textures, prototype gates passing |
+| 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 🟡 | v0.5 (ADR-020): GLB meshes and gaussian splats place as MODEL3D nodes, double-click to orbit, procedural lighting presets, PNG/SVG export bake the render — all through an offscreen three.js+Spark island. Partial: SPZ v3 only (v4 pending upstream), no perf/memory gates on real multi-million-splat captures, menu-only import |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |
 
 ## Files, Data & History

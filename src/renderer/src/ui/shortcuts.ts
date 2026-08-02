@@ -35,6 +35,10 @@ export function installShortcuts(): () => void {
         interactionController.exitVectorEdit(true)
         return
       }
+      if (state.orbitingId) {
+        interactionController.exitOrbit()
+        return
+      }
       if (state.penDraft) return
       if (state.enteredContainer) {
         editor.set({ enteredContainer: null })

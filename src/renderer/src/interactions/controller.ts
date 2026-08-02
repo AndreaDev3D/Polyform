@@ -2,7 +2,7 @@
 // move (with snapping + reparenting), resize, rotate, marquee, shape drawing,
 // pen paths, text placement, panning, and wheel zoom/pan.
 
-import type { NodeId, SceneNode, Vec2, VectorNetwork, VectorNode } from '../engine/types'
+import type { ModelPose, NodeId, SceneNode, Vec2, VectorNetwork, VectorNode } from '../engine/types'
 import { createNode, isContainer, newId } from '../engine/types'
 import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, type AABB } from '../engine/geometry'
 import { documentStore } from '../state/document'
@@ -75,6 +75,7 @@ type Mode =
       startCps: Map<string, Vec2>
     }
   | { kind: 'vector-cp'; edgeIndex: number; key: 'cp0' | 'cp1' }
+  | { kind: 'orbit'; nodeId: NodeId; lastScreen: Vec2; before: ModelPose; dolly: boolean }
 
 interface PenAnchor {
   p: Vec2
@@ -199,6 +200,22 @@ export class InteractionController {
       return
     }
     if (button !== 0) return
+
+    // Orbit mode: dragging the model spins it; anything else exits.
+    if (state.orbitingId && !isDouble) {
+      const node = this.scene.getNode(state.orbitingId)
+      if (node?.type === 'MODEL3D' && state.tool === 'select' && this.hitsNode(node.id, world)) {
+        this.mode = {
+          kind: 'orbit',
+          nodeId: node.id,
+          lastScreen: screen,
+          before: { ...node.camera },
+          dolly: mods.alt,
+        }
+        return
+      }
+      this.exitOrbit()
+    }
 
     // Vector edit mode captures all primary-button interaction.
     if (state.vectorEditId) {
@@ -326,6 +343,11 @@ export class InteractionController {
       }
       if (targetNode?.type === 'VECTOR') {
         this.enterVectorEdit(target)
+        this.mode = { kind: 'idle' }
+        return
+      }
+      if (targetNode?.type === 'MODEL3D') {
+        this.enterOrbit(target)
         this.mode = { kind: 'idle' }
         return
       }
@@ -629,6 +651,24 @@ export class InteractionController {
           if (e.cp0 && cp0Start && moving.has(e.v0)) e.cp0 = { x: cp0Start.x + dx, y: cp0Start.y + dy }
           if (e.cp1 && cp1Start && moving.has(e.v1)) e.cp1 = { x: cp1Start.x + dx, y: cp1Start.y + dy }
         })
+        this.scene.bump()
+        documentStore.transient()
+        return
+      }
+      case 'orbit': {
+        const node = this.scene.getNode(this.mode.nodeId)
+        if (!node || node.type !== 'MODEL3D') return
+        const dx = screen.x - this.mode.lastScreen.x
+        const dy = screen.y - this.mode.lastScreen.y
+        this.mode.lastScreen = screen
+        if (this.mode.dolly) {
+          // Alt-drag pulls the camera in and out (multiplicative so the
+          // feel is even across scales).
+          node.camera.distance = clamp(node.camera.distance * Math.exp(dy * 0.005), 0.2, 8)
+        } else {
+          node.camera.yaw = (node.camera.yaw - dx * 0.4) % 360
+          node.camera.pitch = clamp(node.camera.pitch + dy * 0.4, -89, 89)
+        }
         this.scene.bump()
         documentStore.transient()
         return
@@ -960,6 +1000,18 @@ export class InteractionController {
       case 'vector-cp':
         this.commitVectorGesture()
         break
+      case 'orbit': {
+        const { nodeId, before } = this.mode
+        const node = this.scene.getNode(nodeId)
+        if (node?.type === 'MODEL3D' && JSON.stringify(node.camera) !== JSON.stringify(before)) {
+          documentStore.commit(
+            [{ kind: 'update', id: nodeId, before: { camera: before }, after: { camera: { ...node.camera } } }],
+            'Orbit Model',
+            true,
+          )
+        }
+        break
+      }
       case 'idle':
         break
     }
@@ -1074,6 +1126,25 @@ export class InteractionController {
   // -----------------------------------------------------------------------
 
   private gestureNetwork: VectorNetwork | null = null
+
+  /** Enter orbit mode on a 3D model (double-click, like vector edit). */
+  enterOrbit(id: NodeId): void {
+    const node = this.scene.getNode(id)
+    if (!node || node.type !== 'MODEL3D') return
+    editor.set({ orbitingId: id, selection: [id], tool: 'select' })
+  }
+
+  exitOrbit(): void {
+    if (editor.get().orbitingId) editor.set({ orbitingId: null })
+  }
+
+  /** Point-in-node test in world space (orbit hit uses the node's box). */
+  private hitsNode(id: NodeId, world: Vec2): boolean {
+    const local = applyMat(matInvert(this.scene.worldMatrix(id)), world)
+    const node = this.scene.getNode(id)
+    if (!node) return false
+    return local.x >= 0 && local.y >= 0 && local.x <= node.width && local.y <= node.height
+  }
 
   enterVectorEdit(id: NodeId): void {
     const node = this.scene.getNode(id)

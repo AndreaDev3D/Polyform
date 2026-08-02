@@ -78,6 +78,8 @@ export function migrateDocument(doc: PolyformDocument & { rootIds?: NodeId[] }):
   // v3: attached libraries (optional) + component/instance node types (new
   // fields are optional, so v2 documents need no per-node rewriting).
   if (!Array.isArray(doc.libraries)) doc.libraries = []
+  // v4: the MODEL3D node type (ADR-020). Purely additive — v3 documents
+  // contain no such nodes, so nothing needs rewriting.
   doc.schemaVersion = SCHEMA_VERSION
   return doc
 }

@@ -152,6 +152,7 @@ export type NodeType =
   | 'TEXT'
   | 'COMPONENT'
   | 'INSTANCE'
+  | 'MODEL3D'
 
 export type BlendMode =
   | 'NORMAL'
@@ -361,6 +362,53 @@ export interface TextNode extends BaseNode {
   autoResize: TextAutoResize
 }
 
+// ---------------------------------------------------------------------------
+// 3D models (v4 — ADR-020)
+// ---------------------------------------------------------------------------
+
+/** Container formats a MODEL3D asset may hold. */
+export type Model3dFormat = 'GLB' | 'PLY' | 'SPZ' | 'SPLAT' | 'KSPLAT' | 'SOG'
+
+/** Procedural lighting environments; splat formats ignore this (their
+ *  radiance is baked into the capture). */
+export type LightingPreset = 'STUDIO' | 'NEUTRAL' | 'DRAMATIC' | 'NONE'
+
+/**
+ * The orbit camera. Framing is automatic — the model's bounding sphere is
+ * fitted to the node box — so `distance` is a multiplier of that fit, and
+ * a pose stays meaningful when the node is resized or the asset swapped.
+ */
+export interface ModelPose {
+  /** Degrees around the model's up axis. */
+  yaw: number
+  /** Degrees above/below the equator, clamped to ±89.9 at render time. */
+  pitch: number
+  /** Multiplier of the auto-framed distance (1 = fitted). */
+  distance: number
+  /** Vertical field of view in degrees. */
+  fov: number
+}
+
+/**
+ * A 3D model composited as a 2D node: the offscreen island renders the
+ * posed model and the result draws like an image. Polyform stays a 2D
+ * tool — there is no mesh editing (ADR-020).
+ */
+export interface Model3dNode extends BaseNode {
+  type: 'MODEL3D'
+  /** SHA-256 content hash referencing assets/<hash>.<ext> in the bundle. */
+  assetHash: string
+  format: Model3dFormat
+  camera: ModelPose
+  lighting: LightingPreset
+  /** Splat captures are stored Y-down; false renders them unflipped. */
+  upright?: boolean
+}
+
+export function defaultPose(): ModelPose {
+  return { yaw: 25, pitch: 15, distance: 1, fov: 40 }
+}
+
 export type SceneNode =
   | FrameNode
   | GroupNode
@@ -374,6 +422,7 @@ export type SceneNode =
   | TextNode
   | ComponentNode
   | InstanceNode
+  | Model3dNode
 
 export type ContainerNode = FrameNode | GroupNode | BooleanNode | ComponentNode | InstanceNode
 
@@ -391,7 +440,8 @@ export function isContainer(node: SceneNode): node is ContainerNode {
 // Document, pages, guides, shared styles
 // ---------------------------------------------------------------------------
 
-export const SCHEMA_VERSION = 3
+/** v4 adds the MODEL3D node type (ADR-020). */
+export const SCHEMA_VERSION = 4
 
 export interface Guide {
   axis: 'x' | 'y'
@@ -612,6 +662,18 @@ export function createNode(type: NodeType, name: string): SceneNode {
         textAlignV: 'TOP',
         autoResize: 'WIDTH_AND_HEIGHT',
         fills: [solid(rgba(0, 0, 0, 1))],
+      }
+    case 'MODEL3D':
+      return {
+        ...base,
+        type,
+        assetHash: '',
+        format: 'GLB',
+        camera: defaultPose(),
+        lighting: 'STUDIO',
+        upright: true,
+        fills: [],
+        strokes: [],
       }
   }
 }

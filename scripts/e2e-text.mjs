@@ -68,7 +68,7 @@ try {
   for (let i = 0; i < 40 && !(await evaluate('!!globalThis.__polyform')); i++) await sleep(250)
   if (!(await evaluate('!!globalThis.__polyform'))) throw new Error('__polyform handle missing')
   await evaluate(`globalThis.__polyform.documentStore.loadFromResult({
-    info: { path: 'e2e-scratch.poly', manifest: { name: 'E2E', schemaVersion: 3 } },
+    info: { path: 'e2e-scratch.poly', manifest: { name: 'E2E', schemaVersion: 4 } },
     sceneBytes: null,
     journal: { entries: [], cursor: 0 },
   })`)

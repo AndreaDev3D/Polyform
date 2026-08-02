@@ -2,11 +2,17 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased — 0.5.0 "3D Model Import" (research phase)
+## Unreleased — 0.5.0 "3D Model Import"
 
-- **Rendering approach decided** (spike 6.1 → ADR-020): GLB models and PLY/SPZ gaussian splats will render in one offscreen WebGL2 island — three.js r185 for meshes/PBR + Spark 2.1 for splats, both MIT — and composite into both canvas backends as snapshot textures through the existing image path. Full landscape survey (Babylon, PlayCanvas, bare-WebGPU pipeline; SPZ v4; the Khronos KHR_gaussian_splatting standard) in [docs/research/3D-Model-Spike.md](docs/research/3D-Model-Spike.md).
-- **Prototype harness**: `POLYFORM_3D_TEST=1` renders a byte-round-tripped GLB and a synthetic 4,000-splat PLY through the real stack in the built app — parse/render/snapshot timings recorded, all pixel gates passing.
+- **Place 3D models on the canvas** (File → Place 3D Model…, ADR-020): **GLB/glTF meshes** with real PBR lighting and **gaussian splats** (`.ply`, `.spz`, `.splat`, `.ksplat`, `.sog`) become first-class `MODEL3D` nodes — content-addressed in the bundle like images, journaled and undoable like every other edit. Polyform stays a 2D tool: this is render-of-3D-in-2D for composition, not a 3D editor.
+- **Double-click a model to orbit it.** Drag spins, Alt+drag dollies, Escape leaves; the whole gesture lands as one undo entry. The Inspector exposes yaw/pitch/distance/FOV numerically, a Reset view button, four procedural lighting presets for meshes (Studio / Neutral / Dramatic / Flat — no HDRI assets ship), and an Upright toggle for splat captures.
+- **Framing is automatic**: the model's bounding sphere is fitted to the node box, so distance is a multiplier of that fit and a pose survives resizing the node or swapping the asset.
+- **Renders in both backends and both exporters**: one offscreen WebGL2 island (three.js r185 + Spark 2.1, both MIT) renders each posed model and hands a snapshot to Canvas2D (`drawImage`) or WebGPU (textured quad). PNG export bakes the finished render; SVG embeds it as a raster.
+- **Measured** (`POLYFORM_3D_TEST=1`, NVIDIA Ampere, built app, driving the real document path): first render 135 ms mesh / 117 ms splat; re-posing a cached model costs 0.3 ms of main-thread time for a mesh and one frame (16.6 ms) for splats — both clear the 30 fps orbit gate. The 11/11 GPU pixel-parity fixtures and the 100k-shapes-at-60 fps gate are unchanged, and the three+Spark chunk stays **lazy** (main bundle +25 kB).
+- **Document schema v4**: purely additive — v3 files open unchanged and gain nothing but a version stamp. `docs/schema.fbs` tracks the new node, formats, and pose struct.
 - Renderer CSP now allows self-contained `data:`/`blob:` content (`connect-src`, explicit `worker-src`) — required by Spark's inlined WASM and blob-spawned sort worker; no network surface widened.
+- Known gaps, tracked for 6.4: Spark reads SPZ **v3** (v4 shipped upstream May 2026), multi-million-splat captures have no measured memory ceiling yet, and model import is menu-only (no drag-and-drop — images have none either).
+- Research: full landscape survey (Babylon, PlayCanvas, bare-WebGPU pipeline; SPZ v4; Khronos KHR_gaussian_splatting) in [docs/research/3D-Model-Spike.md](docs/research/3D-Model-Spike.md).
 
 ## 0.4.1 — Image Background Removal (2026-08-02)
 

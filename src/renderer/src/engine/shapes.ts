@@ -225,6 +225,7 @@ export function nodeOutline(node: SceneNode): SubPath[] {
     case 'TEXT':
     case 'GROUP':
     case 'BOOLEAN':
+    case 'MODEL3D':
       return [
         {
           closed: true,
@@ -265,6 +266,7 @@ function wasmNodeOutline(node: SceneNode): SubPath[] {
     case 'TEXT':
     case 'GROUP':
     case 'BOOLEAN':
+    case 'MODEL3D':
       // Zero radii take the plain 4-anchor rectangle path in Rust, matching
       // the inline TS branch above.
       return decodeSubPaths(w.roundedRectPath(node.width, node.height, 0, 0, 0, 0))

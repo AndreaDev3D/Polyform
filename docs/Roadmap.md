@@ -1,7 +1,7 @@
 # Polyform Roadmap
 
 **Status:** Living document — updated as milestones land.
-**Last updated:** 2026-08-02 (v0.4.0 shipped; v0.4.1 built awaiting acceptance; v0.5 spike 6.1 decided — ADR-020)
+**Last updated:** 2026-08-02 (v0.4.1 released; v0.5 spike 6.1 decided and items 6.2/6.3 shipped — ADR-020)
 
 Polyform is a local-first, open-source desktop vector design tool. This roadmap lays out the phased delivery plan with per-item effort estimates and dependencies: **v0.2 ✓ → v0.3 ✓ → v0.4 Performance Core (in progress) → v0.4.1 Background Removal → v0.5 3D Model Import → v0.6 Agent Connectivity (MCP + CLI) → v1.0 Distribution**. The three phases between v0.4 and v1.0 are committed in intent but deliberately unspecified — each opens with a research spike that picks the best implementation and records it as an ADR before code is written. (Item ids are stable labels, not phase order: v1.0 keeps its historical 5.x ids.)
 
@@ -119,7 +119,7 @@ Goal: design-systems features — reuse, libraries, and history you can see. Sti
 
 ## v0.4 — Performance Core
 
-> **Preparation:** the concrete execution plan — module inventory with port priorities, the three API contracts, WASM embedding rules, verification gates and sprint sequencing — lives in [V0.4-Porting-Plan.md](V0.4-Porting-Plan.md). The current object model the Rust core must implement is [schema.fbs](schema.fbs) (document schema v3).
+> **Preparation:** the concrete execution plan — module inventory with port priorities, the three API contracts, WASM embedding rules, verification gates and sprint sequencing — lives in [V0.4-Porting-Plan.md](V0.4-Porting-Plan.md). The current object model the Rust core must implement is [schema.fbs](schema.fbs) (document schema v3 at the time; v4 added MODEL3D nodes in v0.5).
 >
 > **Status — Sprints A–E shipped (2026-08-01):** The full engine surface (4.1 geometry incl. lyon tessellation, 4.2 exact CSG — 2.02x faster than polygon-clipping and default, plus scene/commands/constraints/hit-test/components/layout/serialization) has fuzz-proven Rust twins behind the per-module backend switch (ADR-015); spatial index, booleans and text shaping run on Rust by default. **4.4 (WebGPU) shipped as a beta, complete with the effects/blend compositor**: 11/11 pixel-parity fixtures incl. shadows, blurs, all 16 blend modes and shaped text (ADR-016/017), and the **100k-shapes-at-60fps exit test passing**. **4.5 (text stack) shipped**: rustybuzz shaping + engine layout + the WebGPU glyph atlas (ADR-018, closes F-02's core). **v0.4.0 closed 2026-08-02** with the `color.ts` parity port; the 4.3/4.6 worker/scene-memory flip is **deferred with a written trigger** (profiled edit stalls on real documents, or v0.5's 3D pipeline demanding renderer-side workers) and a precondition (op-coverage audit) — details in [V0.4-Porting-Plan.md](V0.4-Porting-Plan.md). Exit criteria met: 100k-shape scenes verified at 60fps, byte-compatible round-tripping proven by the serialization parity gates.
 
@@ -168,11 +168,11 @@ Goal: place 3D models on the canvas as first-class nodes — orbit them into the
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
 | 6.1 | **Research spike: rendering approach** | **M** | v0.4 WebGPU backend | ✅ **Done (2026-08-02)** — comparison in [research/3D-Model-Spike.md](research/3D-Model-Spike.md), decision in ADR-020: one offscreen WebGL2 island (three.js r185 for GLB + Spark 2.1 for PLY/SPZ, both MIT) rendering on demand; both `IRenderer` backends composite snapshot textures through the existing image path. Prototype committed as the `POLYFORM_3D_TEST=1` harness — all pixel gates pass in the built app; bare-WebGPU-pipeline and Babylon/PlayCanvas alternatives recorded with rationale. |
-| 6.2 | **MODEL3D node type (schema v4)** | **L** | 6.1 | Node = content-addressed model asset (same `assets/` SHA-256 story as images) + camera orbit/FOV + lighting preset; v3→v4 migration; all edits journaled PatchOps like any node. |
-| 6.3 | **GLB rendering + orbit interaction** | **L** | 6.2 | Double-click to orbit (enter/exit like vector-edit mode), PBR-lite lighting presets; PNG export bakes the render; SVG export embeds the raster. |
-| 6.4 | **PLY / SPZ gaussian splats** | **L** | 6.3 | SPZ decode, splat sorting/perf gates on real captures; documented memory limits. |
+| 6.2 | **MODEL3D node type (schema v4)** | **L** | 6.1 | ✅ **Shipped (2026-08-02)** — node carries the content-addressed asset hash, container format, orbit pose (framing automatic, distance a multiplier of the fit), lighting preset and splat `upright` flag; v3→v4 migration is doc-level only (additive); edits journal as ordinary PatchOps. |
+| 6.3 | **GLB rendering + orbit interaction** | **L** | 6.2 | ✅ **Shipped (2026-08-02)** — double-click to orbit (drag spins, Alt+drag dollies, Escape exits, one undo entry per gesture), four procedural lighting presets, Inspector pose fields; PNG export bakes the render, SVG embeds the raster. Measured: 0.3 ms per mesh re-pose, 16.6 ms per splat re-pose (30 fps gate cleared). |
+| 6.4 | **PLY / SPZ gaussian splats** | **L** | 6.3 | 🟡 **Partial** — all Spark formats (`.ply`, `.spz`, `.splat`, `.ksplat`, `.sog`) load, render and orbit today, gated on a synthetic capture. Remaining: **SPZ v4** (Spark reads v3; upstream shipped v4 in May 2026 — fallbacks are Niantic's MIT `spz` or Spark's own `transcodeSpz`), perf/memory gates on real multi-million-splat captures, and a documented ceiling with graceful degradation. |
 
-**Exit criteria:** drop a GLB and an SPZ into a document, pose them, composite vector/text on top, export a PNG — and reopening the `.poly` bundle reproduces the exact render.
+**Exit criteria:** drop a GLB and an SPZ into a document, pose them, composite vector/text on top, export a PNG — and reopening the `.poly` bundle reproduces the exact render. **Met for meshes and synthetic splats; the remaining gate is 6.4's real-capture perf/memory work.**
 
 ---
 

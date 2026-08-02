@@ -15,6 +15,7 @@ import {
   EyeOffIcon,
   FrameIcon,
   GroupIcon,
+  CubeIcon,
   ImageIcon,
   LineIcon,
   LockIcon,
@@ -122,6 +123,8 @@ function typeIcon(node: SceneNode) {
       return <ComponentIcon width={12} height={12} />
     case 'INSTANCE':
       return <InstanceIcon width={12} height={12} />
+    case 'MODEL3D':
+      return <CubeIcon width={12} height={12} />
   }
 }
 

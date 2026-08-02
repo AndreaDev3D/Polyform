@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 
 pub const MAGIC: [u8; 4] = [0x50, 0x46, 0x52, 0x4d]; // "PFRM"
 pub const FORMAT_MSGPACK: u8 = 1;
-pub const SCHEMA_VERSION: u64 = 3;
+pub const SCHEMA_VERSION: u64 = 4;
 
 #[derive(Debug)]
 pub enum SceneDecodeError {
@@ -157,6 +157,8 @@ pub fn migrate_document(mut doc: Value) -> Value {
     if !obj.get("libraries").map(Value::is_array).unwrap_or(false) {
         obj.insert("libraries".into(), Value::Array(Vec::new()));
     }
+    // v4: the MODEL3D node type (ADR-020). Purely additive — v3 documents
+    // contain no such nodes, so nothing needs rewriting.
     obj.insert("schemaVersion".into(), Value::from(SCHEMA_VERSION));
     doc
 }
@@ -169,7 +171,7 @@ mod tests {
     #[test]
     fn roundtrip_preserves_document() {
         let doc = json!({
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "nodes": { "r1": { "id": "r1", "type": "RECTANGLE", "x": 0.5, "width": 100 } },
             "pages": [{ "id": "p1", "name": "Page 1", "rootIds": ["r1"], "guides": [], "viewport": null }],
             "activePageId": "p1",
@@ -191,7 +193,7 @@ mod tests {
             "rootIds": ["a", "b"]
         });
         let migrated = migrate_document(doc);
-        assert_eq!(migrated["schemaVersion"], json!(3));
+        assert_eq!(migrated["schemaVersion"], json!(4));
         assert_eq!(migrated["pages"][0]["rootIds"], json!(["a", "b"]));
         assert_eq!(migrated["activePageId"], migrated["pages"][0]["id"]);
         assert!(migrated.get("rootIds").is_none());

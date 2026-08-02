@@ -1,5 +1,5 @@
 // Polyform scene graph — FlatBuffers target schema, tracking document
-// schema v3 (v0.3.0). This is the source of truth for the planned
+// schema v4 (v0.5). This is the source of truth for the planned
 // FlatBuffers migration (ADR-004) and the reference object model for the
 // v0.4 Rust core (see V0.4-Porting-Plan.md). scene.bin currently ships as a
 // MessagePack envelope: bytes "PFRM" + format byte 0x01 + msgpack payload
@@ -23,7 +23,36 @@ enum NodeType : byte {
   VectorPath,
   Text,
   Component,   // v3: main component (frame semantics + provenance)
-  Instance     // v3: materialized instance of a component
+  Instance,    // v3: materialized instance of a component
+  Model3d      // v4: 3D model composited as a 2D node (ADR-020)
+}
+
+// v4: container format of a MODEL3D asset.
+enum Model3dFormat : byte {
+  Glb,
+  Ply,
+  Spz,
+  Splat,
+  Ksplat,
+  Sog
+}
+
+// v4: procedural lighting environment (splat formats ignore it — their
+// radiance is baked into the capture).
+enum LightingPreset : byte {
+  Studio,
+  Neutral,
+  Dramatic,
+  None
+}
+
+// v4: orbit camera. Framing is automatic (the model's bounding sphere is
+// fitted to the node box), so distance is a multiplier of that fit.
+struct ModelPose {
+  yaw: float;        // degrees around the up axis
+  pitch: float;      // degrees above/below the equator, clamped to +-89.9
+  distance: float;   // multiplier of the auto-framed distance
+  fov: float;        // vertical field of view, degrees
 }
 
 enum BooleanOp : byte { Union, Subtract, Intersect, Exclude }
@@ -220,6 +249,13 @@ table Node {
   synced_hash: string;              // Instance sync cache (engine-internal)
   origin: LibraryOrigin;            // Component imported from a library
   description: string;              // Component
+
+  // v4 additions (Model3d — ADR-020)
+  model_asset_hash: string;         // Model3d -> assets/<sha256>.<ext>
+  model_format: Model3dFormat;      // Model3d
+  model_camera: ModelPose;          // Model3d
+  model_lighting: LightingPreset;   // Model3d
+  model_upright: bool = true;       // Model3d (splat captures are Y-down)
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +321,7 @@ table AttachedLibrary {
 }
 
 table SceneGraph {
-  schema_version: uint32;   // 3 as of v0.3.0 (v1: single-page; v2: +pages/styles/constraints/effects; v3: +components/libraries)
+  schema_version: uint32;   // 4 as of v0.5 (v1: single-page; v2: +pages/styles/constraints/effects; v3: +components/libraries; v4: +MODEL3D nodes)
   nodes: [Node];
   pages: [Page];
   active_page_id: string;

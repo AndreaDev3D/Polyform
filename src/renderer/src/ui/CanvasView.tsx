@@ -13,6 +13,7 @@ import { WebGPURenderer } from '../engine/render/webgpu/renderer'
 import { drawOverlays, screenToWorld } from '../engine/render/overlays'
 import { assetCache } from '../engine/assets'
 import { onFontsChanged } from '../engine/fontstore'
+import { onSnapshotChange } from '../render3d/snapshots'
 import { documentStore } from '../state/document'
 import { editor, useEditor } from '../state/editor'
 import { interactionController } from '../interactions/controller'
@@ -64,6 +65,11 @@ export function CanvasView() {
       gpu?.invalidate()
       markDirty()
     }
+    // 3D snapshots land asynchronously like image decodes (ADR-020).
+    const unsubModels = onSnapshotChange(() => {
+      gpu?.invalidate()
+      markDirty()
+    })
     // Font bytes arriving flips text nodes from the legacy path to shaped
     // layout: re-run derived passes (auto-resize re-measures) and repaint.
     const unsubFonts = onFontsChanged(() => {
@@ -163,6 +169,7 @@ export function CanvasView() {
       cancelAnimationFrame(raf)
       ro.disconnect()
       unsubFonts()
+      unsubModels()
       unsubDoc()
       unsubEditor()
       container.removeEventListener('wheel', onWheel)

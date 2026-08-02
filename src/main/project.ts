@@ -48,6 +48,15 @@ const MIME_BY_EXT: Record<string, string> = {
   svg: 'image/svg+xml',
   bmp: 'image/bmp',
   avif: 'image/avif',
+  // 3D model containers (v0.5, ADR-020). The renderer parses these itself;
+  // the mime types are informational (glTF-Binary is registered, the splat
+  // formats have none).
+  glb: 'model/gltf-binary',
+  ply: 'application/octet-stream',
+  spz: 'application/octet-stream',
+  splat: 'application/octet-stream',
+  ksplat: 'application/octet-stream',
+  sog: 'application/octet-stream',
 }
 
 export class ProjectManager {

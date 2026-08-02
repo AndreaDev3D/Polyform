@@ -2,7 +2,7 @@
 // everything paints into a GPU-composited <canvas>. The draw path is kept
 // behind plain functions so a WebGPU backend can replace it (ADR-003).
 
-import type { NodeId, Paint, SceneNode, BlendMode } from '../types'
+import type { NodeId, Paint, SceneNode, BlendMode, Model3dNode } from '../types'
 import { isContainer } from '../types'
 import type { SceneGraph } from '../scene'
 import type { SpatialIndex } from '../spatial-index'
@@ -15,6 +15,13 @@ import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
 import type { AssetCache } from '../assets'
+import {
+  getSnapshot,
+  getStaleSnapshot,
+  requestSnapshot,
+  snapshotError,
+  snapshotSpec,
+} from '../../render3d/snapshots'
 
 export interface Camera {
   /** World coordinate at the viewport's top-left. */
@@ -377,6 +384,61 @@ export function drawTextInto(
   drawText(ctx, node)
 }
 
+/**
+ * Draw a 3D model's offscreen render (ADR-020). Snapshots resolve
+ * asynchronously like image decodes: a miss paints a placeholder and
+ * requests the render, and the ready notification triggers a redraw.
+ */
+export function drawModel3d(
+  ctx: CanvasRenderingContext2D,
+  node: Model3dNode,
+  deviceScale: number,
+): void {
+  const w = node.width
+  const h = node.height
+  if (w <= 0 || h <= 0) return
+  if (!node.assetHash) {
+    drawModelPlaceholder(ctx, w, h, 'No model')
+    return
+  }
+  const spec = snapshotSpec(node, w, h, deviceScale)
+  const ready = getSnapshot(spec)
+  if (ready) {
+    ctx.drawImage(ready, 0, 0, w, h)
+    return
+  }
+  requestSnapshot(spec)
+  const err = snapshotError(spec)
+  if (err) {
+    drawModelPlaceholder(ctx, w, h, err)
+    return
+  }
+  // A previous pose renders stretched until the exact view lands: far less
+  // jarring than a grey box while orbiting or zooming.
+  const stale = getStaleSnapshot(spec)
+  if (stale) ctx.drawImage(stale, 0, 0, w, h)
+  else drawModelPlaceholder(ctx, w, h, null)
+}
+
+function drawModelPlaceholder(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  message: string | null,
+): void {
+  ctx.save()
+  ctx.fillStyle = 'rgba(128,128,128,0.35)'
+  ctx.fillRect(0, 0, w, h)
+  if (message) {
+    ctx.fillStyle = 'rgba(255,255,255,0.75)'
+    ctx.font = `${Math.max(8, Math.min(14, h / 8))}px sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(message, w / 2, h / 2, w * 0.9)
+  }
+  ctx.restore()
+}
+
 /** Node-local Path2D used when this node acts as a mask. */
 function maskPathFor(scene: SceneGraph, node: SceneNode): Path2D {
   if (node.type === 'BOOLEAN') return ringsToPath2D(booleanRings(scene, node))
@@ -466,6 +528,10 @@ function drawNode(
     }
     case 'TEXT': {
       if (opts.editingTextId !== node.id) drawText(ctx, node)
+      break
+    }
+    case 'MODEL3D': {
+      drawModel3d(ctx, node, deviceScale)
       break
     }
     case 'LINE': {

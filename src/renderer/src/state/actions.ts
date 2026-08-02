@@ -8,6 +8,8 @@ import type {
   DocumentStyles,
   Effect,
   FrameNode,
+  Model3dFormat,
+  Model3dNode,
   NodeId,
   Paint,
   SceneNode,
@@ -913,6 +915,64 @@ export async function placeImages(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 3D models (roadmap 6.2, ADR-020)
+// ---------------------------------------------------------------------------
+
+const MODEL_FORMAT_BY_EXT: Record<string, Model3dFormat> = {
+  glb: 'GLB',
+  gltf: 'GLB',
+  ply: 'PLY',
+  spz: 'SPZ',
+  splat: 'SPLAT',
+  ksplat: 'KSPLAT',
+  sog: 'SOG',
+}
+
+export async function placeModels(): Promise<void> {
+  const assets = await window.polyform.assetsImportDialog('model')
+  if (!assets || assets.length === 0) return
+  const scene = documentStore.scene
+  const { camera, viewportSize } = editor.get()
+  const centerWorld = {
+    x: camera.x + viewportSize.w / (2 * camera.zoom),
+    y: camera.y + viewportSize.h / (2 * camera.zoom),
+  }
+  const rec = new OpRecorder()
+  const created: NodeId[] = []
+  let offset = 0
+  for (const asset of assets) {
+    const format = MODEL_FORMAT_BY_EXT[asset.ext.toLowerCase()]
+    if (!format) continue
+    // A model has no intrinsic pixel size: the render is framed to the node
+    // box, so start from a square at 40% of the viewport's short side.
+    const side = Math.min(viewportSize.w / camera.zoom, viewportSize.h / camera.zoom) * 0.4
+    const node = createNode('MODEL3D', asset.fileName.replace(/\.[^.]+$/, '')) as Model3dNode
+    node.width = side
+    node.height = side
+    node.x = centerWorld.x - side / 2 + offset
+    node.y = centerWorld.y - side / 2 + offset
+    node.assetHash = asset.hash
+    node.format = format
+    const dropFrame = findDropFrame(scene, documentStore.index, {
+      x: node.x + side / 2,
+      y: node.y + side / 2,
+    })
+    if (dropFrame) {
+      const inv = matInvert(scene.worldMatrix(dropFrame))
+      const local = applyMat(inv, { x: node.x, y: node.y })
+      node.x = local.x
+      node.y = local.y
+    }
+    rec.add(node, dropFrame, scene.childListOf(dropFrame).length)
+    created.push(node.id)
+    offset += 24
+  }
+  if (created.length === 0) return
+  rec.commit(created.length === 1 ? 'Place 3D Model' : `Place ${created.length} 3D Models`)
+  setSelection(created)
+}
+
+// ---------------------------------------------------------------------------
 // Components & instances (roadmap 3.1)
 // ---------------------------------------------------------------------------
 
@@ -1293,6 +1353,9 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'file.placeImage':
       void placeImages()
+      break
+    case 'file.placeModel':
+      void placeModels()
       break
     case 'file.importSvg':
       void importSvgFlow()

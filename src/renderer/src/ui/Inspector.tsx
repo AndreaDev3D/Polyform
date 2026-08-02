@@ -14,13 +14,17 @@ import type {
   GradientPaint,
   ImagePaint,
   InstanceNode,
+  LightingPreset,
+  Model3dNode,
+  ModelPose,
   NodeId,
   Paint,
   RGBA,
   SceneNode,
   TextNode,
 } from '../engine/types'
-import { solid } from '../engine/types'
+import { defaultPose, solid } from '../engine/types'
+import { isSplatFormat } from '../render3d/island'
 import { documentStore, useDocVersion } from '../state/document'
 import { useEditor } from '../state/editor'
 import {
@@ -211,6 +215,7 @@ export function Inspector() {
   const isBool = nodes.every((n) => n.type === 'BOOLEAN')
   const isPolygon = nodes.every((n) => n.type === 'POLYGON')
   const isStar = nodes.every((n) => n.type === 'STAR')
+  const isModel3d = nodes.length === 1 && first.type === 'MODEL3D'
 
   return (
     <div className="w-72 shrink-0 bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto select-none">
@@ -292,6 +297,13 @@ export function Inspector() {
           </div>
         )}
       </Section>
+
+      {/* 3D model (v0.5, ADR-020) */}
+      {isModel3d && first.type === 'MODEL3D' && (
+        <Section title="3D Model">
+          <Model3dSection node={first} />
+        </Section>
+      )}
 
       {/* Instance */}
       {isInstance && first.type === 'INSTANCE' && (
@@ -857,6 +869,66 @@ function GradientStopsBar({
 }
 
 /** Instance controls: component link, swap, reset overrides, detach. */
+/**
+ * Orbit + lighting for a MODEL3D node (ADR-020). Framing is automatic, so
+ * distance is a multiplier of the fit — a pose survives resizing the node
+ * or swapping the asset.
+ */
+function Model3dSection({ node }: { node: Model3dNode }) {
+  const cam = node.camera
+  const splat = isSplatFormat(node.format)
+  const setCam = (patch: Partial<ModelPose>, label: string) =>
+    updateSelectedNodes((n) => ({ camera: { ...(n as Model3dNode).camera, ...patch } }), label)
+  return (
+    <div>
+      <div className="text-[10px] text-[var(--pf-text-dim)] mb-2">
+        {node.format}
+        {splat ? ' · gaussian splats' : ' · mesh'}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberInput label="Yaw" value={round(cam.yaw)} onCommit={(v) => setCam({ yaw: v }, 'Orbit Model')} />
+        <NumberInput label="Pitch" value={round(cam.pitch)} min={-89} max={89} onCommit={(v) => setCam({ pitch: v }, 'Orbit Model')} />
+        <NumberInput label="Dist" value={round(cam.distance * 100) / 100} min={0.2} max={8} step={0.05} onCommit={(v) => setCam({ distance: v }, 'Zoom Model')} />
+        <NumberInput label="FOV" value={round(cam.fov)} min={5} max={110} onCommit={(v) => setCam({ fov: v }, 'Set Model FOV')} />
+      </div>
+      <button
+        className="pf-btn w-full bg-[var(--pf-bg-3)] text-[10px] mt-2"
+        onClick={() => updateSelectedNodes(() => ({ camera: defaultPose() }), 'Reset Model View')}
+      >
+        Reset view
+      </button>
+      {!splat && (
+        <div className="mt-2">
+          <div className="text-[10px] text-[var(--pf-text-dim)] mb-1">Lighting</div>
+          <Select<LightingPreset>
+            value={node.lighting}
+            options={[
+              { value: 'STUDIO', label: 'Studio' },
+              { value: 'NEUTRAL', label: 'Neutral' },
+              { value: 'DRAMATIC', label: 'Dramatic' },
+              { value: 'NONE', label: 'Flat' },
+            ]}
+            onChange={(v) => updateSelectedNodes(() => ({ lighting: v }), 'Set Model Lighting')}
+          />
+        </div>
+      )}
+      {splat && (
+        <label className="flex items-center gap-1.5 mt-2 text-[10px] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={node.upright ?? true}
+            onChange={(e) => updateSelectedNodes(() => ({ upright: e.target.checked }), 'Flip Model Up Axis')}
+          />
+          Upright (flip captured Y axis)
+        </label>
+      )}
+      <div className="text-[10px] text-[var(--pf-text-dim)] mt-2">
+        Double-click the model on canvas to orbit it.
+      </div>
+    </div>
+  )
+}
+
 function InstanceSection({ instance }: { instance: InstanceNode }) {
   const scene = documentStore.scene
   const comp = instance.componentId ? scene.getNode(instance.componentId) : null

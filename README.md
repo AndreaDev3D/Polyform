@@ -4,7 +4,7 @@
 
 Polyform is a Figma-style design editor that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
-> Status: **v0.4.1 shipped** — offline, on-device image background removal (BiRefNet on the GPU, MIT-licensed, non-destructive) on top of v0.4.0 "Performance Core", where every portable engine module gained a fuzz-proven Rust/WASM twin (spatial index, exact-CSG booleans and rustybuzz text shaping run on Rust by default) and a WebGPU renderer beta (View → GPU Rendering) pans **100,000 shapes at 60fps** with 11/11 pixel-parity fixtures against the Canvas2D reference — effects, all 16 blend modes and shaped text included ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). Next up: v0.5 3D model import (GLB + gaussian splats — [rendering approach decided](docs/research/3D-Model-Spike.md)), then v0.6 agent connectivity (MCP + CLI), each opening with a research spike ([docs/Roadmap.md](docs/Roadmap.md)). See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
+> Status: **v0.4.1 shipped** — offline, on-device image background removal (BiRefNet on the GPU, MIT-licensed, non-destructive) on top of v0.4.0 "Performance Core", where every portable engine module gained a fuzz-proven Rust/WASM twin (spatial index, exact-CSG booleans and rustybuzz text shaping run on Rust by default) and a WebGPU renderer beta (View → GPU Rendering) pans **100,000 shapes at 60fps** with 11/11 pixel-parity fixtures against the Canvas2D reference — effects, all 16 blend modes and shaped text included ([docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md)). **v0.5 is underway**: GLB models and gaussian splats now place on the canvas as posable nodes ([ADR-020](docs/Architecture-Decisions.md)). Next: v0.6 agent connectivity (MCP + CLI), opening with a research spike ([docs/Roadmap.md](docs/Roadmap.md)). See [docs/Feature-Matrix.md](docs/Feature-Matrix.md) for exactly what's implemented, partial, and planned.
 
 ## Highlights
 
@@ -15,6 +15,7 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 - **Canvas-rendered scene** — shapes are never DOM or SVG nodes; everything paints through a GPU-composited canvas pipeline behind a renderer interface (WebGPU backend is the v0.4 track).
 - **Rust/WASM engine core** — the full engine surface (geometry, outlines, spatial index, exact-CSG booleans, scene graph + command engine, constraints, hit-testing, components/layout passes, serialization, text shaping) has Rust twins in `crates/polyform-core`, held equivalent to the TypeScript engine by differential fuzz suites; the spatial index, boolean CSG and text shaping run on Rust by default. The TS engine remains the reference implementation and automatic fallback.
 - **Real text shaping** — rustybuzz (the pure-Rust HarfBuzz port) shapes text in the engine: kerning and ligatures from the font's own tables, deterministic layout pinned to the shipped engine (not the browser version), fonts read directly from the OS via the Local Font Access API. Both renderers draw the same positioned glyphs; the WebGPU backend batches them from a shared glyph atlas.
+- **3D models on the canvas** — place a GLB mesh or a gaussian splat capture (`.ply`/`.spz`/`.splat`/`.ksplat`/`.sog`), double-click to orbit it, pick a lighting preset, and composite vectors and text on top. Rendered offscreen by three.js + Spark and exported into your PNGs and SVGs. Render-of-3D-in-2D — Polyform stays a 2D tool.
 - **On-device background removal** — one click cuts the subject out of an image fill using a local AI model (BiRefNet, MIT-licensed) on the GPU. The model downloads once with explicit consent and everything runs offline forever after — no cloud APIs, non-destructive, fully undoable with "Restore original".
 - **WebGPU rendering (beta)** — View → GPU Rendering switches the scene onto a lyon-tessellated, batched WebGPU pipeline: **100,000 shapes pan at 60fps** (verified by the in-app harness), with 9/9 pixel-parity fixtures against the Canvas2D reference — including drop/inner shadows, layer & background blur, and all 16 blend modes through a bake-time effects compositor (ADR-017). Canvas2D remains the default renderer.
 - **R-tree spatial indexing** for fast hit-testing and viewport culling.
@@ -56,7 +57,7 @@ MyDesign.poly/
 ├── scene.bin           # binary scene graph (PFRM envelope, MessagePack payload)
 ├── history.sqlite      # undo/redo journal — standard SQLite, survives restarts
 ├── thumbnail.png       # rendered preview
-└── assets/             # images, deduplicated by SHA-256
+└── assets/             # images and 3D models, deduplicated by SHA-256
     └── e3b0c44298fc…855.png
 ```
 
@@ -69,11 +70,11 @@ Copying the folder copies the entire project — shapes, history, and assets inc
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
 | [Feature-Matrix.md](docs/Feature-Matrix.md) | 234-row Figma parity matrix with honest statuses (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v0.4.1 background removal → v0.5 3D model import → v0.6 agent connectivity (MCP + CLI) → v1.0 distribution |
-| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…019: every load-bearing decision and its replacement trigger |
+| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…020: every load-bearing decision and its replacement trigger |
 | [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-18 with severities and mitigations |
 | [V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md) | Rust/WASM + WebGPU port: module inventory, API contracts, verification gates |
 | [Plugin-API.md](docs/Plugin-API.md) | Plugin dev preview API + post-1.0 sandbox design |
-| [schema.fbs](docs/schema.fbs) | Scene object model (schema v3) — FlatBuffers target & Rust struct reference |
+| [schema.fbs](docs/schema.fbs) | Scene object model (schema v4) — FlatBuffers target & Rust struct reference |
 | [Product-Overview.md](docs/Product-Overview.md) | Original product vision (historical) |
 | [Technical-Specification.md](docs/Technical-Specification.md) | Original architecture spec (historical) |
 

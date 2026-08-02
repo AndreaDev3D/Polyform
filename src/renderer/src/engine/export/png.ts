@@ -5,6 +5,7 @@ import type { SceneGraph } from '../scene'
 import type { SpatialIndex } from '../spatial-index'
 import type { AssetCache } from '../assets'
 import { renderNodesToCanvas } from '../render/canvas2d'
+import { hasPendingSnapshots, settleSnapshots } from '../../render3d/snapshots'
 
 export async function exportPng(
   scene: SceneGraph,
@@ -14,8 +15,14 @@ export async function exportPng(
   assets: AssetCache,
   background: string | null = null,
 ): Promise<Uint8Array | null> {
-  const canvas = renderNodesToCanvas(scene, index, ids, scale, assets, background)
+  let canvas = renderNodesToCanvas(scene, index, ids, scale, assets, background)
   if (!canvas) return null
+  // 3D snapshots resolve asynchronously (ADR-020): the first pass queues
+  // them and paints placeholders, so re-render once they have landed.
+  if (hasPendingSnapshots()) {
+    await settleSnapshots()
+    canvas = renderNodesToCanvas(scene, index, ids, scale, assets, background) ?? canvas
+  }
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) return null
   return new Uint8Array(await blob.arrayBuffer())

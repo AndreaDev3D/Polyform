@@ -10,6 +10,7 @@ import { nodeOutline, subPathsToSvg } from '../shapes'
 import { booleanRings } from '../booleans'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
+import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
 
 type BytesFetcher = (hash: string) => Promise<{ bytes: Uint8Array; mime: string } | null>
 
@@ -185,6 +186,20 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
 
   if (node.type === 'TEXT') {
     return textToSvg(ctx, node, common, tf)
+  }
+
+  if (node.type === 'MODEL3D') {
+    // A model exports as its rendered raster (ADR-020): SVG has no way to
+    // describe the 3D scene, and the bundle keeps the source asset.
+    if (!node.assetHash) return ''
+    const png = await snapshotPng(snapshotSpec(node, node.width, node.height, 2))
+    if (!png) return ''
+    let binary = ''
+    for (let i = 0; i < png.length; i += 8192) {
+      binary += String.fromCharCode(...png.subarray(i, Math.min(i + 8192, png.length)))
+    }
+    const href = `data:image/png;base64,${btoa(binary)}`
+    return `<g${tf}${common}><image href="${href}" x="0" y="0" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="none"/></g>`
   }
 
   const d = subPathsToSvg(nodeOutline(node))
