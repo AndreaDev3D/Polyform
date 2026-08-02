@@ -10,6 +10,12 @@ import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './b
 import { listRecents, pushRecent } from './recents'
 import { installMenu } from './menu'
 
+// NOTE: do NOT force-enable SharedArrayBuffer here. It sounds like a free
+// win (threaded WASM inference), but ort's threaded runtime then uses
+// SHARED wasm memory whose growth ceiling is lower than non-shared memory
+// — large models (BiRefNet-class) hit std::bad_alloc even at one thread,
+// while the non-shared build fits. Measured 2026-08-02 (ADR-019).
+
 const projects = new ProjectManager()
 let mainWindow: BrowserWindow | null = null
 let isDirty = false

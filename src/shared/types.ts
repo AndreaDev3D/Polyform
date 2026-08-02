@@ -133,7 +133,7 @@ export interface PolyformApi {
   /** Write renderer-produced bytes as a content-addressed project asset. */
   assetsWrite: (bytes: Uint8Array, ext: string) => Promise<{ hash: string; mime: string } | null>
   /** Background-removal model (v0.4.1): consent-gated one-time download. */
-  bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number }>
+  bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number; inputSize: number }>
   bgModelEnsure: () => Promise<{ ok: boolean; error?: string }>
   bgModelRead: () => Promise<Uint8Array | null>
   bgOrtRuntime: () => Promise<{ mjs: Uint8Array; wasm: Uint8Array } | null>

@@ -166,7 +166,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Image fills | Bitmap as a fill paint | ✅ | Content-addressed assets, deduplicated |
 | Image fill modes | Fill / Fit / Crop / Tile scaling modes | 🟡 | FILL, FIT, TILE, STRETCH shipped; Figma-style CROP awaits image crop tooling |
 | Image crop & adjust | Crop plus exposure/contrast/saturation sliders | ✅ | Non-destructive crop rect + exposure/contrast/saturation on image fills |
-| Image background removal | One-click AI subject cutout | 🟡 | Shipped (ADR-019): on-device ISNet, consent-gated one-time download, fully offline after, non-destructive + Restore original; 🟡 until the WebGPU EP lands (~12.5s on wasm today) and real-photo quality is validated |
+| Image background removal | One-click AI subject cutout | 🟡 | Shipped (ADR-019): on-device BiRefNet (MIT, RMBG-2.0's architecture) on the WebGPU EP ~5s, consent-gated one-time download (~473 MB), fully offline after, non-destructive + Restore original; 🟡 pending user re-acceptance on real images |
 | Video fills | Video as a fill paint | ❌ | Out of scope |
 | Stroke color & weight | Per-object stroke paint and thickness | ✅ | |
 | Stroke align: center | Stroke centered on the path | ✅ | |

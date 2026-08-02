@@ -51,16 +51,22 @@ read (`ArrayBuffer` transfer), shipped asar-unpacked like the sql.js wasm.
 
 ## Decision (ADR-019)
 
-> **Amended at implementation (2026-08-02), two changes:** (1) distribution
+> **Amended at implementation (2026-08-02), three changes:** (1) distribution
 > flipped to **consent-gated download-on-first-use** on user direction —
-> installer stays slim, feature is offline after one fetch; (2) model is
-> the **fp32 rembg release artifact (~171 MB, SHA-256 pinned)** rather than
-> a quint8 copy — the circulating quantized files ship inside AGPL-adjacent
-> packages, so slimming waits for a self-produced quantized artifact.
+> installer stays slim, feature is offline after one fetch; (2) quantized
+> copies avoided — the circulating ones ship inside AGPL-adjacent packages;
+> (3) **real-image acceptance FAILED on ISNet** (mattes too aggressive —
+> ate part of the subject) — the pre-approved BiRefNet quality tier was
+> promoted to default. This is exactly the RMBG-2.0 architecture the user
+> asked about, with MIT weights instead of BRIA's non-commercial license.
+> After measurement (ADR-019), the runnable artifact on today's
+> onnxruntime-web is **BiRefNet FULL at 512×512 input (fp16 file, ~473 MB)**
+> — the 1024-input lite variant trips the WebGPU storage-buffer limit AND
+> the wasm32 memory ceiling; 512-full runs on the WebGPU EP at ~5 s.
 
-- **Default model: ISNet (DIS)** — license-clean, production-proven in
-  browsers. Input 1024×1024, alpha matte output upscaled to source
-  resolution.
+- **Default model: BiRefNet (512² input)** (ISNet retired; superseded files
+  are cleaned from app data). ImageNet normalization, sigmoid-on-logits
+  matte, upscaled to source resolution.
 - **Quality escape hatch (only if 4.8 acceptance testing shows ISNet edge
   quality failing on real docs): BiRefNet_lite fp16 (115 MB, MIT) as a
   consent-gated one-time download.** Not built until proven necessary.

@@ -11,13 +11,27 @@ import { createHash } from 'node:crypto'
 import { promises as fs, createWriteStream } from 'node:fs'
 import path from 'node:path'
 
+// BiRefNet_lite replaced ISNet after real-image acceptance showed ISNet's
+// mattes too aggressive/imprecise (ADR-019 second amendment) — BiRefNet is
+// the MIT-licensed architecture RMBG-2.0 builds on. fp32 for EP-universal
+// correctness; a self-produced fp16/quantized artifact is the slimming path.
+// Why THIS artifact (measured 2026-08-02, ADR-019): BiRefNet_lite@1024 is
+// unrunnable in onnxruntime-web on Windows today — the WebGPU EP needs 11
+// storage buffers/stage against Dawn's adapter max of 10, and wasm32 hits
+// std::bad_alloc at 1024² activations (shared or not, arena on or off).
+// The full BiRefNet at 512² input fits the wasm memory ceiling; fp16 file
+// halves the download.
 export const BG_MODEL = {
-  name: 'isnet-general-use.onnx',
-  url: 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx',
-  sha256: '60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a',
-  sizeMB: 171,
-  license: 'Apache-2.0 (ISNet/DIS weights, rembg release artifact)',
+  name: 'birefnet_512_fp16.onnx',
+  url: 'https://huggingface.co/onnx-community/BiRefNet_512x512-ONNX/resolve/main/onnx/model_fp16.onnx',
+  sha256: '1b254749feb1edf83667a4c9da710cc1962a1980b8d0b2f4432100278c9ac0af',
+  sizeMB: 473,
+  inputSize: 512,
+  license: 'MIT (BiRefNet, onnx-community export)',
 }
+
+/** Superseded model files cleaned from userData on ensure(). */
+const OBSOLETE_MODELS = ['isnet-general-use.onnx', 'birefnet_lite_fp32.onnx']
 
 function modelPath(): string {
   // Test/dev override so harnesses can point at a pre-downloaded file.
@@ -33,12 +47,12 @@ async function sha256File(file: string): Promise<string> {
 
 let verifiedThisSession = false
 
-export async function bgModelStatus(): Promise<{ ready: boolean; sizeMB: number }> {
+export async function bgModelStatus(): Promise<{ ready: boolean; sizeMB: number; inputSize: number }> {
   try {
     await fs.access(modelPath())
-    return { ready: true, sizeMB: BG_MODEL.sizeMB }
+    return { ready: true, sizeMB: BG_MODEL.sizeMB, inputSize: BG_MODEL.inputSize }
   } catch {
-    return { ready: false, sizeMB: BG_MODEL.sizeMB }
+    return { ready: false, sizeMB: BG_MODEL.sizeMB, inputSize: BG_MODEL.inputSize }
   }
 }
 
@@ -54,6 +68,9 @@ export async function bgModelEnsure(
   if ((await bgModelStatus()).ready) return { ok: true }
   const dir = path.dirname(target)
   await fs.mkdir(dir, { recursive: true })
+  for (const stale of OBSOLETE_MODELS) {
+    await fs.rm(path.join(dir, stale), { force: true }).catch(() => {})
+  }
   const tmp = `${target}.download`
   try {
     const response = await net.fetch(BG_MODEL.url)
@@ -108,9 +125,11 @@ export async function bgModelRead(): Promise<Uint8Array | null> {
 }
 
 /**
- * onnxruntime-web runtime files (.mjs + .wasm, jsep build for the WebGPU
- * EP). The renderer turns these into blob: URLs for ort's wasmPaths —
- * fetch() of packaged file:// paths would fail.
+ * onnxruntime-web runtime files (.mjs + .wasm). ort 1.27's webgpu bundle
+ * requests the ASYNCIFY build (which carries both the wasm CPU EP and
+ * `webgpuInit` — the jsep build is the pre-1.2x era and lacks it). The
+ * renderer turns these into blob: URLs for ort's wasmPaths — fetch() of
+ * packaged file:// paths would fail.
  */
 export async function bgOrtRuntimeRead(): Promise<{ mjs: Uint8Array; wasm: Uint8Array } | null> {
   const candidates = [
@@ -119,8 +138,8 @@ export async function bgOrtRuntimeRead(): Promise<{ mjs: Uint8Array; wasm: Uint8
   ]
   for (const dir of candidates) {
     try {
-      const mjs = await fs.readFile(path.join(dir, 'ort-wasm-simd-threaded.jsep.mjs'))
-      const wasm = await fs.readFile(path.join(dir, 'ort-wasm-simd-threaded.jsep.wasm'))
+      const mjs = await fs.readFile(path.join(dir, 'ort-wasm-simd-threaded.asyncify.mjs'))
+      const wasm = await fs.readFile(path.join(dir, 'ort-wasm-simd-threaded.asyncify.wasm'))
       return { mjs: new Uint8Array(mjs), wasm: new Uint8Array(wasm) }
     } catch {
       // try next candidate

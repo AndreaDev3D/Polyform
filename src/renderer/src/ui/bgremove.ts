@@ -34,13 +34,23 @@ function setState(next: BgRemoveState): void {
 let worker: Worker | null = null
 let workerReady: Promise<string> | null = null
 let runId = 0
+/** 0 = auto (threaded when SharedArrayBuffer exists); 1 after a bad_alloc —
+ * threaded wasm's shared-memory ceiling can't fit large models. */
+let maxThreads = 0
+
+function resetWorker(): void {
+  worker?.terminate()
+  worker = null
+  workerReady = null
+}
 
 function ensureWorker(): Promise<string> {
   if (workerReady) return workerReady
   workerReady = (async () => {
-    const [model, ortRuntime] = await Promise.all([
+    const [model, ortRuntime, status] = await Promise.all([
       window.polyform.bgModelRead(),
       window.polyform.bgOrtRuntime(),
+      window.polyform.bgModelStatus(),
     ])
     if (!model) throw new Error('model unavailable (re-download required)')
     if (!ortRuntime) throw new Error('onnxruntime runtime files not found')
@@ -63,18 +73,20 @@ function ensureWorker(): Promise<string> {
         }
       }
       w.addEventListener('message', onMsg)
-      w.postMessage({ kind: 'init', model: modelBuf, ortMjs: mjsBuf, ortWasm: wasmBuf }, [
-        modelBuf,
-        mjsBuf,
-        wasmBuf,
-      ])
+      w.postMessage(
+        {
+          kind: 'init',
+          model: modelBuf,
+          ortMjs: mjsBuf,
+          ortWasm: wasmBuf,
+          maxThreads,
+          inputSize: status.inputSize ?? 1024,
+        },
+        [modelBuf, mjsBuf, wasmBuf],
+      )
     })
   })()
-  workerReady.catch(() => {
-    worker?.terminate()
-    worker = null
-    workerReady = null
-  })
+  workerReady.catch(() => resetWorker())
   return workerReady
 }
 
@@ -110,18 +122,27 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Run inference on RGBA pixels; resolves to PNG bytes. Exported for the harness. */
-export async function runBgInference(
+/** Hard ceiling per inference — a hung GPU/driver path must not spin
+ * forever. Generous because large models on single-thread CPU are slow. */
+const RUN_TIMEOUT_MS = 300_000
+
+function runOnce(
   width: number,
   height: number,
   pixels: ArrayBuffer,
 ): Promise<{ png: ArrayBuffer; ms: number; ep: string }> {
-  await ensureWorker()
   const id = ++runId
   return new Promise((resolve, reject) => {
     const w = worker!
+    const timer = setTimeout(() => {
+      w.removeEventListener('message', onMsg)
+      // Kill the wedged worker; the next attempt re-initializes cleanly.
+      resetWorker()
+      reject(new Error(`inference timed out after ${RUN_TIMEOUT_MS / 1000}s — try again`))
+    }, RUN_TIMEOUT_MS)
     const onMsg = (e: MessageEvent) => {
       if (e.data?.id !== id) return
+      clearTimeout(timer)
       w.removeEventListener('message', onMsg)
       if (e.data.kind === 'result') resolve({ png: e.data.png, ms: e.data.ms, ep: e.data.ep })
       else reject(new Error(e.data.message))
@@ -129,6 +150,31 @@ export async function runBgInference(
     w.addEventListener('message', onMsg)
     w.postMessage({ kind: 'run', id, width, height, pixels }, [pixels])
   })
+}
+
+/** Run inference on RGBA pixels; resolves to PNG bytes. Exported for the harness. */
+export async function runBgInference(
+  width: number,
+  height: number,
+  pixels: ArrayBuffer,
+): Promise<{ png: ArrayBuffer; ms: number; ep: string }> {
+  await ensureWorker()
+  // pixels transfers to the worker — keep a copy in case a retry is needed.
+  const backup = maxThreads !== 1 ? pixels.slice(0) : null
+  try {
+    return await runOnce(width, height, pixels)
+  } catch (err) {
+    // Threaded wasm shared memory can't fit large models: retry once on a
+    // fresh single-threaded worker.
+    if (backup && /bad_alloc|out of memory/i.test(String(err))) {
+      console.warn('[polyform] bgremove: allocation failure — retrying single-threaded')
+      maxThreads = 1
+      resetWorker()
+      await ensureWorker()
+      return runOnce(width, height, backup)
+    }
+    throw err
+  }
 }
 
 /**

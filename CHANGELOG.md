@@ -4,10 +4,11 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.4.1 "Image Background Removal"
 
-- **Remove background on image fills** (ADR-019): one click in the inspector cuts out the subject with an on-device AI model (ISNet, Apache-2.0) — **fully offline**; the model downloads once (~171 MB, SHA-256-verified, explicit consent dialog) and lives in local app data. No cloud APIs, ever.
+- **Remove background on image fills** (ADR-019): one click in the inspector cuts out the subject with an on-device AI model — **fully offline**; the model downloads once (SHA-256-verified, explicit consent dialog) and lives in local app data. No cloud APIs, ever.
+- **Model: BiRefNet (MIT, 512² input, ~473 MB fp16)** — upgraded from ISNet after real-image acceptance showed its mattes too aggressive/imprecise. BiRefNet is the architecture RMBG-2.0 is built on, without RMBG's non-commercial weight license; superseded model files are cleaned from app data automatically. (The 1024-input lite variant is unrunnable in onnxruntime-web on Windows today — WebGPU storage-buffer limit + wasm32 memory ceiling, both measured and documented in ADR-019.)
+- **Runs on the GPU**: ~5 s per image on the WebGPU execution provider (ort 1.27 requires the asyncify runtime pair — the jsep files are pre-1.2x), with a run-time degradation ladder down to WASM, an allocation-failure retry, and a watchdog. Never blocks the canvas.
 - **Non-destructive**: the cutout is written as a new content-addressed asset; the original stays in the bundle; "Restore original" swaps back; both directions are single, undoable journal entries.
-- Inference runs in a Web Worker on onnxruntime-web (WASM baseline; WebGPU execution provider wired but currently falling back — follow-up documented in ADR-019). ~12.5 s per image single-threaded, constant in image size, never blocking the canvas.
-- New harness: `POLYFORM_BG_TEST=1` runs real inference on a synthetic scene and gates the matte (subject kept at alpha 255, background dropped to 0 — passing).
+- New harness: `POLYFORM_BG_TEST=1` runs real inference on a synthetic scene and gates the matte (subject kept, background dropped — passing).
 
 ## 0.4.0 — Performance Core (2026-08-02)
 
