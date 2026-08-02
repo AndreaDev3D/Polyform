@@ -70,7 +70,7 @@ export interface AssetData {
 }
 
 /** What an agent may read. Each is granted separately and revocable live. */
-export type McpCapability = 'document' | 'selection' | 'changes'
+export type McpCapability = 'document' | 'selection' | 'changes' | 'render'
 
 export type McpGrants = Record<McpCapability, boolean>
 

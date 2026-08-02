@@ -26,15 +26,23 @@ interface CapabilityInfo {
 const CAPABILITIES: CapabilityInfo[] = [
   {
     key: 'document',
-    tool: 'get_document',
-    label: 'Read the document structure',
-    detail: 'Pages, layer names, types, positions and sizes, and text content.',
+    tool: 'get_document, get_node',
+    label: 'Read the document',
+    detail:
+      'Pages, layers and text content; and on request, how a layer looks — ' +
+      'colours, strokes, effects, fonts, layout, styles and components.',
   },
   {
     key: 'selection',
     tool: 'get_selection',
     label: 'Read the current selection',
     detail: 'Which layers you have selected right now, and their geometry.',
+  },
+  {
+    key: 'render',
+    tool: 'get_view_image, get_node_image',
+    label: 'See the canvas',
+    detail: 'Pictures of what you are looking at, or of a single layer.',
   },
   {
     key: 'changes',

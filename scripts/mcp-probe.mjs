@@ -12,8 +12,76 @@
 
 import { spawn } from 'node:child_process'
 import process from 'node:process'
+import { inflateSync } from 'node:zlib'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+
+/**
+ * Minimal PNG reader, so the image gates can check what is actually IN the
+ * picture. A signature check would happily pass a blank canvas — which is
+ * exactly how a broken render escapes notice.
+ */
+function decodePng(buf) {
+  if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG')
+  let pos = 8
+  let width = 0
+  let height = 0
+  let colorType = 0
+  let bitDepth = 0
+  const idat = []
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos)
+    const type = buf.toString('ascii', pos + 4, pos + 8)
+    const data = buf.subarray(pos + 8, pos + 8 + len)
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0)
+      height = data.readUInt32BE(4)
+      bitDepth = data[8]
+      colorType = data[9]
+      if (data[12] !== 0) throw new Error('interlaced PNG not supported')
+    } else if (type === 'IDAT') idat.push(data)
+    else if (type === 'IEND') break
+    pos += 12 + len
+  }
+  if (bitDepth !== 8) throw new Error(`unsupported bit depth ${bitDepth}`)
+  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[colorType]
+  if (!channels) throw new Error(`unsupported colour type ${colorType}`)
+  const raw = inflateSync(Buffer.concat(idat))
+  const stride = width * channels
+  const out = Buffer.alloc(height * stride)
+  let prev = Buffer.alloc(stride)
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]
+    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1))
+    const cur = Buffer.alloc(stride)
+    for (let i = 0; i < stride; i++) {
+      const a = i >= channels ? cur[i - channels] : 0
+      const b = prev[i]
+      const c = i >= channels ? prev[i - channels] : 0
+      let v = line[i]
+      if (filter === 1) v += a
+      else if (filter === 2) v += b
+      else if (filter === 3) v += (a + b) >> 1
+      else if (filter === 4) {
+        const p = a + b - c
+        const pa = Math.abs(p - a)
+        const pb = Math.abs(p - b)
+        const pc = Math.abs(p - c)
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c
+      }
+      cur[i] = v & 0xff
+    }
+    cur.copy(out, y * stride)
+    prev = cur
+  }
+  const hex = (x, y) => {
+    const i = y * stride + x * channels
+    return `#${out.subarray(i, i + 3).toString('hex').toUpperCase()}`
+  }
+  const colors = new Set()
+  for (let y = 0; y < height; y += 4) for (let x = 0; x < width; x += 4) colors.add(hex(x, y))
+  return { width, height, hex, colors }
+}
 
 const PORT = 9351
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
@@ -85,11 +153,17 @@ try {
   await evaluate(`globalThis.__polyform.editor.set({ hasProject: true })`)
   await evaluate(`(() => {
     const s = globalThis.__polyform.documentStore.scene
+    const solid = (r, g, b) => ({ type: 'SOLID', visible: true, opacity: 1, color: { r, g, b, a: 1 } })
+    // A shared colour style, used by the rect — exercises the style inventory.
+    s.doc.styles.colors.push({ id: 'style-brand', name: 'Brand/Primary', paint: solid(0.2, 0.5, 1) })
     const n = { id: 'probe-rect', type: 'RECTANGLE', name: 'Probe Rect',
       visible: true, locked: false, opacity: 1, blendMode: 'NORMAL',
       x: 10, y: 20, width: 300, height: 200, rotation: 0,
-      fills: [], strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE', strokeDash: [], effects: [],
-      cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 } }
+      fills: [solid(0.2, 0.5, 1)], strokes: [solid(1, 1, 1)], strokeWeight: 2,
+      strokeAlign: 'INSIDE', strokeDash: [], styleRefs: { fill: 'style-brand' },
+      effects: [{ type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.5 },
+        offset: { x: 0, y: 4 }, blur: 8 }],
+      cornerRadius: { tl: 8, tr: 8, br: 8, bl: 8 } }
     s.addNode(n, null, 0)
     globalThis.__polyform.documentStore.transient()
     return 'ok'
@@ -168,7 +242,14 @@ try {
   const { tools } = await client.listTools()
   const names = tools.map((t) => t.name).sort()
   console.log(`MCP PASS: tools discovered = ${JSON.stringify(names)}`)
-  for (const want of ['get_document', 'get_selection', 'poll_changes']) {
+  for (const want of [
+    'get_document',
+    'get_node',
+    'get_selection',
+    'get_view_image',
+    'get_node_image',
+    'poll_changes',
+  ]) {
     if (!names.includes(want)) fail(`missing tool ${want}`)
   }
 
@@ -179,6 +260,79 @@ try {
   const rect = doc.tree.find((n) => n && n.name === 'Probe Rect')
   if (!rect || rect.width !== 300) fail(`live node not visible to the agent: ${JSON.stringify(doc.tree)}`)
   else console.log(`MCP PASS: agent reads the live document (${doc.nodeCount} nodes, saw "${rect.name}" ${rect.width}x${rect.height})`)
+
+  // --- styles and components are inventoried, with usage counts ----------
+  const brand = doc.styles?.colors?.find((s) => s.name === 'Brand/Primary')
+  if (!brand) fail(`shared styles missing from the summary: ${JSON.stringify(doc.styles)}`)
+  else if (brand.usedBy !== 1 || brand.value !== '#3380FF') {
+    fail(`style inventory wrong: ${JSON.stringify(brand)}`)
+  } else {
+    console.log(`MCP PASS: shared styles inventoried ("${brand.name}" ${brand.value}, usedBy ${brand.usedBy})`)
+  }
+  if (!Array.isArray(doc.components)) fail('component inventory missing from the summary')
+  else console.log(`MCP PASS: component inventory present (${doc.components.length} main components)`)
+
+  // --- get_node returns what the layer actually LOOKS like ---------------
+  const detail = JSON.parse(
+    (await client.callTool({ name: 'get_node', arguments: { id: 'probe-rect' } })).content[0].text,
+  ).node
+  const problems = []
+  if (detail.fills?.[0]?.color !== '#3380FF') problems.push(`fill ${JSON.stringify(detail.fills)}`)
+  if (detail.strokeWeight !== 2) problems.push(`strokeWeight ${detail.strokeWeight}`)
+  if (detail.cornerRadius !== 8) problems.push(`cornerRadius ${JSON.stringify(detail.cornerRadius)}`)
+  if (detail.effects?.[0]?.type !== 'DROP_SHADOW') problems.push(`effects ${JSON.stringify(detail.effects)}`)
+  if (detail.styles?.fill !== 'Brand/Primary') problems.push(`styles ${JSON.stringify(detail.styles)}`)
+  if (problems.length > 0) fail(`get_node detail wrong: ${problems.join('; ')}`)
+  else console.log('MCP PASS: get_node reports fills, strokes, radius, effects and style names')
+
+  const missing = await client.callTool({ name: 'get_node', arguments: { id: 'nope' } })
+  if (!missing.isError) fail('get_node accepted an unknown id')
+  else console.log('MCP PASS: get_node rejects an unknown id')
+
+  // --- the agent can SEE the canvas, within the token budget -------------
+  for (const [tool, args] of [
+    ['get_view_image', {}],
+    ['get_node_image', { id: 'probe-rect' }],
+  ]) {
+    const shot = await client.callTool({ name: tool, arguments: args })
+    const image = shot.content.find((c) => c.type === 'image')
+    const meta = JSON.parse(shot.content.find((c) => c.type === 'text').text)
+    if (!image) {
+      fail(`${tool} returned no image block: ${JSON.stringify(shot.content.map((c) => c.type))}`)
+      continue
+    }
+    if (image.mimeType !== 'image/png' || !image.data.startsWith('iVBORw0KGgo')) {
+      fail(`${tool} did not return PNG bytes (${image.mimeType})`)
+      continue
+    }
+    // Budget: a client charges about (w x h)/750 tokens for an image.
+    const tokens = Math.round((meta.width * meta.height) / 750)
+    if (Math.max(meta.width, meta.height) > 1568) {
+      fail(`${tool} exceeded the 1568px edge cap (${meta.width}x${meta.height})`)
+    } else if (tokens > 6000) {
+      fail(`${tool} image would cost ~${tokens} tokens — over budget`)
+    } else {
+      console.log(
+        `MCP PASS: ${tool} → ${meta.width}x${meta.height} PNG, ` +
+          `${Math.round((image.data.length * 3) / 4 / 1024)}kB, ~${tokens} image tokens, scale ${meta.scale}`,
+      )
+    }
+
+    // The picture must actually show the design, not an empty canvas.
+    const png = decodePng(Buffer.from(image.data, 'base64'))
+    if (png.width !== meta.width || png.height !== meta.height) {
+      fail(`${tool}: reported ${meta.width}x${meta.height} but the PNG is ${png.width}x${png.height}`)
+    } else if (!png.colors.has('#3380FF')) {
+      fail(
+        `${tool}: the rendered image does not contain the rectangle's colour ` +
+          `(saw ${[...png.colors].slice(0, 4).join(', ')})`,
+      )
+    } else if (png.colors.size < 2) {
+      fail(`${tool}: the image is a single flat colour — nothing was drawn`)
+    } else {
+      console.log(`MCP PASS: ${tool} really shows the design (${png.colors.size} distinct colours, brand fill present)`)
+    }
+  }
 
   // Selection made in the app must be visible to the agent.
   await evaluate(`globalThis.__polyform.editor.set({ selection: ['probe-rect'] })`)

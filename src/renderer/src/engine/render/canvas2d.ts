@@ -635,7 +635,9 @@ export function drawScene(
 
 /**
  * Render a set of root nodes into a fresh canvas at `scale` (export path).
- * Bounds are the world AABB union of the nodes.
+ * Bounds are the world AABB union of the nodes, or `region` when given —
+ * the agent viewport snapshot (7.2) needs an exact rect rather than a
+ * shrink-to-fit, so that what it returns is what the user is looking at.
  */
 export function renderNodesToCanvas(
   scene: SceneGraph,
@@ -644,12 +646,15 @@ export function renderNodesToCanvas(
   scale: number,
   assets: AssetCache,
   background: string | null,
+  region?: AABB,
 ): HTMLCanvasElement | null {
-  if (ids.length === 0) return null
-  let box: AABB | null = null
-  for (const id of ids) {
-    const b = scene.worldAABB(id)
-    box = box ? { minX: Math.min(box.minX, b.minX), minY: Math.min(box.minY, b.minY), maxX: Math.max(box.maxX, b.maxX), maxY: Math.max(box.maxY, b.maxY) } : { ...b }
+  if (ids.length === 0 && !region) return null
+  let box: AABB | null = region ? { ...region } : null
+  if (!box) {
+    for (const id of ids) {
+      const b = scene.worldAABB(id)
+      box = box ? { minX: Math.min(box.minX, b.minX), minY: Math.min(box.minY, b.minY), maxX: Math.max(box.maxX, b.maxX), maxY: Math.max(box.maxY, b.maxY) } : { ...b }
+    }
   }
   if (!box) return null
   const w = Math.max(1, Math.ceil((box.maxX - box.minX) * scale))

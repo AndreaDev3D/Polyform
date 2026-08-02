@@ -240,9 +240,12 @@ function registerIpc(): void {
       const id = ++sceneSeq
       scenePending.set(id, { resolve, reject })
       mainWindow.webContents.send('mcp:sceneRequest', id, method, params)
+      // Snapshots rasterize the scene and may have to settle 3D renders
+      // first (ADR-020), so they get a longer leash than a structure read.
+      const timeout = method.startsWith('render.') ? 60_000 : 10_000
       setTimeout(() => {
         if (scenePending.delete(id)) reject(new Error(`scene query timed out: ${method}`))
-      }, 10_000)
+      }, timeout)
     })
 
   ipcMain.handle('mcp:status', () => mcpStatus())

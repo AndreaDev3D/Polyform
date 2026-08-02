@@ -14,7 +14,7 @@ export const OFFLINE_STATUS: McpStatus = {
   port: null,
   token: null,
   clients: 0,
-  grants: { document: true, selection: true, changes: true },
+  grants: { document: true, selection: true, changes: true, render: true },
   calls: 0,
   lastCall: null,
   lastCallAt: null,

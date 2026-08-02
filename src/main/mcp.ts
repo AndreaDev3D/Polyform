@@ -25,10 +25,20 @@ import type { McpCapability, McpGrants, McpStatus } from '../shared/types'
 /** Answers a tool call by asking the renderer, which owns the document. */
 export type SceneQuery = (method: string, params: unknown) => Promise<unknown>
 
-export const ALL_CAPABILITIES: readonly McpCapability[] = ['document', 'selection', 'changes']
+export const ALL_CAPABILITIES: readonly McpCapability[] = [
+  'document',
+  'selection',
+  'changes',
+  'render',
+]
 
 /** Reads only, and the user still opts in per capability before starting. */
-export const DEFAULT_GRANTS: McpGrants = { document: true, selection: true, changes: true }
+export const DEFAULT_GRANTS: McpGrants = {
+  document: true,
+  selection: true,
+  changes: true,
+  render: true,
+}
 
 let http: HttpServer | null = null
 let mcp: McpServer | null = null
@@ -39,7 +49,8 @@ let calls = 0
 let lastCall: McpCapability | null = null
 let lastCallAt: number | null = null
 const sessions = new Set<string>()
-const tools = new Map<McpCapability, RegisteredTool>()
+/** Tool name → the capability that gates it. Several may share one. */
+const tools = new Map<string, { cap: McpCapability; tool: RegisteredTool }>()
 
 /** Status pushes drive the UI indicator — polling would lie between polls. */
 const watchers = new Set<(s: McpStatus) => void>()
@@ -67,10 +78,29 @@ function bearerOk(header: string | undefined): boolean {
  * revoked tool from `tools/list`, but a client holding a stale list can
  * still call it — the grant is enforced here, at the door.
  */
+type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+type ToolResult = { content: ToolContent[]; isError?: boolean }
+
+function asText(value: unknown): ToolContent[] {
+  return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+}
+
+/** A rendered snapshot from the renderer, returned as a real image block. */
+function asImage(value: unknown): ToolContent[] {
+  const snap = value as { base64?: string; width?: number; height?: number; scale?: number; note?: string }
+  if (!snap?.base64) throw new Error('renderer returned no image')
+  const { base64, ...meta } = snap
+  return [
+    { type: 'image', data: base64, mimeType: 'image/png' },
+    { type: 'text', text: JSON.stringify(meta, null, 2) },
+  ]
+}
+
 function guarded<A>(
   cap: McpCapability,
   run: (args: A) => Promise<unknown>,
-): (args: A) => Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
+  present: (value: unknown) => ToolContent[] = asText,
+): (args: A) => Promise<ToolResult> {
   // Zero-argument tools get the SDK's `extra` here instead of parsed args;
   // they ignore it, so one wrapper serves both shapes.
   return async (args: A) => {
@@ -91,8 +121,7 @@ function guarded<A>(
     lastCall = cap
     lastCallAt = Date.now()
     announce()
-    const value = await run(args)
-    return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] }
+    return { content: present(await run(args)) }
   }
 }
 
@@ -111,9 +140,9 @@ function buildServer(query: SceneQuery): McpServer {
 
   tools.clear()
 
-  tools.set(
-    'document',
-    server.registerTool(
+  tools.set('get_document', {
+    cap: 'document',
+    tool: server.registerTool(
       'get_document',
       {
         title: 'Get document',
@@ -124,11 +153,42 @@ function buildServer(query: SceneQuery): McpServer {
       },
       guarded('document', () => query('document.summary', {})),
     ),
-  )
+  })
 
-  tools.set(
-    'selection',
-    server.registerTool(
+  // Detail-on-demand, so the summary can stay small. Same capability as
+  // get_document: it is the same document, read more closely.
+  tools.set('get_node', {
+    cap: 'document',
+    tool: server.registerTool(
+      'get_node',
+      {
+        title: 'Get node detail',
+        description:
+          'Everything that decides how one layer looks: fills, strokes, effects, corner ' +
+          'radius, auto-layout, constraints, shared styles it uses, text and font settings, ' +
+          'and component/instance links. Pass depth to include descendants. Ids come from ' +
+          'get_document or get_selection.',
+        inputSchema: {
+          id: z.string().min(1).describe('Node id from get_document or get_selection'),
+          depth: z
+            .number()
+            .int()
+            .min(0)
+            .max(8)
+            .optional()
+            .describe('Levels of children to include (default 1, max 8)'),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      guarded('document', (args: { id: string; depth?: number }) =>
+        query('node.detail', { id: args.id, depth: args.depth }),
+      ),
+    ),
+  })
+
+  tools.set('get_selection', {
+    cap: 'selection',
+    tool: server.registerTool(
       'get_selection',
       {
         title: 'Get selection',
@@ -138,11 +198,72 @@ function buildServer(query: SceneQuery): McpServer {
       },
       guarded('selection', () => query('selection.get', {})),
     ),
-  )
+  })
 
-  tools.set(
-    'changes',
-    server.registerTool(
+  // Pixels, not structure. An agent that can only read the tree is guessing
+  // about what the work actually looks like.
+  tools.set('get_view_image', {
+    cap: 'render',
+    tool: server.registerTool(
+      'get_view_image',
+      {
+        title: 'See the canvas',
+        description:
+          'A PNG of the area the user is looking at right now, at their current zoom. ' +
+          'Use this to see what the design actually looks like rather than inferring it ' +
+          'from the layer tree.',
+        inputSchema: {
+          maxEdge: z
+            .number()
+            .int()
+            .min(64)
+            .max(1568)
+            .optional()
+            .describe('Longest edge in pixels (default 1024, max 1568)'),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      guarded(
+        'render',
+        (args: { maxEdge?: number }) => query('render.viewport', { maxEdge: args.maxEdge }),
+        asImage,
+      ),
+    ),
+  })
+
+  tools.set('get_node_image', {
+    cap: 'render',
+    tool: server.registerTool(
+      'get_node_image',
+      {
+        title: 'See one layer',
+        description:
+          'A PNG of a single layer and its contents, cropped to its own bounds. ' +
+          'Ids come from get_document or get_selection.',
+        inputSchema: {
+          id: z.string().min(1).describe('Node id from get_document or get_selection'),
+          maxEdge: z
+            .number()
+            .int()
+            .min(64)
+            .max(1568)
+            .optional()
+            .describe('Longest edge in pixels (default 1024, max 1568)'),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      guarded(
+        'render',
+        (args: { id: string; maxEdge?: number }) =>
+          query('render.node', { id: args.id, maxEdge: args.maxEdge }),
+        asImage,
+      ),
+    ),
+  })
+
+  tools.set('poll_changes', {
+    cap: 'changes',
+    tool: server.registerTool(
       'poll_changes',
       {
         title: 'Poll changes',
@@ -161,7 +282,7 @@ function buildServer(query: SceneQuery): McpServer {
       },
       guarded('changes', ({ cursor }: { cursor: number }) => query('changes.since', { cursor })),
     ),
-  )
+  })
 
   syncTools()
   return server
@@ -169,9 +290,7 @@ function buildServer(query: SceneQuery): McpServer {
 
 /** Reflect the current grants onto the live server; fires tools/list_changed. */
 function syncTools(): void {
-  for (const cap of ALL_CAPABILITIES) {
-    const tool = tools.get(cap)
-    if (!tool) continue
+  for (const { cap, tool } of tools.values()) {
     if (grants[cap] && !tool.enabled) tool.enable()
     else if (!grants[cap] && tool.enabled) tool.disable()
   }
