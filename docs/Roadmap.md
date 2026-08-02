@@ -150,7 +150,7 @@ Goal: one-click "Remove background" on image fills — **fully offline** (a clou
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
-| 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | Candidates to benchmark: the U²-Net / ISNet / BiRefNet / MODNet families via ONNX Runtime Web (WASM + WebGPU execution providers) or native onnxruntime in the main process. Selection criteria, in order: **license compatible with an MIT open-source app** (several popular "remove-bg" checkpoints are research-/non-commercial-only — disqualifying), quality on photos AND product shots, model size vs installer bloat (self-contained principle: bundled or explicit consent-gated download, never silent), CPU vs GPU inference time on mid hardware. Output: written comparison + ADR. |
+| 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | ✅ **Done (2026-08-02)** — comparison in [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md), decision in ADR-019: bundled ISNet quint8 (~44 MB, Apache-2.0) on onnxruntime-web (WASM baseline, WebGPU EP opportunistic) in a Web Worker; RMBG disqualified on license, the AGPL wrapper library avoided, BiRefNet_lite (MIT) pre-approved as a consent-gated quality tier if needed. |
 | 4.8 | **Remove background on image fills** | **M** | 4.7 | One click in the inspector. Non-destructive: the cutout is written as a NEW SHA-256 content-addressed asset, the original stays in `assets/`, and "Restore original" swaps back; single journal entry; composes with the existing crop/adjust controls. |
 | 4.9 | Edge refinement brush (stretch) | **M** | 4.8 | Restore/erase strokes over the mask for hairlines and soft edges — only if 4.8's model quality proves it necessary. |
 

@@ -396,6 +396,18 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-019: Background removal runs ISNet on onnxruntime-web, bundled and offline (v0.4.1)
+
+**Context.** v0.4.1's one feature is one-click background removal on image fills. The local-first contract forbids cloud APIs; the MIT license forbids the strongest-marketed weights (BRIA RMBG is non-commercial without an agreement) and the popular wrapper library (`@imgly/background-removal` is AGPL); the zero-native-modules rule (ADR-005 precedent) forbids onnxruntime-node. Full comparison: [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md).
+
+**Decision.** Ship **ISNet (DIS, Apache-2.0), quint8-quantized (~44 MB), bundled asar-unpacked** in the installer and loaded via a main-process IPC read (packaged renderers cannot fetch file:// assets — ADR-015 lesson). Inference runs on **onnxruntime-web (MIT)** inside a **Web Worker**: WASM execution provider as the universal baseline, WebGPU EP used opportunistically (proven ~20x for this workload). Pre/post-processing (1024² letterbox, normalize, matte upscale, composite) is our own small glue — no AGPL code. Document semantics are non-destructive: the cutout becomes a new SHA-256 asset, the fill swaps hashes in one journal entry, and "Restore original" swaps back (original never leaves `assets/`). BiRefNet_lite fp16 (115 MB, MIT) is pre-approved as a consent-gated download-on-demand quality tier **only if** acceptance testing shows ISNet failing on real documents.
+
+**Consequences.** ~44 MB installer growth (documented); worst-case seconds-scale inference stays off the UI thread; the app gains its first renderer-side worker (deliberate groundwork for the deferred engine flip). Portrait hair fidelity is ISNet's known weak spot — the 4.9 edge-refinement brush and the BiRefNet tier are the planned answers, gated on real evidence.
+
+**Revisit when.** Acceptance gates in the spike doc fail on real documents (activate the BiRefNet tier), a clearly better Apache/MIT model ships (the runtime and glue are model-agnostic), or WebGPU EP matures enough to drop the WASM path.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -418,5 +430,6 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 016 | WebGPU: baked world-space arenas + segment stream + stencil stack | Partially | Glyph atlas (Sprint E); incremental bake if profiling demands |
 | 017 | GPU effects: bake-time layer pre-render; scene pass splits only for backdrop effects | Partially | Fx-layer content caching; nested backdrop effects; Sprint E glyph shadows |
 | 018 | Engine-owned shaping (rustybuzz) + glyph atlas; Canvas2D path as per-node fallback | Partially | Bidi/complex scripts; OpenType feature UI; worker-side auto-resize |
+| 019 | Background removal: bundled ISNet on onnxruntime-web (WASM/WebGPU) in a worker | Partially | BiRefNet consent-gated tier if quality demands; better MIT/Apache weights |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.
