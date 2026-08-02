@@ -2,6 +2,13 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
+## Unreleased — 0.4.1 "Image Background Removal"
+
+- **Remove background on image fills** (ADR-019): one click in the inspector cuts out the subject with an on-device AI model (ISNet, Apache-2.0) — **fully offline**; the model downloads once (~171 MB, SHA-256-verified, explicit consent dialog) and lives in local app data. No cloud APIs, ever.
+- **Non-destructive**: the cutout is written as a new content-addressed asset; the original stays in the bundle; "Restore original" swaps back; both directions are single, undoable journal entries.
+- Inference runs in a Web Worker on onnxruntime-web (WASM baseline; WebGPU execution provider wired but currently falling back — follow-up documented in ADR-019). ~12.5 s per image single-threaded, constant in image size, never blocking the canvas.
+- New harness: `POLYFORM_BG_TEST=1` runs real inference on a synthetic scene and gates the matte (subject kept at alpha 255, background dropped to 0 — passing).
+
 ## 0.4.0 — Performance Core (2026-08-02)
 
 Sprints A–E below, plus the closeout: the `color.ts` Rust twin landed (exact parity, bit-identical string output under fuzz), completing the module inventory — **every portable engine module now has a fuzz-proven Rust twin**. The worker/scene-memory flip (Roadmap 4.3/4.6) is deferred out of v0.4 with a written re-entry trigger and precondition (op-coverage audit) in [docs/V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md); the SVG import/export port stays unported by the plan's own "only if profiling demands" rule. Exit criteria verified: **100,000-shape scenes pan at 60fps** (in-app harness), byte-compatible document round-tripping against v0.3 files (serialization parity gates).

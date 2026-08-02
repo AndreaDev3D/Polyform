@@ -20,6 +20,10 @@ if (bootParams.has('renderTest')) {
 if (bootParams.has('gpu')) {
   void import('./state/editor').then((m) => m.editor.get().setGpuRender(true))
 }
+// Background-removal inference harness (POLYFORM_BG_TEST=1).
+if (bootParams.has('bgTest')) {
+  void import('./dev/bg-test').then((m) => m.runBgTest())
+}
 
 // Debug/automation handle (local desktop app; also used by dev tooling).
 void Promise.all([

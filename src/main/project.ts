@@ -147,6 +147,24 @@ export class ProjectManager {
     return { hash, ext, mime, fileName: path.basename(filePath), bytes: new Uint8Array(bytes) }
   }
 
+  /** Write renderer-produced bytes (e.g. a background-removal cutout) as a
+   * content-addressed asset; dedupes like importAssetFile. */
+  async writeAssetBytes(bytes: Uint8Array, ext: string): Promise<{ hash: string; mime: string } | null> {
+    if (!this.current) return null
+    const safeExt = /^[a-z0-9]{1,5}$/i.test(ext) ? ext.toLowerCase() : 'bin'
+    const buf = Buffer.from(bytes)
+    const hash = createHash('sha256').update(buf).digest('hex')
+    const assetsDir = path.join(this.current.path, 'assets')
+    await fs.mkdir(assetsDir, { recursive: true })
+    const target = path.join(assetsDir, `${hash}.${safeExt}`)
+    try {
+      await fs.access(target)
+    } catch {
+      await writeFileAtomic(target, buf)
+    }
+    return { hash, mime: MIME_BY_EXT[safeExt] ?? 'application/octet-stream' }
+  }
+
   async readAsset(hash: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
     if (!this.current || !/^[0-9a-f]{16,64}$/i.test(hash)) return null
     const assetsDir = path.join(this.current.path, 'assets')

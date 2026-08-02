@@ -51,10 +51,16 @@ read (`ArrayBuffer` transfer), shipped asar-unpacked like the sql.js wasm.
 
 ## Decision (ADR-019)
 
-- **Default model: ISNet (DIS), quint8 (~44 MB), bundled in the installer.**
-  License-clean, production-proven in browsers, and small enough that the
-  installer stays reasonable. Input 1024×1024, alpha matte output upscaled
-  to source resolution.
+> **Amended at implementation (2026-08-02), two changes:** (1) distribution
+> flipped to **consent-gated download-on-first-use** on user direction —
+> installer stays slim, feature is offline after one fetch; (2) model is
+> the **fp32 rembg release artifact (~171 MB, SHA-256 pinned)** rather than
+> a quint8 copy — the circulating quantized files ship inside AGPL-adjacent
+> packages, so slimming waits for a self-produced quantized artifact.
+
+- **Default model: ISNet (DIS)** — license-clean, production-proven in
+  browsers. Input 1024×1024, alpha matte output upscaled to source
+  resolution.
 - **Quality escape hatch (only if 4.8 acceptance testing shows ISNet edge
   quality failing on real docs): BiRefNet_lite fp16 (115 MB, MIT) as a
   consent-gated one-time download.** Not built until proven necessary.

@@ -69,6 +69,10 @@ export interface ImagePaint {
   scaleMode: ImageScaleMode
   crop?: ImageCrop | null
   adjust?: ImageAdjust | null
+  /** Set by Remove Background (v0.4.1): the pre-cutout asset, kept in the
+   * bundle so "Restore original" is a hash swap. Additive optional field —
+   * serialization passes it through untouched. */
+  originalAssetHash?: string
 }
 
 export type Paint = SolidPaint | GradientPaint | ImagePaint

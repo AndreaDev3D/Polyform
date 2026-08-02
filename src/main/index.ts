@@ -6,6 +6,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { SaveProjectPayload } from '../shared/types'
 import { ProjectManager } from './project'
+import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
 import { listRecents, pushRecent } from './recents'
 import { installMenu } from './menu'
 
@@ -72,6 +73,7 @@ function createWindow(): void {
   const params = new URLSearchParams()
   if (process.env['POLYFORM_RENDER_TEST'] === '1') params.set('renderTest', '1')
   if (process.env['POLYFORM_GPU'] === '1') params.set('gpu', '1')
+  if (process.env['POLYFORM_BG_TEST'] === '1') params.set('bgTest', '1')
   const renderTest = params.size > 0 ? `?${params.toString()}` : ''
   if (process.env['ELECTRON_RENDERER_URL']) {
     void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + renderTest)
@@ -195,6 +197,20 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('assets:read', (_e, hash: string) => projects.readAsset(hash))
+
+  ipcMain.handle('assets:write', (_e, bytes: Uint8Array, ext: string) =>
+    projects.writeAssetBytes(bytes, ext),
+  )
+
+  // Background-removal model (v0.4.1, ADR-019): consent-gated download.
+  ipcMain.handle('bgmodel:status', () => bgModelStatus())
+  ipcMain.handle('bgmodel:ensure', (e) =>
+    bgModelEnsure((received, total) => {
+      e.sender.send('bgmodel:progress', { received, total })
+    }),
+  )
+  ipcMain.handle('bgmodel:read', () => bgModelRead())
+  ipcMain.handle('bgmodel:ort', () => bgOrtRuntimeRead())
 
   ipcMain.handle('import:svgDialog', async () => {
     if (!mainWindow) return null

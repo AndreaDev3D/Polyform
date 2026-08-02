@@ -2,7 +2,8 @@
 // auto layout, boolean ops, export. Edits apply to the whole selection and
 // commit through the history system (live color edits commit on close).
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
+import { bgRemoveState, onBgRemoveState, removeBackground, restoreOriginal } from './bgremove'
 import type {
   AutoLayout,
   BlendMode,
@@ -441,6 +442,8 @@ export function Inspector() {
             {paint.type === 'IMAGE' && (
               <ImageFillControls
                 paint={paint}
+                nodeId={first.id}
+                fillIndex={i}
                 onChange={(mutate, label) =>
                   commit((n) => {
                     const fills = structuredClone(n.fills)
@@ -895,14 +898,28 @@ function InstanceSection({ instance }: { instance: InstanceNode }) {
   )
 }
 
-/** Image fill crop + adjustment controls. */
+/** Image fill crop + adjustment controls (+ Remove Background, v0.4.1). */
 function ImageFillControls({
   paint,
+  nodeId,
+  fillIndex,
   onChange,
 }: {
   paint: ImagePaint
+  nodeId: NodeId
+  fillIndex: number
   onChange: (mutate: (p: ImagePaint) => void, label: string) => void
 }) {
+  const bgState = useSyncExternalStore(onBgRemoveState, bgRemoveState)
+  const bgBusy = bgState.phase === 'downloading' || bgState.phase === 'loading' || bgState.phase === 'running'
+  const bgLabel =
+    bgState.phase === 'downloading'
+      ? `Downloading model… ${bgState.pct}%`
+      : bgState.phase === 'loading'
+        ? 'Loading model…'
+        : bgState.phase === 'running'
+          ? 'Removing…'
+          : 'Remove background'
   const crop = paint.crop ?? { x: 0, y: 0, w: 1, h: 1 }
   const adj = paint.adjust ?? { exposure: 0, contrast: 0, saturation: 0 }
   const setCrop = (key: 'x' | 'y' | 'w' | 'h', v: number) =>
@@ -915,6 +932,30 @@ function ImageFillControls({
     }, 'Adjust Image')
   return (
     <div className="pl-8 mb-1.5">
+      <div className="flex gap-1.5 mt-1">
+        <button
+          className="pf-btn flex-1 bg-[var(--pf-bg-3)] text-[10px]"
+          disabled={bgBusy}
+          style={{ opacity: bgBusy ? 0.6 : 1 }}
+          title="Cut out the subject with an on-device AI model (one-time download, fully offline afterwards)"
+          onClick={() => void removeBackground(nodeId, fillIndex)}
+        >
+          {bgLabel}
+        </button>
+        {paint.originalAssetHash && (
+          <button
+            className="pf-btn flex-1 bg-[var(--pf-bg-3)] text-[10px]"
+            disabled={bgBusy}
+            title="Swap back to the image as it was before Remove Background"
+            onClick={() => restoreOriginal(nodeId, fillIndex)}
+          >
+            Restore original
+          </button>
+        )}
+      </div>
+      {bgState.phase === 'error' && (
+        <div className="text-[10px] text-[var(--pf-danger,#e66)] mt-1">{bgState.message}</div>
+      )}
       <div className="text-[10px] text-[var(--pf-text-dim)] mt-1 mb-0.5">Crop (% of image)</div>
       <div className="grid grid-cols-4 gap-1">
         <NumberInput label="X" value={round(crop.x * 100)} min={0} max={100} onCommit={(v) => setCrop('x', v)} />

@@ -130,6 +130,14 @@ export interface PolyformApi {
   /** Pick and read a plugin script (.js). */
   pluginOpenDialog: () => Promise<{ fileName: string; text: string } | null>
   exportSave: (defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => Promise<string | null>
+  /** Write renderer-produced bytes as a content-addressed project asset. */
+  assetsWrite: (bytes: Uint8Array, ext: string) => Promise<{ hash: string; mime: string } | null>
+  /** Background-removal model (v0.4.1): consent-gated one-time download. */
+  bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number }>
+  bgModelEnsure: () => Promise<{ ok: boolean; error?: string }>
+  bgModelRead: () => Promise<Uint8Array | null>
+  bgOrtRuntime: () => Promise<{ mjs: Uint8Array; wasm: Uint8Array } | null>
+  onBgModelProgress: (cb: (received: number, total: number) => void) => () => void
   setDirty: (dirty: boolean) => void
   setTitle: (title: string) => void
   onMenuAction: (cb: (id: MenuActionId) => void) => () => void

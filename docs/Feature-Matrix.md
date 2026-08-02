@@ -22,7 +22,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Vector Editing](#vector-editing) | 7 | 3 | 5 | 0 | 15 |
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 5 | 5 | 1 | 24 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
@@ -33,7 +33,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 1 | 1 | 2 | 4 | 8 |
-| **Total** | **130** | **21** | **60** | **23** | **234** |
+| **Total** | **130** | **22** | **59** | **23** | **234** |
 
 ---
 
@@ -166,7 +166,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Image fills | Bitmap as a fill paint | ✅ | Content-addressed assets, deduplicated |
 | Image fill modes | Fill / Fit / Crop / Tile scaling modes | 🟡 | FILL, FIT, TILE, STRETCH shipped; Figma-style CROP awaits image crop tooling |
 | Image crop & adjust | Crop plus exposure/contrast/saturation sliders | ✅ | Non-destructive crop rect + exposure/contrast/saturation on image fills |
-| Image background removal | One-click AI subject cutout | 📋 | Roadmap v0.4.1: fully offline on-device model (no cloud APIs), non-destructive new asset + restore-original; research spike picks a license-clean model first |
+| Image background removal | One-click AI subject cutout | 🟡 | Shipped (ADR-019): on-device ISNet, consent-gated one-time download, fully offline after, non-destructive + Restore original; 🟡 until the WebGPU EP lands (~12.5s on wasm today) and real-photo quality is validated |
 | Video fills | Video as a fill paint | ❌ | Out of scope |
 | Stroke color & weight | Per-object stroke paint and thickness | ✅ | |
 | Stroke align: center | Stroke centered on the path | ✅ | |

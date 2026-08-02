@@ -151,7 +151,7 @@ Goal: one-click "Remove background" on image fills — **fully offline** (a clou
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
 | 4.7 | **Research spike: on-device segmentation/matting** | **S** | — | ✅ **Done (2026-08-02)** — comparison in [research/BG-Removal-Spike.md](research/BG-Removal-Spike.md), decision in ADR-019: bundled ISNet quint8 (~44 MB, Apache-2.0) on onnxruntime-web (WASM baseline, WebGPU EP opportunistic) in a Web Worker; RMBG disqualified on license, the AGPL wrapper library avoided, BiRefNet_lite (MIT) pre-approved as a consent-gated quality tier if needed. |
-| 4.8 | **Remove background on image fills** | **M** | 4.7 | One click in the inspector. Non-destructive: the cutout is written as a NEW SHA-256 content-addressed asset, the original stays in `assets/`, and "Restore original" swaps back; single journal entry; composes with the existing crop/adjust controls. |
+| 4.8 | **Remove background on image fills** | **M** | 4.7 | ✅ **Shipped (2026-08-02)** — inspector button, consent-gated model download (user's call over bundling), worker-hosted inference, non-destructive asset swap + Restore original, `POLYFORM_BG_TEST=1` matte gate passing. Follow-ups in ADR-019: WebGPU EP fix (~1s target vs ~12.5s wasm today), real-photo quality validation. |
 | 4.9 | Edge refinement brush (stretch) | **M** | 4.8 | Restore/erase strokes over the mask for hairlines and soft edges — only if 4.8's model quality proves it necessary. |
 
 **Exit criteria:** subject cutout works with the network cable unplugged, on a license-clean model, and undo restores the original pixel-for-pixel.

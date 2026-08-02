@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.0.0",
+    "onnxruntime-web": "^1.27.0",
     "polygon-clipping": "^0.15.7",
     "rbush": "^4.0.0",
     "react": "^19.0.0",
