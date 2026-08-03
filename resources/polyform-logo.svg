@@ -1,12 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048" width="2048" height="2048">
-  <defs>
-    <linearGradient id="pf-skin" x1="0.28" y1="0" x2="0.6" y2="1">
-      <stop offset="0" stop-color="#15EAD6"/>
-      <stop offset="0.34" stop-color="#35C8E4"/>
-      <stop offset="0.68" stop-color="#6C74E8"/>
-      <stop offset="1" stop-color="#A322E0"/>
-    </linearGradient>
-  </defs>
+  <defs><linearGradient id="pf-skin" x1="0.28" y1="0" x2="0.6" y2="1"><stop offset="0" stop-color="#15EAD6"/><stop offset="0.34" stop-color="#35C8E4"/><stop offset="0.68" stop-color="#6C74E8"/><stop offset="1" stop-color="#A322E0"/></linearGradient></defs>
   <g id="Polyform Logo">
     <path id="Backdrop" fill="#26292D" d="M 0 0 L 2048 0 L 2048 2048 L 0 2048 Z"/>
     <path id="P" fill="url(#pf-skin)" fill-rule="evenodd" d="M 554 310 L 1016 314 L 1400 402 L 1578 682 L 1590 956 L 1400 1220 L 1180 1284 L 910 1300 L 910 1576 L 842 1722 L 570 1726 Z M 874 644 L 1198 652 L 1226 800 L 1198 962 L 874 972 Z"/>

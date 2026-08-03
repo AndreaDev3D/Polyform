@@ -2,7 +2,7 @@
 // project persistence, and the local-fonts permission grant.
 
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron'
-import { promises as fs } from 'node:fs'
+import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { McpGrants, SaveProjectPayload } from '../shared/types'
 import { ProjectManager } from './project'
@@ -48,6 +48,18 @@ function refreshTitle(): void {
   mainWindow?.setTitle(windowTitle())
 }
 
+/**
+ * Window icon for unpackaged runs. Packaged builds take their icon from the
+ * executable (electron-builder picks up resources/icon.png), so setting it
+ * there would be redundant — but from source the taskbar shows Electron's
+ * own default, which is not this app.
+ */
+function devWindowIcon(): string | undefined {
+  if (app.isPackaged) return undefined
+  const file = path.join(import.meta.dirname, '../../resources/icon.png')
+  return existsSync(file) ? file : undefined
+}
+
 function createWindow(hidden = false): void {
   mainWindow = new BrowserWindow({
     width: 1520,
@@ -56,6 +68,7 @@ function createWindow(hidden = false): void {
     minHeight: 640,
     backgroundColor: '#1e1e1e',
     title: 'Polyform',
+    icon: devWindowIcon(),
     show: false,
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),

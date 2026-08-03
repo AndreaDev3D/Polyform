@@ -1,3 +1,5 @@
+<img src="resources/polyform-logo.svg" alt="Polyform" width="132" align="right" />
+
 # Polyform
 
 **A local-first, open-source vector design tool for the desktop.**

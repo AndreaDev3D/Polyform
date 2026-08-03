@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RecentEntry } from '../../../shared/types'
 import { newProjectFlow, openProjectFlow } from '../state/actions'
-import { FolderIcon, PlusIcon } from './icons'
+import { FolderIcon, PlusIcon, PolyformMark } from './icons'
 
 /** Blob URLs for the previews, loaded lazily and revoked on unmount. */
 function useThumbnails(recents: RecentEntry[]): Map<string, string> {
@@ -88,7 +88,7 @@ export function WelcomeScreen() {
         {/* Identity + the two things you can do from here. */}
         <div className="lg:w-[300px] shrink-0">
           <div className="flex items-center gap-2.5 mb-5">
-            <span className="pf-mark" style={{ width: 26, height: 26, borderRadius: 7 }} />
+            <PolyformMark size={30} className="shrink-0" />
             <h1 className="text-2xl font-semibold tracking-tight text-white">Polyform</h1>
             {version && (
               <span className="text-[11px] text-[var(--pf-text-dim)] self-end pb-1">v{version}</span>

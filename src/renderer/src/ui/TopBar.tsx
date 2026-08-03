@@ -5,7 +5,7 @@
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
 import { saveFlow, zoomAt, zoomToFit } from '../state/actions'
-import { MinusIcon, PlusIcon } from './icons'
+import { MinusIcon, PlusIcon, PolyformMark } from './icons'
 
 const ZOOM_PRESETS = [0.5, 1, 2]
 
@@ -20,7 +20,7 @@ export function TopBar() {
     <div className="flex items-center h-9 px-3 gap-3 bg-[var(--pf-bg-0)] border-b border-[var(--pf-border)] shrink-0">
       {/* Identity, left — where Figma keeps it. */}
       <div className="flex items-center gap-2 min-w-0">
-        <span className="pf-mark" aria-hidden="true" />
+        <PolyformMark size={15} className="shrink-0" />
         <span className="text-xs font-medium truncate max-w-[22rem]">{title}</span>
         {dirty && (
           <span

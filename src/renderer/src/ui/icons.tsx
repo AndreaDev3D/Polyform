@@ -1,6 +1,7 @@
 // Minimal inline SVG icon set (16x16, currentColor).
 
 import type { SVGProps } from 'react'
+import { MARK_FACETS, MARK_GLYPH, MARK_INK, MARK_STOPS, MARK_VIEWBOX } from './mark-paths'
 
 type P = SVGProps<SVGSVGElement>
 
@@ -216,6 +217,30 @@ export const CubeIcon = (p: P) => (
     <path d="M8 1.8l5.5 3v6.4L8 14.2l-5.5-3V4.8z" />
     <path d="M2.5 4.8L8 7.9l5.5-3.1M8 7.9v6.3" />
   </I>
+)
+
+/**
+ * The product mark: the logo's faceted P, coarse enough to survive being
+ * drawn 14px tall. Geometry comes from mark-paths.ts, which
+ * `node scripts/make-logo.mjs` generates from the same source as
+ * resources/polyform-logo.svg — so the two can never drift.
+ *
+ * Inline rather than an <img>: no asset round-trip, and it can inherit size
+ * from the caller. The gradient id is fixed because at most one mark is on
+ * screen at a time (welcome screen OR top bar).
+ */
+export const PolyformMark = ({ size = 14, ...p }: P & { size?: number }) => (
+  <svg width={size} height={size} viewBox={MARK_VIEWBOX} fill="none" aria-hidden="true" {...p}>
+    <defs>
+      <linearGradient id="pf-mark-skin" x1="0.28" y1="0" x2="0.6" y2="1">
+        {MARK_STOPS.map((s) => (
+          <stop key={s.at} offset={s.at} stopColor={s.color} />
+        ))}
+      </linearGradient>
+    </defs>
+    <path fill="url(#pf-mark-skin)" fillRule="evenodd" d={MARK_GLYPH} />
+    <path stroke={MARK_INK} strokeWidth="34" strokeOpacity="0.6" d={MARK_FACETS} />
+  </svg>
 )
 
 export const FolderIcon = (p: P) => (

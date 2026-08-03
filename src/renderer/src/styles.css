@@ -156,13 +156,8 @@ textarea {
   outline-offset: 1px;
 }
 
-/* Small product mark in the top bar. */
-.pf-mark {
-  @apply inline-block shrink-0 rounded;
-  width: 14px;
-  height: 14px;
-  background: linear-gradient(135deg, var(--pf-accent), #8b5cf6);
-}
+/* The product mark is the real logo now — see PolyformMark in ui/icons.tsx.
+ * The gradient-square placeholder this replaced lived here. */
 
 /* Colour-picker bits. */
 .pf-swatch {
