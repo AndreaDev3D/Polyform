@@ -39,9 +39,9 @@ import {
   detachSelectedInstances,
   detachStyle,
   distributeSelection,
-  exportSelection,
   renameSharedStyle,
   resetInstanceOverrides,
+  runExports,
   selectedIds,
   setSelectionSize,
   swapInstanceComponent,
@@ -49,10 +49,11 @@ import {
   updateColorStyle,
   updateSelectedNodes,
 } from '../state/actions'
+import type { ExportTarget } from '../state/actions'
 import { listComponents } from '../engine/components'
 import { ComponentIcon } from './icons'
 import type { PatchOp } from '../engine/commands'
-import { NumberInput, Section, Segmented, Select, round } from './components'
+import { Field, NumberInput, Section, Segmented, Select, round } from './components'
 import { ColorPicker, type PickerPaintType } from './ColorPicker'
 import { rgbaToCss, rgbaToHex } from '../engine/color'
 import {
@@ -62,12 +63,29 @@ import {
   AlignRightIcon,
   AlignTopIcon,
   AlignVCenterIcon,
+  BlurIcon,
+  CornerBLIcon,
+  CornerBRIcon,
+  CornerRadiusIcon,
+  CornerTLIcon,
+  CornerTRIcon,
+  CornersIcon,
   DistributeHIcon,
   DistributeVIcon,
+  ExportIcon,
   EyeIcon,
   EyeOffIcon,
   MinusIcon,
+  OpacityIcon,
   PlusIcon,
+  RotationIcon,
+  StrokeWeightIcon,
+  TextAlignCenterIcon,
+  TextAlignLeftIcon,
+  TextAlignRightIcon,
+  TextBottomIcon,
+  TextMiddleIcon,
+  TextTopIcon,
 } from './icons'
 
 const BLEND_OPTIONS: { value: BlendMode; label: string }[] = [
@@ -92,13 +110,21 @@ interface PickerState {
   anchor: { x: number; y: number }
 }
 
+/** The four corner fields, each with the corner it edits drawn on it. */
+const CORNERS = [
+  { key: 'tl', Icon: CornerTLIcon, label: 'Top left' },
+  { key: 'tr', Icon: CornerTRIcon, label: 'Top right' },
+  { key: 'bl', Icon: CornerBLIcon, label: 'Bottom left' },
+  { key: 'br', Icon: CornerBRIcon, label: 'Bottom right' },
+] as const
+
 export function Inspector() {
   useDocVersion()
   const selection = useEditor((s) => s.selection)
   const fonts = useEditor((s) => s.fonts)
   const [picker, setPicker] = useState<PickerState | null>(null)
-  const [cornersExpanded, setCornersExpanded] = useState(false)
-  const [exportScale, setExportScale] = useState(2)
+  /** null = follow the shape (expand when its corners differ); set = the user decided. */
+  const [cornersExpanded, setCornersExpanded] = useState<boolean | null>(null)
   const pickerSnapshot = useRef<Map<NodeId, { fills: Paint[]; strokes: Paint[]; effects: Effect[] }> | null>(null)
 
   const scene = documentStore.scene
@@ -121,14 +147,15 @@ export function Inspector() {
     )
   }
 
-  /** Corners that already differ have four values to show — hiding them behind
-   *  a link would leave the panel looking empty while the shape is clearly
-   *  asymmetric. Dragging one corner handle on canvas lands here. */
+  /** Corners that already differ have four values to show, so they start
+   *  expanded — dragging one corner handle on canvas lands here. The toggle
+   *  still wins: forcing it open made the button look broken, since collapsing
+   *  had no visible effect. Collapsed, the single field reads "Mixed". */
   const cornersDiffer = nodes.some((n) => {
     const r = (n as { cornerRadius?: { tl: number; tr: number; br: number; bl: number } }).cornerRadius
     return r ? !(r.tl === r.tr && r.tr === r.br && r.br === r.bl) : false
   })
-  const showCorners = cornersExpanded || cornersDiffer
+  const showCorners = cornersExpanded ?? cornersDiffer
 
   const first = nodes[0]
 
@@ -240,66 +267,101 @@ export function Inspector() {
 
   return (
     <div className="w-72 shrink-0 bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto select-none">
-      {/* Align */}
-      <div className="pf-section flex items-center justify-between">
-        <button className="pf-icon-btn" title="Align left" onClick={() => alignSelection('left')}><AlignLeftIcon /></button>
-        <button className="pf-icon-btn" title="Align horizontal centers" onClick={() => alignSelection('hcenter')}><AlignHCenterIcon /></button>
-        <button className="pf-icon-btn" title="Align right" onClick={() => alignSelection('right')}><AlignRightIcon /></button>
-        <button className="pf-icon-btn" title="Align top" onClick={() => alignSelection('top')}><AlignTopIcon /></button>
-        <button className="pf-icon-btn" title="Align vertical centers" onClick={() => alignSelection('vcenter')}><AlignVCenterIcon /></button>
-        <button className="pf-icon-btn" title="Align bottom" onClick={() => alignSelection('bottom')}><AlignBottomIcon /></button>
-        <button className="pf-icon-btn" title="Distribute horizontally" onClick={() => distributeSelection('h')}><DistributeHIcon /></button>
-        <button className="pf-icon-btn" title="Distribute vertically" onClick={() => distributeSelection('v')}><DistributeVIcon /></button>
-      </div>
-
       {/* Transform */}
       <Section title={nodes.length === 1 ? first.name : `${nodes.length} layers`}>
+        <Field label="Alignment" className="mb-2.5">
+          <div className="flex items-center justify-between">
+            <button className="pf-icon-btn" title="Align left" onClick={() => alignSelection('left')}><AlignLeftIcon /></button>
+            <button className="pf-icon-btn" title="Align horizontal centers" onClick={() => alignSelection('hcenter')}><AlignHCenterIcon /></button>
+            <button className="pf-icon-btn" title="Align right" onClick={() => alignSelection('right')}><AlignRightIcon /></button>
+            <button className="pf-icon-btn" title="Align top" onClick={() => alignSelection('top')}><AlignTopIcon /></button>
+            <button className="pf-icon-btn" title="Align vertical centers" onClick={() => alignSelection('vcenter')}><AlignVCenterIcon /></button>
+            <button className="pf-icon-btn" title="Align bottom" onClick={() => alignSelection('bottom')}><AlignBottomIcon /></button>
+            <button className="pf-icon-btn" title="Distribute horizontally" onClick={() => distributeSelection('h')}><DistributeHIcon /></button>
+            <button className="pf-icon-btn" title="Distribute vertically" onClick={() => distributeSelection('v')}><DistributeVIcon /></button>
+          </div>
+        </Field>
+
         <div className="grid grid-cols-2 gap-2">
-          <NumberInput label="X" value={common((n) => round(n.x))} onCommit={(v) => commit(() => ({ x: v }), 'Set X')} />
-          <NumberInput label="Y" value={common((n) => round(n.y))} onCommit={(v) => commit(() => ({ y: v }), 'Set Y')} />
-          <NumberInput label="W" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => setSelectionSize('width', v)} />
-          <NumberInput label="H" value={common((n) => round(n.height))} min={0} onCommit={(v) => setSelectionSize('height', v)} />
-          <NumberInput label="⟳" value={common((n) => round(n.rotation))} suffix="°" onCommit={(v) => commit(() => ({ rotation: v }), 'Set Rotation')} />
-          {hasCorner && !showCorners && (
+          <Field label="Position">
+            <div className="grid grid-cols-2 gap-1.5">
+              <NumberInput label="X" title="X position" value={common((n) => round(n.x))} onCommit={(v) => commit(() => ({ x: v }), 'Set X')} />
+              <NumberInput label="Y" title="Y position" value={common((n) => round(n.y))} onCommit={(v) => commit(() => ({ y: v }), 'Set Y')} />
+            </div>
+          </Field>
+          <Field label="Dimensions">
+            <div className="grid grid-cols-2 gap-1.5">
+              <NumberInput label="W" title="Width" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => setSelectionSize('width', v)} />
+              <NumberInput label="H" title="Height" value={common((n) => round(n.height))} min={0} onCommit={(v) => setSelectionSize('height', v)} />
+            </div>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mt-2.5">
+          <Field label="Rotation">
             <NumberInput
-              label="⌒"
-              // null, not NaN: null is how a field says "mixed" and shows its
-              // placeholder. NaN reached the input as a value and rendered
-              // literally — visible the moment corners differ, which the
-              // canvas handles now make routine.
-              value={common((n) => {
-                const r = (n as { cornerRadius?: { tl: number; tr: number; br: number; bl: number } }).cornerRadius
-                if (!r) return 0
-                return r.tl === r.tr && r.tr === r.br && r.br === r.bl ? round(r.tl) : null
-              })}
-              min={0}
-              onCommit={(v) => commit(() => ({ cornerRadius: { tl: v, tr: v, br: v, bl: v } }), 'Set Corner Radius')}
+              label={<RotationIcon />}
+              title="Rotation"
+              value={common((n) => round(n.rotation))}
+              suffix="°"
+              onCommit={(v) => commit(() => ({ rotation: v }), 'Set Rotation')}
             />
+          </Field>
+          {hasCorner && (
+            <Field
+              label="Corner radius"
+              actions={
+                <button
+                  className={`pf-icon-btn !w-5 !h-5 ${showCorners ? 'active' : ''}`}
+                  title={showCorners ? 'Use one radius for all corners' : 'Set each corner independently'}
+                  aria-pressed={showCorners}
+                  onClick={() => setCornersExpanded(!showCorners)}
+                >
+                  <CornersIcon width={12} height={12} />
+                </button>
+              }
+            >
+              {!showCorners && (
+                <NumberInput
+                  label={<CornerRadiusIcon />}
+                  title="Corner radius"
+                  // null, not NaN: null is how a field says "mixed" and shows
+                  // its placeholder. NaN reached the input as a value and
+                  // rendered literally — visible the moment corners differ,
+                  // which the canvas handles now make routine.
+                  value={common((n) => {
+                    const r = (n as { cornerRadius?: { tl: number; tr: number; br: number; bl: number } }).cornerRadius
+                    if (!r) return 0
+                    return r.tl === r.tr && r.tr === r.br && r.br === r.bl ? round(r.tl) : null
+                  })}
+                  min={0}
+                  onCommit={(v) => commit(() => ({ cornerRadius: { tl: v, tr: v, br: v, bl: v } }), 'Set Corner Radius')}
+                />
+              )}
+            </Field>
           )}
         </div>
-        {hasCorner && (
-          <button className="mt-1.5 text-[10px] text-[var(--pf-text-dim)] hover:text-white" onClick={() => setCornersExpanded(!showCorners)}>
-            {showCorners ? '− Uniform corner radius' : '+ Individual corners'}
-          </button>
-        )}
+
         {hasCorner && showCorners && (
-          <div className="grid grid-cols-4 gap-1 mt-1">
-            {(['tl', 'tr', 'br', 'bl'] as const).map((corner) => (
+          <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+            {CORNERS.map(({ key, Icon, label }) => (
               <NumberInput
-                key={corner}
-                value={common((n) => round((n as unknown as { cornerRadius: Record<string, number> }).cornerRadius[corner]))}
+                key={key}
+                label={<Icon />}
+                title={label}
+                value={common((n) => round((n as unknown as { cornerRadius: Record<string, number> }).cornerRadius[key]))}
                 min={0}
                 onCommit={(v) =>
-                  commit((n) => ({ cornerRadius: { ...(n as unknown as { cornerRadius: Record<string, number> }).cornerRadius, [corner]: v } }), 'Set Corner Radius')
+                  commit((n) => ({ cornerRadius: { ...(n as unknown as { cornerRadius: Record<string, number> }).cornerRadius, [key]: v } }), 'Set Corner Radius')
                 }
               />
             ))}
           </div>
         )}
         {isEllipse && (
-          <div className="mt-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] uppercase tracking-wide text-[var(--pf-text-dim)]">Arc</span>
+          <div className="mt-2.5">
+            <div className="pf-field-head">
+              <span className="pf-field-label">Arc</span>
               {!isFullEllipse(
                 common((n) => (n as EllipseNode).arcSweep ?? 1) ?? 1,
                 common((n) => (n as EllipseNode).arcRatio ?? 0) ?? 0,
@@ -315,47 +377,67 @@ export function Inspector() {
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {/* Degrees and percent in the UI; turns and fractions in the
-               * model, so the geometry math stays unit-free. */}
-              <NumberInput
-                label="⟲"
-                title="Start angle"
-                value={common((n) => round(((n as EllipseNode).arcStart ?? 0) * 360))}
-                onCommit={(v) => commit(() => ({ arcStart: v / 360 }), 'Set Arc Start')}
-              />
-              <NumberInput
-                label="◔"
-                title="Sweep"
-                value={common((n) => round(((n as EllipseNode).arcSweep ?? 1) * 100))}
-                min={-100}
-                max={100}
-                onCommit={(v) => commit(() => ({ arcSweep: v / 100 }), 'Set Arc Sweep')}
-              />
-              <NumberInput
-                label="◎"
-                title="Inner radius (donut)"
-                value={common((n) => round(((n as EllipseNode).arcRatio ?? 0) * 100))}
-                min={0}
-                max={99}
-                onCommit={(v) => commit(() => ({ arcRatio: v / 100 }), 'Set Arc Ratio')}
-              />
+            {/* Degrees and percent in the UI; turns and fractions in the
+             * model, so the geometry math stays unit-free. */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <Field label="Start">
+                <NumberInput
+                  title="Start angle"
+                  suffix="°"
+                  value={common((n) => round(((n as EllipseNode).arcStart ?? 0) * 360))}
+                  onCommit={(v) => commit(() => ({ arcStart: v / 360 }), 'Set Arc Start')}
+                />
+              </Field>
+              <Field label="Sweep">
+                <NumberInput
+                  title="How much of the ellipse the arc covers"
+                  suffix="%"
+                  value={common((n) => round(((n as EllipseNode).arcSweep ?? 1) * 100))}
+                  min={-100}
+                  max={100}
+                  onCommit={(v) => commit(() => ({ arcSweep: v / 100 }), 'Set Arc Sweep')}
+                />
+              </Field>
+              <Field label="Inner" hint="Inner radius — above 0 makes a donut">
+                <NumberInput
+                  title="Inner radius (donut)"
+                  suffix="%"
+                  value={common((n) => round(((n as EllipseNode).arcRatio ?? 0) * 100))}
+                  min={0}
+                  max={99}
+                  onCommit={(v) => commit(() => ({ arcRatio: v / 100 }), 'Set Arc Ratio')}
+                />
+              </Field>
             </div>
           </div>
         )}
-        {isPolygon && (
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <NumberInput label="N" value={common((n) => (n as { pointCount: number }).pointCount)} min={3} max={60} onCommit={(v) => commit(() => ({ pointCount: Math.round(v) }), 'Set Points')} />
-          </div>
-        )}
-        {isStar && (
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <NumberInput label="N" value={common((n) => (n as { pointCount: number }).pointCount)} min={3} max={60} onCommit={(v) => commit(() => ({ pointCount: Math.round(v) }), 'Set Points')} />
-            <NumberInput label="%" value={common((n) => round((n as { innerRatio: number }).innerRatio * 100))} min={1} max={100} onCommit={(v) => commit(() => ({ innerRatio: v / 100 }), 'Set Inner Radius')} />
+        {(isPolygon || isStar) && (
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <Field label="Points">
+              <NumberInput
+                title="Number of points"
+                value={common((n) => (n as { pointCount: number }).pointCount)}
+                min={3}
+                max={60}
+                onCommit={(v) => commit(() => ({ pointCount: Math.round(v) }), 'Set Points')}
+              />
+            </Field>
+            {isStar && (
+              <Field label="Inner radius">
+                <NumberInput
+                  title="How deep the notches cut in"
+                  suffix="%"
+                  value={common((n) => round((n as { innerRatio: number }).innerRatio * 100))}
+                  min={1}
+                  max={100}
+                  onCommit={(v) => commit(() => ({ innerRatio: v / 100 }), 'Set Inner Radius')}
+                />
+              </Field>
+            )}
           </div>
         )}
         {isBool && (
-          <div className="mt-2">
+          <Field label="Operation" className="mt-2.5">
             <Select<BooleanOp>
               value={(common((n) => (n as { booleanOp: BooleanOp }).booleanOp) ?? '') as BooleanOp | ''}
               options={[
@@ -366,7 +448,7 @@ export function Inspector() {
               ]}
               onChange={(v) => commit(() => ({ booleanOp: v }), 'Set Boolean Operation')}
             />
-          </div>
+          </Field>
         )}
       </Section>
 
@@ -395,28 +477,32 @@ export function Inspector() {
       }) && (
         <Section title="Constraints">
           <div className="grid grid-cols-2 gap-2">
-            <Select<Constraint>
-              value={(common((n) => n.constraintsH ?? 'MIN') ?? '') as Constraint | ''}
-              options={[
-                { value: 'MIN', label: 'Left' },
-                { value: 'MAX', label: 'Right' },
-                { value: 'CENTER', label: 'Center' },
-                { value: 'STRETCH', label: 'Left & right' },
-                { value: 'SCALE', label: 'Scale' },
-              ]}
-              onChange={(v) => commit(() => ({ constraintsH: v }), 'Set Constraints')}
-            />
-            <Select<Constraint>
-              value={(common((n) => n.constraintsV ?? 'MIN') ?? '') as Constraint | ''}
-              options={[
-                { value: 'MIN', label: 'Top' },
-                { value: 'MAX', label: 'Bottom' },
-                { value: 'CENTER', label: 'Center' },
-                { value: 'STRETCH', label: 'Top & bottom' },
-                { value: 'SCALE', label: 'Scale' },
-              ]}
-              onChange={(v) => commit(() => ({ constraintsV: v }), 'Set Constraints')}
-            />
+            <Field label="Horizontal" hint="What this layer keeps fixed when its frame is resized">
+              <Select<Constraint>
+                value={(common((n) => n.constraintsH ?? 'MIN') ?? '') as Constraint | ''}
+                options={[
+                  { value: 'MIN', label: 'Left' },
+                  { value: 'MAX', label: 'Right' },
+                  { value: 'CENTER', label: 'Center' },
+                  { value: 'STRETCH', label: 'Left & right' },
+                  { value: 'SCALE', label: 'Scale' },
+                ]}
+                onChange={(v) => commit(() => ({ constraintsH: v }), 'Set Constraints')}
+              />
+            </Field>
+            <Field label="Vertical">
+              <Select<Constraint>
+                value={(common((n) => n.constraintsV ?? 'MIN') ?? '') as Constraint | ''}
+                options={[
+                  { value: 'MIN', label: 'Top' },
+                  { value: 'MAX', label: 'Bottom' },
+                  { value: 'CENTER', label: 'Center' },
+                  { value: 'STRETCH', label: 'Top & bottom' },
+                  { value: 'SCALE', label: 'Scale' },
+                ]}
+                onChange={(v) => commit(() => ({ constraintsV: v }), 'Set Constraints')}
+              />
+            </Field>
           </div>
         </Section>
       )}
@@ -431,19 +517,24 @@ export function Inspector() {
       {/* Appearance */}
       <Section title="Appearance">
         <div className="grid grid-cols-2 gap-2">
-          <NumberInput
-            label="◐"
-            value={common((n) => round(n.opacity * 100))}
-            min={0}
-            max={100}
-            suffix="%"
-            onCommit={(v) => commit(() => ({ opacity: v / 100 }), 'Set Opacity')}
-          />
-          <Select<BlendMode>
-            value={(common((n) => n.blendMode) ?? '') as BlendMode | ''}
-            options={BLEND_OPTIONS}
-            onChange={(v) => commit(() => ({ blendMode: v }), 'Set Blend Mode')}
-          />
+          <Field label="Opacity">
+            <NumberInput
+              label={<OpacityIcon />}
+              title="Layer opacity"
+              value={common((n) => round(n.opacity * 100))}
+              min={0}
+              max={100}
+              suffix="%"
+              onCommit={(v) => commit(() => ({ opacity: v / 100 }), 'Set Opacity')}
+            />
+          </Field>
+          <Field label="Blend mode">
+            <Select<BlendMode>
+              value={(common((n) => n.blendMode) ?? '') as BlendMode | ''}
+              options={BLEND_OPTIONS}
+              onChange={(v) => commit(() => ({ blendMode: v }), 'Set Blend Mode')}
+            />
+          </Field>
         </div>
         {nodes.every((n) => n.type !== 'FRAME') && (
           <label className="flex items-center gap-2 mt-2 text-[11px] text-[var(--pf-text-dim)] cursor-default">
@@ -585,26 +676,37 @@ export function Inspector() {
           />
         ))}
         {first.strokes.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 mt-2">
-            <NumberInput label="W" value={common((n) => round(n.strokeWeight))} min={0} onCommit={(v) => commit(() => ({ strokeWeight: v }), 'Set Stroke Weight')} />
-            <Select
-              value={(common((n) => n.strokeAlign) ?? '') as 'CENTER' | 'INSIDE' | 'OUTSIDE' | ''}
-              options={[
-                { value: 'INSIDE', label: 'Inside' },
-                { value: 'CENTER', label: 'Center' },
-                { value: 'OUTSIDE', label: 'Outside' },
-              ]}
-              onChange={(v) => commit(() => ({ strokeAlign: v }), 'Set Stroke Align')}
-              className="col-span-1"
-            />
-            <Select
-              value={common((n) => (n.strokeDash.length > 0 ? 'dash' : 'solid')) ?? ''}
-              options={[
-                { value: 'solid', label: 'Solid' },
-                { value: 'dash', label: 'Dashed' },
-              ]}
-              onChange={(v) => commit((n) => ({ strokeDash: v === 'dash' ? [n.strokeWeight * 3, n.strokeWeight * 3] : [] }), 'Set Dash')}
-            />
+          <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+            <Field label="Weight">
+              <NumberInput
+                label={<StrokeWeightIcon />}
+                title="Stroke weight"
+                value={common((n) => round(n.strokeWeight))}
+                min={0}
+                onCommit={(v) => commit(() => ({ strokeWeight: v }), 'Set Stroke Weight')}
+              />
+            </Field>
+            <Field label="Align" hint="Which side of the path the stroke sits on">
+              <Select
+                value={(common((n) => n.strokeAlign) ?? '') as 'CENTER' | 'INSIDE' | 'OUTSIDE' | ''}
+                options={[
+                  { value: 'INSIDE', label: 'Inside' },
+                  { value: 'CENTER', label: 'Center' },
+                  { value: 'OUTSIDE', label: 'Outside' },
+                ]}
+                onChange={(v) => commit(() => ({ strokeAlign: v }), 'Set Stroke Align')}
+              />
+            </Field>
+            <Field label="Style">
+              <Select
+                value={common((n) => (n.strokeDash.length > 0 ? 'dash' : 'solid')) ?? ''}
+                options={[
+                  { value: 'solid', label: 'Solid' },
+                  { value: 'dash', label: 'Dashed' },
+                ]}
+                onChange={(v) => commit((n) => ({ strokeDash: v === 'dash' ? [n.strokeWeight * 3, n.strokeWeight * 3] : [] }), 'Set Dash')}
+              />
+            </Field>
           </div>
         )}
       </Section>
@@ -686,24 +788,34 @@ export function Inspector() {
               </button>
             </div>
             {(fx.type === 'DROP_SHADOW' || fx.type === 'INNER_SHADOW') && (
-              <div className="grid grid-cols-4 gap-1 mt-1 items-center">
-                <NumberInput label="X" value={round(fx.offset.x)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.offset = { ...e.offset, x: v })), 'Set Shadow')} />
-                <NumberInput label="Y" value={round(fx.offset.y)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.offset = { ...e.offset, y: v })), 'Set Shadow')} />
-                <NumberInput label="B" value={round(fx.blur)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.blur = v)), 'Set Shadow')} />
-                <button
-                  className="w-6 h-6 rounded border border-[var(--pf-border)]"
-                  style={{ background: rgbaToCss(fx.color) }}
-                  title="Shadow color"
-                  onClick={(e) => {
-                    const r = (e.target as HTMLElement).getBoundingClientRect()
-                    openPicker({ kind: 'effect', index: i, anchor: { x: r.left - 260, y: r.top } })
-                  }}
-                />
+              <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5 mt-1.5 items-end">
+                <Field label="Offset X">
+                  <NumberInput title="Horizontal offset" value={round(fx.offset.x)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.offset = { ...e.offset, x: v })), 'Set Shadow')} />
+                </Field>
+                <Field label="Y">
+                  <NumberInput title="Vertical offset" value={round(fx.offset.y)} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.offset = { ...e.offset, y: v })), 'Set Shadow')} />
+                </Field>
+                <Field label="Blur">
+                  <NumberInput title="Shadow blur" value={round(fx.blur)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'DROP_SHADOW' || e.type === 'INNER_SHADOW') && (e.blur = v)), 'Set Shadow')} />
+                </Field>
+                <Field label="Color">
+                  <button
+                    className="pf-swatch !w-[26px] !h-[26px]"
+                    style={{ background: rgbaToCss(fx.color) }}
+                    title="Shadow colour"
+                    onClick={(e) => {
+                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      openPicker({ kind: 'effect', index: i, anchor: { x: r.left - 260, y: r.top } })
+                    }}
+                  />
+                </Field>
               </div>
             )}
             {(fx.type === 'LAYER_BLUR' || fx.type === 'BACKGROUND_BLUR') && (
-              <div className="grid grid-cols-2 gap-1 mt-1">
-                <NumberInput label="R" value={round(fx.radius)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'LAYER_BLUR' || e.type === 'BACKGROUND_BLUR') && (e.radius = v)), 'Set Blur')} />
+              <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+                <Field label="Radius" hint={fx.type === 'BACKGROUND_BLUR' ? 'How far the blur reaches behind this layer' : 'How far the blur reaches'}>
+                  <NumberInput label={<BlurIcon />} title="Blur radius" value={round(fx.radius)} min={0} onCommit={(v) => commit((n) => patchEffect(n, i, (e) => (e.type === 'LAYER_BLUR' || e.type === 'BACKGROUND_BLUR') && (e.radius = v)), 'Set Blur')} />
+                </Field>
               </div>
             )}
           </div>
@@ -711,27 +823,7 @@ export function Inspector() {
       </Section>
 
       {/* Export */}
-      <Section title="Export">
-        <div className="flex items-center gap-2">
-          <Select
-            value={String(exportScale)}
-            options={[
-              { value: '1', label: '1x' },
-              { value: '2', label: '2x' },
-              { value: '3', label: '3x' },
-              { value: '4', label: '4x' },
-            ]}
-            onChange={(v) => setExportScale(parseInt(v, 10))}
-            className="w-16"
-          />
-          <button className="pf-btn flex-1 bg-[var(--pf-bg-3)]" onClick={() => void exportSelection('png', exportScale)}>
-            PNG
-          </button>
-          <button className="pf-btn flex-1 bg-[var(--pf-bg-3)]" onClick={() => void exportSelection('svg')}>
-            SVG
-          </button>
-        </div>
-      </Section>
+      <ExportSection targetName={nodes.length === 1 ? first.name : `${nodes.length} layers`} />
 
       {picker && (
         <ColorPicker
@@ -765,6 +857,103 @@ export function Inspector() {
 }
 
 // ---------------------------------------------------------------------------
+
+const SCALES = [0.5, 1, 2, 3, 4]
+
+/** The next target that doesn't collide with one already listed, or null. */
+function nextExportTarget(targets: ExportTarget[]): ExportTarget | null {
+  for (const scale of [2, 1, 3, 4, 0.5]) {
+    if (!targets.some((t) => t.format === 'png' && t.scale === scale)) return { format: 'png', scale }
+  }
+  if (!targets.some((t) => t.format === 'svg')) return { format: 'svg', scale: 1 }
+  return null
+}
+
+/**
+ * Export targets, added one at a time.
+ *
+ * Empty until you add something, because a layer usually isn't being exported —
+ * and one layer often needs several files at once (a 1x and a 2x PNG, or a PNG
+ * beside an SVG), which a single pair of format buttons can't express. Rows are
+ * per-panel rather than stored on the layer; keeping them in the document is a
+ * schema change, and this pass is about clarity.
+ */
+function ExportSection({ targetName }: { targetName: string }) {
+  const [targets, setTargets] = useState<ExportTarget[]>([])
+  const [busy, setBusy] = useState(false)
+  const addable = nextExportTarget(targets)
+
+  return (
+    <Section
+      title="Export"
+      actions={
+        <button
+          className="pf-icon-btn !w-5 !h-5"
+          title={addable ? 'Add an export target' : 'Every size and format is already listed'}
+          disabled={!addable}
+          onClick={() => addable && setTargets((prev) => [...prev, addable])}
+        >
+          <PlusIcon width={12} height={12} />
+        </button>
+      }
+    >
+      {targets.length > 0 && (
+        <>
+          <div className="flex flex-col gap-1.5">
+            {/* Explicit grid columns: both selects carry pf-input's w-full, so
+                in a flex row the first one ate the whole width. */}
+            {targets.map((t, i) => (
+              <div key={`${t.format}-${t.scale}-${i}`} className="grid grid-cols-[4.25rem_1fr_auto] items-center gap-1.5">
+                <Select
+                  // SVG is resolution-independent, so a scale would be a lie.
+                  value={t.format === 'svg' ? '1' : String(t.scale)}
+                  options={SCALES.map((s) => ({ value: String(s), label: `${s}x` }))}
+                  onChange={(v) =>
+                    setTargets((prev) => prev.map((p, j) => (j === i ? { ...p, scale: parseFloat(v) } : p)))
+                  }
+                  disabled={t.format === 'svg'}
+                />
+                <Select
+                  value={t.format}
+                  options={[
+                    { value: 'png', label: 'PNG' },
+                    { value: 'svg', label: 'SVG' },
+                  ]}
+                  onChange={(v) =>
+                    setTargets((prev) => prev.map((p, j) => (j === i ? { ...p, format: v as 'png' | 'svg' } : p)))
+                  }
+                />
+                <button
+                  className="pf-icon-btn !w-5 !h-5"
+                  title="Remove this target"
+                  onClick={() => setTargets((prev) => prev.filter((_, j) => j !== i))}
+                >
+                  <MinusIcon width={11} height={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            className="pf-btn w-full mt-2 bg-[var(--pf-bg-3)] gap-1.5"
+            disabled={busy}
+            title={
+              targets.length > 1
+                ? 'Pick one folder; every target is written into it'
+                : 'Choose where to save it'
+            }
+            onClick={() => {
+              setBusy(true)
+              void runExports(targets).finally(() => setBusy(false))
+            }}
+          >
+            <ExportIcon width={12} height={12} />
+            {busy ? 'Exporting…' : `Export ${targetName}`}
+          </button>
+        </>
+      )}
+    </Section>
+  )
+}
 
 function patchEffect(n: SceneNode, i: number, mutate: (e: Effect) => unknown): Record<string, unknown> {
   const effects = structuredClone(n.effects)
@@ -984,10 +1173,18 @@ function Model3dSection({ node }: { node: Model3dNode }) {
         {splat ? ' · gaussian splats' : ' · mesh'}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <NumberInput label="Yaw" value={round(cam.yaw)} onCommit={(v) => setCam({ yaw: v }, 'Orbit Model')} />
-        <NumberInput label="Pitch" value={round(cam.pitch)} min={-89} max={89} onCommit={(v) => setCam({ pitch: v }, 'Orbit Model')} />
-        <NumberInput label="Dist" value={round(cam.distance * 100) / 100} min={0.2} max={8} step={0.05} onCommit={(v) => setCam({ distance: v }, 'Zoom Model')} />
-        <NumberInput label="FOV" value={round(cam.fov)} min={5} max={110} onCommit={(v) => setCam({ fov: v }, 'Set Model FOV')} />
+        <Field label="Yaw" hint="Rotation around the model's up axis">
+          <NumberInput title="Yaw" suffix="°" value={round(cam.yaw)} onCommit={(v) => setCam({ yaw: v }, 'Orbit Model')} />
+        </Field>
+        <Field label="Pitch" hint="Camera height, above or below the model">
+          <NumberInput title="Pitch" suffix="°" value={round(cam.pitch)} min={-89} max={89} onCommit={(v) => setCam({ pitch: v }, 'Orbit Model')} />
+        </Field>
+        <Field label="Distance">
+          <NumberInput title="Camera distance" value={round(cam.distance * 100) / 100} min={0.2} max={8} step={0.05} onCommit={(v) => setCam({ distance: v }, 'Zoom Model')} />
+        </Field>
+        <Field label="Field of view">
+          <NumberInput title="Field of view" suffix="°" value={round(cam.fov)} min={5} max={110} onCommit={(v) => setCam({ fov: v }, 'Set Model FOV')} />
+        </Field>
       </div>
       <button
         className="pf-btn w-full bg-[var(--pf-bg-3)] text-[10px] mt-2"
@@ -996,8 +1193,7 @@ function Model3dSection({ node }: { node: Model3dNode }) {
         Reset view
       </button>
       {!splat && (
-        <div className="mt-2">
-          <div className="text-[10px] text-[var(--pf-text-dim)] mb-1">Lighting</div>
+        <Field label="Lighting" className="mt-2">
           <Select<LightingPreset>
             value={node.lighting}
             options={[
@@ -1008,7 +1204,7 @@ function Model3dSection({ node }: { node: Model3dNode }) {
             ]}
             onChange={(v) => updateSelectedNodes(() => ({ lighting: v }), 'Set Model Lighting')}
           />
-        </div>
+        </Field>
       )}
       {splat && (
         <label className="flex items-center gap-1.5 mt-2 text-[10px] cursor-pointer">
@@ -1126,18 +1322,24 @@ function ImageFillControls({
       {bgState.phase === 'error' && (
         <div className="text-[10px] text-[var(--pf-danger,#e66)] mt-1">{bgState.message}</div>
       )}
-      <div className="text-[10px] text-[var(--pf-text-dim)] mt-1 mb-0.5">Crop (% of image)</div>
-      <div className="grid grid-cols-4 gap-1">
-        <NumberInput label="X" value={round(crop.x * 100)} min={0} max={100} onCommit={(v) => setCrop('x', v)} />
-        <NumberInput label="Y" value={round(crop.y * 100)} min={0} max={100} onCommit={(v) => setCrop('y', v)} />
-        <NumberInput label="W" value={round(crop.w * 100)} min={1} max={100} onCommit={(v) => setCrop('w', v)} />
-        <NumberInput label="H" value={round(crop.h * 100)} min={1} max={100} onCommit={(v) => setCrop('h', v)} />
-      </div>
-      <div className="text-[10px] text-[var(--pf-text-dim)] mt-1.5 mb-0.5">Adjust (−100 … 100)</div>
-      <div className="grid grid-cols-3 gap-1">
-        <NumberInput label="☀" value={round(adj.exposure * 100)} min={-100} max={100} onCommit={(v) => setAdj('exposure', v)} />
-        <NumberInput label="◑" value={round(adj.contrast * 100)} min={-100} max={100} onCommit={(v) => setAdj('contrast', v)} />
-        <NumberInput label="S" value={round(adj.saturation * 100)} min={-100} max={100} onCommit={(v) => setAdj('saturation', v)} />
+      <Field label="Crop" hint="Which part of the image is shown, as a percentage of it" className="mt-1.5">
+        <div className="grid grid-cols-4 gap-1">
+          <NumberInput label="X" title="Crop from the left" value={round(crop.x * 100)} min={0} max={100} onCommit={(v) => setCrop('x', v)} />
+          <NumberInput label="Y" title="Crop from the top" value={round(crop.y * 100)} min={0} max={100} onCommit={(v) => setCrop('y', v)} />
+          <NumberInput label="W" title="Cropped width" value={round(crop.w * 100)} min={1} max={100} onCommit={(v) => setCrop('w', v)} />
+          <NumberInput label="H" title="Cropped height" value={round(crop.h * 100)} min={1} max={100} onCommit={(v) => setCrop('h', v)} />
+        </div>
+      </Field>
+      <div className="grid grid-cols-3 gap-1 mt-1.5">
+        <Field label="Exposure">
+          <NumberInput title="Exposure, −100 to 100" value={round(adj.exposure * 100)} min={-100} max={100} onCommit={(v) => setAdj('exposure', v)} />
+        </Field>
+        <Field label="Contrast">
+          <NumberInput title="Contrast, −100 to 100" value={round(adj.contrast * 100)} min={-100} max={100} onCommit={(v) => setAdj('contrast', v)} />
+        </Field>
+        <Field label="Saturation">
+          <NumberInput title="Saturation, −100 to 100" value={round(adj.saturation * 100)} min={-100} max={100} onCommit={(v) => setAdj('saturation', v)} />
+        </Field>
       </div>
     </div>
   )
@@ -1362,63 +1564,79 @@ function AutoLayoutEditor({
   const l = frame.layout
   return (
     <div>
-      <Segmented
-        value={common((n) => (n as FrameNode).layout.mode)}
-        options={[
-          { value: 'NONE', label: 'None' },
-          { value: 'HORIZONTAL', label: '→' },
-          { value: 'VERTICAL', label: '↓' },
-        ]}
-        onChange={(v) => commit(layoutPatch((lay) => (lay.mode = v)), 'Set Auto Layout')}
-      />
+      <Field label="Direction" hint="Stack this frame's children in a row, a column, or not at all">
+        <Segmented
+          value={common((n) => (n as FrameNode).layout.mode)}
+          options={[
+            { value: 'NONE', label: 'None', title: 'Position children freely' },
+            { value: 'HORIZONTAL', label: '→', title: 'Stack in a row' },
+            { value: 'VERTICAL', label: '↓', title: 'Stack in a column' },
+          ]}
+          onChange={(v) => commit(layoutPatch((lay) => (lay.mode = v)), 'Set Auto Layout')}
+        />
+      </Field>
       {l.mode !== 'NONE' && (
         <>
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <NumberInput label="␣" value={common((n) => (n as FrameNode).layout.gap)} onCommit={(v) => commit(layoutPatch((lay) => (lay.gap = v)), 'Set Gap')} />
-            <NumberInput
-              label="□"
-              value={common((n) => {
-                const lay = (n as FrameNode).layout
-                return lay.paddingTop === lay.paddingRight && lay.paddingRight === lay.paddingBottom && lay.paddingBottom === lay.paddingLeft
-                  ? lay.paddingTop
-                  : NaN
-              })}
-              onCommit={(v) =>
-                commit(
-                  layoutPatch((lay) => {
-                    lay.paddingTop = lay.paddingRight = lay.paddingBottom = lay.paddingLeft = v
-                  }),
-                  'Set Padding',
-                )
-              }
-            />
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <Field label="Gap" hint="Space between children">
+              <NumberInput
+                title="Gap between children"
+                value={common((n) => (n as FrameNode).layout.gap)}
+                onCommit={(v) => commit(layoutPatch((lay) => (lay.gap = v)), 'Set Gap')}
+              />
+            </Field>
+            <Field label="Padding" hint="Space inside the frame's edges">
+              <NumberInput
+                title="Padding on all sides"
+                value={common((n) => {
+                  const lay = (n as FrameNode).layout
+                  // null, not NaN — NaN reaches the input as a value and renders
+                  // literally. null is how a field says "mixed".
+                  return lay.paddingTop === lay.paddingRight && lay.paddingRight === lay.paddingBottom && lay.paddingBottom === lay.paddingLeft
+                    ? lay.paddingTop
+                    : null
+                })}
+                onCommit={(v) =>
+                  commit(
+                    layoutPatch((lay) => {
+                      lay.paddingTop = lay.paddingRight = lay.paddingBottom = lay.paddingLeft = v
+                    }),
+                    'Set Padding',
+                  )
+                }
+              />
+            </Field>
           </div>
-          <div className="grid grid-cols-2 gap-2 mt-2">
-            <Select
-              value={(common((n) => (n as FrameNode).layout.counterAlign) ?? '') as 'MIN' | 'CENTER' | 'MAX' | ''}
-              options={[
-                { value: 'MIN', label: 'Align start' },
-                { value: 'CENTER', label: 'Align center' },
-                { value: 'MAX', label: 'Align end' },
-              ]}
-              onChange={(v) => commit(layoutPatch((lay) => (lay.counterAlign = v)), 'Set Alignment')}
-            />
-            <Select
-              value={(common((n) => (n as FrameNode).layout.primarySizing) ?? '') as 'FIXED' | 'HUG' | ''}
-              options={[
-                { value: 'FIXED', label: 'Fixed size' },
-                { value: 'HUG', label: 'Hug contents' },
-              ]}
-              onChange={(v) =>
-                commit(
-                  layoutPatch((lay) => {
-                    lay.primarySizing = v
-                    lay.counterSizing = v
-                  }),
-                  'Set Sizing',
-                )
-              }
-            />
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <Field label="Align" hint="Where children sit across the stacking direction">
+              <Select
+                value={(common((n) => (n as FrameNode).layout.counterAlign) ?? '') as 'MIN' | 'CENTER' | 'MAX' | ''}
+                options={[
+                  { value: 'MIN', label: 'Start' },
+                  { value: 'CENTER', label: 'Center' },
+                  { value: 'MAX', label: 'End' },
+                ]}
+                onChange={(v) => commit(layoutPatch((lay) => (lay.counterAlign = v)), 'Set Alignment')}
+              />
+            </Field>
+            <Field label="Sizing" hint="Whether the frame keeps its size or shrinks to its contents">
+              <Select
+                value={(common((n) => (n as FrameNode).layout.primarySizing) ?? '') as 'FIXED' | 'HUG' | ''}
+                options={[
+                  { value: 'FIXED', label: 'Fixed' },
+                  { value: 'HUG', label: 'Hug' },
+                ]}
+                onChange={(v) =>
+                  commit(
+                    layoutPatch((lay) => {
+                      lay.primarySizing = v
+                      lay.counterSizing = v
+                    }),
+                    'Set Sizing',
+                  )
+                }
+              />
+            </Field>
           </div>
         </>
       )}
@@ -1439,74 +1657,92 @@ function TextEditor({
 }) {
   return (
     <div>
-      <input
-        className="pf-input mb-2"
-        list="pf-font-list"
-        defaultValue={node.fontFamily}
-        key={node.id + node.fontFamily}
-        onKeyDown={(e) => {
-          e.stopPropagation()
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-        }}
-        onBlur={(e) => {
-          const v = e.target.value.trim()
-          if (v && v !== node.fontFamily) commit(() => ({ fontFamily: v }), 'Set Font')
-        }}
-      />
+      <Field label="Font">
+        <input
+          className="pf-input"
+          list="pf-font-list"
+          defaultValue={node.fontFamily}
+          key={node.id + node.fontFamily}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          }}
+          onBlur={(e) => {
+            const v = e.target.value.trim()
+            if (v && v !== node.fontFamily) commit(() => ({ fontFamily: v }), 'Set Font')
+          }}
+        />
+      </Field>
       <datalist id="pf-font-list">
         {fonts.map((f) => (
           <option key={f} value={f} />
         ))}
       </datalist>
-      <div className="grid grid-cols-3 gap-2">
-        <Select
-          value={String(common((n) => (n as TextNode).fontWeight) ?? '')}
-          options={[100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: String(w) }))}
-          onChange={(v) => commit(() => ({ fontWeight: parseInt(v, 10) }), 'Set Weight')}
-        />
-        <NumberInput value={common((n) => (n as TextNode).fontSize)} min={1} onCommit={(v) => commit(() => ({ fontSize: v }), 'Set Font Size')} />
-        <button
-          className={`pf-btn italic ${node.italic ? 'bg-[var(--pf-accent-solid)] text-white' : 'bg-[#2a2a2a]'}`}
-          onClick={() => commit((n) => ({ italic: !(n as TextNode).italic }), 'Toggle Italic')}
-        >
-          I
-        </button>
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-1.5 mt-2.5 items-end">
+        <Field label="Weight">
+          <Select
+            value={String(common((n) => (n as TextNode).fontWeight) ?? '')}
+            options={[100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: String(w) }))}
+            onChange={(v) => commit(() => ({ fontWeight: parseInt(v, 10) }), 'Set Weight')}
+          />
+        </Field>
+        <Field label="Size">
+          <NumberInput title="Font size" value={common((n) => (n as TextNode).fontSize)} min={1} onCommit={(v) => commit(() => ({ fontSize: v }), 'Set Font Size')} />
+        </Field>
+        <Field label="Style">
+          <button
+            className={`pf-btn italic h-[26px] w-8 ${node.italic ? 'bg-[var(--pf-accent-solid)] text-white' : 'bg-[#2a2a2a]'}`}
+            title="Italic"
+            aria-pressed={node.italic}
+            onClick={() => commit((n) => ({ italic: !(n as TextNode).italic }), 'Toggle Italic')}
+          >
+            I
+          </button>
+        </Field>
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-2">
-        <NumberInput label="↕" value={common((n) => round((n as TextNode).lineHeight * 100))} min={50} max={400} suffix="%" onCommit={(v) => commit(() => ({ lineHeight: v / 100 }), 'Set Line Height')} />
-        <NumberInput label="↔" value={common((n) => (n as TextNode).letterSpacing)} step={0.1} onCommit={(v) => commit(() => ({ letterSpacing: v }), 'Set Letter Spacing')} />
+      <div className="grid grid-cols-2 gap-2 mt-2.5">
+        <Field label="Line height">
+          <NumberInput title="Line height" value={common((n) => round((n as TextNode).lineHeight * 100))} min={50} max={400} suffix="%" onCommit={(v) => commit(() => ({ lineHeight: v / 100 }), 'Set Line Height')} />
+        </Field>
+        <Field label="Letter spacing">
+          <NumberInput title="Letter spacing" value={common((n) => (n as TextNode).letterSpacing)} step={0.1} onCommit={(v) => commit(() => ({ letterSpacing: v }), 'Set Letter Spacing')} />
+        </Field>
       </div>
-      <div className="grid grid-cols-2 gap-2 mt-2">
-        <Segmented
-          value={common((n) => (n as TextNode).textAlignH)}
-          options={[
-            { value: 'LEFT', label: '⤒'.replace('⤒', '⟸'), title: 'Align left' },
-            { value: 'CENTER', label: '↔', title: 'Align center' },
-            { value: 'RIGHT', label: '⟹', title: 'Align right' },
-          ]}
-          onChange={(v) => commit(() => ({ textAlignH: v }), 'Set Text Align')}
-        />
-        <Segmented
-          value={common((n) => (n as TextNode).textAlignV)}
-          options={[
-            { value: 'TOP', label: '⤒', title: 'Align top' },
-            { value: 'CENTER', label: '↕', title: 'Align middle' },
-            { value: 'BOTTOM', label: '⤓', title: 'Align bottom' },
-          ]}
-          onChange={(v) => commit(() => ({ textAlignV: v }), 'Set Vertical Align')}
-        />
+      <div className="grid grid-cols-2 gap-2 mt-2.5">
+        <Field label="Align">
+          <Segmented
+            value={common((n) => (n as TextNode).textAlignH)}
+            options={[
+              { value: 'LEFT', label: <TextAlignLeftIcon width={12} height={12} />, title: 'Align left' },
+              { value: 'CENTER', label: <TextAlignCenterIcon width={12} height={12} />, title: 'Align center' },
+              { value: 'RIGHT', label: <TextAlignRightIcon width={12} height={12} />, title: 'Align right' },
+            ]}
+            onChange={(v) => commit(() => ({ textAlignH: v }), 'Set Text Align')}
+          />
+        </Field>
+        <Field label="Vertical">
+          <Segmented
+            value={common((n) => (n as TextNode).textAlignV)}
+            options={[
+              { value: 'TOP', label: <TextTopIcon width={12} height={12} />, title: 'Align top' },
+              { value: 'CENTER', label: <TextMiddleIcon width={12} height={12} />, title: 'Align middle' },
+              { value: 'BOTTOM', label: <TextBottomIcon width={12} height={12} />, title: 'Align bottom' },
+            ]}
+            onChange={(v) => commit(() => ({ textAlignV: v }), 'Set Vertical Align')}
+          />
+        </Field>
       </div>
-      <div className="mt-2">
+      <Field label="Resizing" className="mt-2.5" hint="Whether the text box follows the text or holds its size">
         <Segmented
           value={common((n) => (n as TextNode).autoResize)}
           options={[
-            { value: 'WIDTH_AND_HEIGHT', label: 'Auto', title: 'Auto width' },
+            { value: 'WIDTH_AND_HEIGHT', label: 'Auto', title: 'Grow in both directions' },
             { value: 'HEIGHT', label: 'Auto H', title: 'Fixed width, auto height' },
             { value: 'NONE', label: 'Fixed', title: 'Fixed size' },
           ]}
           onChange={(v) => commit(() => ({ autoResize: v }), 'Set Resize Mode')}
         />
-      </div>
+      </Field>
     </div>
   )
 }

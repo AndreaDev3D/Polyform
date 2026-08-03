@@ -256,3 +256,114 @@ export const ImageIcon = (p: P) => (
     <path d="M2.5 12l3.5-3.5 2.5 2.5 3-3.5 2 2" />
   </I>
 )
+
+// --- Inspector field glyphs ----------------------------------------------
+// These sit inside number fields and on the toggles beside them, so a field
+// says what it edits without spending a whole line on a word.
+
+export const RotationIcon = (p: P) => (
+  <I {...p}>
+    <path d="M13 8a5 5 0 11-1.7-3.75" />
+    <path d="M13.2 2v3h-3" />
+  </I>
+)
+/** One rounded corner: the uniform-radius field. */
+export const CornerRadiusIcon = (p: P) => (
+  <I {...p}>
+    <path d="M3 13V7a4 4 0 014-4h6" />
+  </I>
+)
+/** Four independent corners: the toggle that splits the radius field. */
+export const CornersIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2 6V4.5A2.5 2.5 0 014.5 2H6M10 2h1.5A2.5 2.5 0 0114 4.5V6M14 10v1.5A2.5 2.5 0 0111.5 14H10M6 14H4.5A2.5 2.5 0 012 11.5V10" />
+  </I>
+)
+export const CornerTLIcon = (p: P) => (
+  <I {...p}>
+    <path d="M3 13V7a4 4 0 014-4h6" />
+  </I>
+)
+export const CornerTRIcon = (p: P) => (
+  <I {...p}>
+    <path d="M13 13V7a4 4 0 00-4-4H3" />
+  </I>
+)
+export const CornerBRIcon = (p: P) => (
+  <I {...p}>
+    <path d="M13 3v6a4 4 0 01-4 4H3" />
+  </I>
+)
+export const CornerBLIcon = (p: P) => (
+  <I {...p}>
+    <path d="M3 3v6a4 4 0 004 4h6" />
+  </I>
+)
+/** Opacity: a disc half-covered, the usual shorthand for alpha. */
+export const OpacityIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 2.5a5.5 5.5 0 010 11z" fill="currentColor" stroke="none" />
+  </I>
+)
+/** Blend mode: two overlapping discs. */
+export const BlendIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="6" cy="8" r="4" />
+    <circle cx="10" cy="8" r="4" />
+  </I>
+)
+export const BlurIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8" cy="8" r="5.5" strokeDasharray="1.6 1.9" />
+    <circle cx="8" cy="8" r="2.4" />
+  </I>
+)
+export const StrokeWeightIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2 4.5h12" strokeWidth="0.9" />
+    <path d="M2 8h12" strokeWidth="1.6" />
+    <path d="M2 12h12" strokeWidth="2.6" />
+  </I>
+)
+// Text alignment: rows of text, ragged on the side that isn't aligned. The
+// object-align icons next door mean something else, so these are their own set.
+export const TextAlignLeftIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 4h11M2.5 7.5h7M2.5 11h9" />
+  </I>
+)
+export const TextAlignCenterIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 4h11M4.5 7.5h7M3.5 11h9" />
+  </I>
+)
+export const TextAlignRightIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 4h11M6.5 7.5h7M4.5 11h9" />
+  </I>
+)
+export const TextTopIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 2.5h11" />
+    <path d="M4 5.5h8M4 8.5h5" />
+  </I>
+)
+export const TextMiddleIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 8h11" strokeDasharray="2 2" />
+    <path d="M4 4.5h8M4 11.5h5" />
+  </I>
+)
+export const TextBottomIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 13.5h11" />
+    <path d="M4 7.5h8M4 10.5h5" />
+  </I>
+)
+export const ExportIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 10.5V2.5M4.75 5.5L8 2.25l3.25 3.25" />
+    <path d="M2.5 10.5v2a1 1 0 001 1h9a1 1 0 001-1v-2" />
+  </I>
+)

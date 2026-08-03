@@ -201,7 +201,7 @@ try {
   await evaluate(`globalThis.__polyform.editor.set({ selection: ['${built.inFrame}'] })`)
   await sleep(350)
   const label = JSON.parse(await evaluate(`(() => {
-    const sp = [...document.querySelectorAll('span')].filter(e => e.textContent === 'X' && e.className.includes('ew-resize'))[0]
+    const sp = [...document.querySelectorAll('[data-scrub]')].filter(e => e.textContent === 'X')[0]
     if (!sp) return 'null'
     const r = sp.getBoundingClientRect()
     return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })

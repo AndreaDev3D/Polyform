@@ -410,6 +410,37 @@ function registerIpc(): void {
     return result.filePath
   })
 
+  // Several exports at once: pick the folder once, write them all.
+  ipcMain.handle('export:saveAll', async (_e, files: { name: string; data: Uint8Array }[]) => {
+    if (!mainWindow || !Array.isArray(files) || files.length === 0) return null
+    if (files.length > 64) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: `Export ${files.length} files to folder`,
+      defaultPath: app.getPath('documents'),
+      buttonLabel: 'Export here',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const dir = result.filePaths[0]
+    for (const f of files) {
+      // Flatten to a basename, then strip what a filename can't contain.
+      // Plugin scripts run in the renderer's realm and can reach this channel,
+      // so a name must never escape the folder the user picked (F-15) — and an
+      // unwritable name must not abort the files after it.
+      const safe = path
+        .basename(String(f.name ?? ''))
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .replace(/^\.+/, '')
+      if (!safe) continue
+      try {
+        await fs.writeFile(path.join(dir, safe), Buffer.from(f.data))
+      } catch {
+        /* skip this one; the rest still land */
+      }
+    }
+    return dir
+  })
+
   ipcMain.handle('library:pick', async () => {
     if (!mainWindow) return null
     const result = await dialog.showOpenDialog(mainWindow, {

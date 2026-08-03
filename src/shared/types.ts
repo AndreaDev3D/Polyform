@@ -189,6 +189,11 @@ export interface PolyformApi {
   /** Pick and read a plugin script (.js). */
   pluginOpenDialog: () => Promise<{ fileName: string; text: string } | null>
   exportSave: (defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => Promise<string | null>
+  /**
+   * Write several exports into one chosen folder, returning it. Names are
+   * flattened to a basename by the main process — a plugin can reach this.
+   */
+  exportSaveAll: (files: { name: string; data: Uint8Array }[]) => Promise<string | null>
   /** Write renderer-produced bytes as a content-addressed project asset. */
   assetsWrite: (bytes: Uint8Array, ext: string) => Promise<{ hash: string; mime: string } | null>
   /** Background-removal model (v0.4.1): consent-gated one-time download. */

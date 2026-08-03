@@ -1440,22 +1440,52 @@ export async function importSvgFlow(): Promise<void> {
 // Export
 // ---------------------------------------------------------------------------
 
-export async function exportSelection(kind: 'png' | 'svg', scale = 1): Promise<void> {
+export interface ExportTarget {
+  format: 'png' | 'svg'
+  /** Ignored for SVG, which has no raster size. */
+  scale: number
+}
+
+/**
+ * Render one or more export targets for the current selection.
+ *
+ * One file still asks where to put it, by name — the common case, and being
+ * able to name it matters. Several files ask for a folder ONCE and write them
+ * all: a dialog per file is what makes exporting three sizes feel like a chore.
+ */
+export async function runExports(targets: ExportTarget[]): Promise<void> {
   const scene = documentStore.scene
   let ids = topSelection()
   if (ids.length === 0) ids = scene.rootIds().filter((id) => scene.getNode(id)?.visible)
-  if (ids.length === 0) return
+  if (ids.length === 0 || targets.length === 0) return
   const first = scene.getNode(ids[0])
   const baseName = (ids.length === 1 && first ? first.name : documentStore.projectInfo?.manifest.title || 'export')
     .replace(/[^\w\- ]+/g, '')
     .trim() || 'export'
-  if (kind === 'png') {
-    const bytes = await exportPng(scene, documentStore.index, ids, scale, assetCache, null)
-    if (bytes) await window.polyform.exportSave(`${baseName}@${scale}x.png`, 'png', bytes)
-  } else {
-    const svg = await exportSvg(scene, ids, (hash) => window.polyform.assetsRead(hash))
-    await window.polyform.exportSave(`${baseName}.svg`, 'svg', new TextEncoder().encode(svg))
+
+  const files: { name: string; kind: 'png' | 'svg'; data: Uint8Array }[] = []
+  for (const t of targets) {
+    if (t.format === 'png') {
+      const bytes = await exportPng(scene, documentStore.index, ids, t.scale, assetCache, null)
+      if (bytes) files.push({ name: `${baseName}@${t.scale}x.png`, kind: 'png', data: bytes })
+    } else {
+      const svg = await exportSvg(scene, ids, (hash) => window.polyform.assetsRead(hash))
+      files.push({ name: `${baseName}.svg`, kind: 'svg', data: new TextEncoder().encode(svg) })
+    }
   }
+  if (files.length === 0) return
+
+  if (files.length === 1) {
+    const saved = await window.polyform.exportSave(files[0].name, files[0].kind, files[0].data)
+    if (saved) setStatus(`Exported ${files[0].name}`)
+    return
+  }
+  const dir = await window.polyform.exportSaveAll(files.map((f) => ({ name: f.name, data: f.data })))
+  if (dir) setStatus(`Exported ${files.length} files to ${dir}`)
+}
+
+export async function exportSelection(kind: 'png' | 'svg', scale = 1): Promise<void> {
+  await runExports([{ format: kind, scale }])
 }
 
 // ---------------------------------------------------------------------------

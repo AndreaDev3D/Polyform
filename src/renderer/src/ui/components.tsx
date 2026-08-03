@@ -16,9 +16,44 @@ export function Section({ title, actions, children }: { title: string; actions?:
   )
 }
 
+/**
+ * A named group of controls.
+ *
+ * Every field in the inspector says what it edits. The glyph inside a box can
+ * only hint (is "B" blur or bottom?), so the words live above the row and the
+ * glyph identifies which box is which within it.
+ */
+export function Field({
+  label,
+  hint,
+  actions,
+  children,
+  className,
+}: {
+  label: string
+  /** Tooltip on the label, for anything the word alone doesn't settle. */
+  hint?: string
+  /** Controls pinned to the right of the label, e.g. a mode toggle. */
+  actions?: ReactNode
+  children?: ReactNode
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <div className="pf-field-head">
+        <span className="pf-field-label" title={hint}>
+          {label}
+        </span>
+        {actions}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 interface NumberInputProps {
-  label?: string
-  /** Tooltip — glyph labels (⟲ ◔ ◎) need words somewhere. */
+  label?: ReactNode
+  /** Tooltip — a glyph label needs words somewhere. */
   title?: string
   value: number | null
   onCommit: (v: number) => void
@@ -37,6 +72,10 @@ export function NumberInput({ label, title, value, onCommit, step = 1, min = -In
   const dragRef = useRef<{ startX: number; startVal: number; active: boolean } | null>(null)
 
   const display = value === null ? '' : String(round(value, precision))
+  // The unit rides with the number instead of sitting at the far right of the
+  // box, where it read as a separate thing ("100      %"). Editing strips it,
+  // and parseFloat ignores a trailing unit on the way back in.
+  const shown = value === null ? '' : `${display}${suffix ?? ''}`
 
   useEffect(() => {
     if (!editing) setText(display)
@@ -85,10 +124,17 @@ export function NumberInput({ label, title, value, onCommit, step = 1, min = -In
   }
 
   return (
-    <div className={`flex items-center gap-1 ${className ?? ''}`} title={title}>
+    // The glyph lives INSIDE the box, as one control: it reads as part of the
+    // field it names rather than as loose text beside it, and the whole box is
+    // one hit target for hover and focus.
+    <div className={`pf-numfield ${className ?? ''}`} title={title}>
       {label && (
         <span
-          className="text-[10px] text-[var(--pf-text-dim)] w-4 shrink-0 cursor-ew-resize select-none"
+          className="pf-num-glyph"
+          // Stable hook for the e2e scrub gate: it used to find this by the
+          // ew-resize utility class, which is a styling detail and moved into
+          // CSS the moment the field was restyled.
+          data-scrub=""
           title={title ? `${title} — drag to scrub` : 'Drag to scrub'}
           onPointerDown={onLabelPointerDown}
         >
@@ -96,8 +142,8 @@ export function NumberInput({ label, title, value, onCommit, step = 1, min = -In
         </span>
       )}
       <input
-        className="pf-input"
-        value={editing ? text : display}
+        className="pf-input pf-numfield-input"
+        value={editing ? text : shown}
         placeholder={value === null ? 'Mixed' : undefined}
         onFocus={(e) => {
           setEditing(true)
@@ -124,7 +170,6 @@ export function NumberInput({ label, title, value, onCommit, step = 1, min = -In
           }
         }}
       />
-      {suffix && <span className="text-[10px] text-[var(--pf-text-dim)]">{suffix}</span>}
     </div>
   )
 }
@@ -159,11 +204,12 @@ export function TextInput({ value, onCommit, placeholder, className }: { value: 
   )
 }
 
-export function Select<T extends string>({ value, options, onChange, className, placeholder = 'Mixed' }: { value: T | ''; options: { value: T; label: string }[]; onChange: (v: T) => void; className?: string; placeholder?: string }) {
+export function Select<T extends string>({ value, options, onChange, className, placeholder = 'Mixed', disabled }: { value: T | ''; options: { value: T; label: string }[]; onChange: (v: T) => void; className?: string; placeholder?: string; disabled?: boolean }) {
   return (
     <select
-      className={`pf-input appearance-none cursor-default ${className ?? ''}`}
+      className={`pf-input appearance-none cursor-default ${disabled ? 'opacity-40' : ''} ${className ?? ''}`}
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value as T)}
     >
       {/* An empty value means "differs across the selection" for property
@@ -186,7 +232,9 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
         <button
           key={o.value}
           title={o.title}
-          className={`flex-1 flex items-center justify-center rounded px-1.5 py-1 text-[11px] ${value === o.value ? 'bg-[#454545] text-white' : 'text-[var(--pf-text-dim)] hover:text-white'}`}
+          // min-w-0: without it a word label ("None") claims more room than an
+          // icon one, and the segments come out visibly uneven.
+          className={`flex-1 min-w-0 flex items-center justify-center rounded px-1.5 py-1 text-[11px] ${value === o.value ? 'bg-[#454545] text-white' : 'text-[var(--pf-text-dim)] hover:text-white'}`}
           onClick={() => onChange(o.value)}
         >
           {o.label}

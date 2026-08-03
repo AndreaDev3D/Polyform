@@ -29,6 +29,7 @@ const api: PolyformApi = {
   libraryRead: (path) => ipcRenderer.invoke('library:read', path),
   pluginOpenDialog: () => ipcRenderer.invoke('plugins:openDialog'),
   exportSave: (defaultName, kind, data) => ipcRenderer.invoke('export:save', defaultName, kind, data),
+  exportSaveAll: (files) => ipcRenderer.invoke('export:saveAll', files),
   assetsWrite: (bytes, ext) => ipcRenderer.invoke('assets:write', bytes, ext),
   bgModelStatus: () => ipcRenderer.invoke('bgmodel:status'),
   bgModelEnsure: () => ipcRenderer.invoke('bgmodel:ensure'),

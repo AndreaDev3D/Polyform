@@ -91,6 +91,73 @@ textarea {
   border-color: var(--pf-accent);
 }
 
+/* --- Inspector fields ---------------------------------------------------- *
+ * A number field is one box: a glyph naming what it edits, then the value.
+ * The words for a whole row live above it in .pf-field-label. */
+
+.pf-numfield {
+  display: flex;
+  align-items: center;
+  background: #2a2a2a;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  min-width: 0;
+}
+.pf-numfield:hover {
+  border-color: var(--pf-border);
+}
+.pf-numfield:focus-within {
+  border-color: var(--pf-accent);
+}
+.pf-numfield-input {
+  background: transparent;
+  border: none;
+  min-width: 0;
+}
+/* Tight to its glyph when it has one, normally padded when it doesn't. */
+.pf-num-glyph + .pf-numfield-input {
+  padding-left: 2px;
+}
+.pf-numfield-input:hover,
+.pf-numfield-input:focus {
+  border-color: transparent;
+}
+.pf-num-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Fits a letter or a 12px icon, but grows for a short word rather than
+   * clipping it — the input shrinks instead (min-width: 0). */
+  min-width: 18px;
+  flex: none;
+  white-space: nowrap;
+  padding-left: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--pf-text-dim);
+  cursor: ew-resize;
+  user-select: none;
+}
+.pf-num-glyph:hover {
+  color: var(--pf-text);
+}
+.pf-num-glyph > svg {
+  width: 12px;
+  height: 12px;
+}
+.pf-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 16px;
+  margin-bottom: 4px;
+}
+.pf-field-label {
+  font-size: 10px;
+  color: var(--pf-text-dim);
+}
+
 .pf-btn {
   @apply inline-flex items-center justify-center rounded px-2 py-1 text-xs cursor-default;
   color: var(--pf-text);
