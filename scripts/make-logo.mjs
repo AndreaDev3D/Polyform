@@ -1,206 +1,145 @@
-// Generates Polyform's mark, in two densities:
+// Generates Polyform's mark from one description of its geometry:
 //
-//   resources/polyform-logo.svg  — the full logo: dark tile, dense mesh,
-//                                  sparkle accents. 2048 units, drops 1:1
-//                                  into a 2048 logo frame.
-//   resources/polyform-mark.svg  — the UI mark: no tile, coarse facets, no
-//                                  sparkles, square viewBox. Legible at
-//                                  14px, where the full mesh is mud.
+//   resources/polyform-logo.svg   the logo: dark rounded tile + the letter.
+//                                 2048 units, matching "Polyform Logo Frame".
+//   resources/polyform-mark.svg   the letter alone, square viewBox, for use
+//                                 on app chrome at any size.
+//   src/renderer/src/ui/mark-paths.ts   the same path data for the inline
+//                                 React mark, so the app and the assets
+//                                 cannot drift apart.
 //
-// The mesh is generated rather than drawn by hand so the mark can be retuned
-// (density, jitter, facet count) without re-tracing anything — "poly" is the
-// whole identity, so it should come from real triangulation.
+// The geometry mirrors the shapes in the document's logo frame (read back on
+// 2026-08-03): a detached stem, two connector bars whose left corners are
+// rounded, and the bowl circle. Edit HERE and re-run; do not hand-patch the
+// generated files.
+//
+// The letter is emitted as ONE path with four subpaths rather than four
+// separate shapes. Four shapes leave a hairline where their antialiased edges
+// meet — one path is a single coverage computation, so the seam cannot exist.
+// All subpaths wind clockwise so nonzero filling unions them instead of
+// punching holes where they overlap.
 //
 // Usage: node scripts/make-logo.mjs [outDir]
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
-const OUT =
-  process.argv[2] ??
-  path.join(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'), 'resources')
+const REPO = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+const OUT = process.argv[2] ?? path.join(REPO, 'resources')
 
-// --- the letter ------------------------------------------------------------
-// Outer silhouette, clockwise from the top-left tip. Deliberately faceted:
-// chamfers instead of curves, and a hair of tilt on the stem so it reads as
-// drawn rather than generated.
-const OUTER = [
-  [554, 310], [1016, 314], [1400, 402], [1578, 682], [1590, 956],
-  [1400, 1220], [1180, 1284], [910, 1300], [910, 1576], [842, 1722], [570, 1726],
-]
-// The counter: a pointed quad, punched with fill-rule="evenodd".
-const HOLE = [[874, 644], [1198, 652], [1226, 800], [1198, 962], [874, 972]]
+// --- geometry (frame units) -------------------------------------------------
+const TILE = { x: 51.49, y: 52.49, w: 1943.02, h: 1943.03, r: 80 }
+const STEM = { x: 544, y: 315.41, w: 360.59, h: 1415.68, r: { tl: 80, tr: 80, br: 80, bl: 80 } }
+const BAR_TOP = { x: 927.32, y: 315, w: 266.57, h: 341.95, r: { tl: 80, tr: 0, br: 0, bl: 80 } }
+const BAR_BOTTOM = { x: 922.32, y: 956.05, w: 271, h: 341.89, r: { tl: 80, tr: 0, br: 0, bl: 80 } }
+/**
+ * The bowl is not a disc: it is the RIGHT HALF of a ring — Polyform's arc
+ * geometry (schema v5) with sweep 0.5 and inner radius 0.302. That is what
+ * gives the letter its counter, and the two radial cuts at 12 and 6 o'clock
+ * are the flat edges the connector bars butt against.
+ */
+const BOWL = { x: 694.32, y: 315.11, w: 993.16, h: 982.81, sweep: 0.5, ratio: 0.302 }
 
+const BACKDROP = '#26292D'
 const SKIN = [
   { at: 0, color: '#15EAD6' },
   { at: 0.34, color: '#35C8E4' },
   { at: 0.68, color: '#6C74E8' },
   { at: 1, color: '#A322E0' },
 ]
-const INK = '#23262A' // mesh + sparkles: a touch deeper than the backdrop
-const BACKDROP = '#26292D'
+/** The gradient axis, as a fraction of the letter's own bounds. */
+const LEAN_TOP = 0.28
+const LEAN_BOTTOM = 0.6
 
-// --- geometry helpers ------------------------------------------------------
-const inPoly = (p, poly) => {
-  let hit = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i]
-    const [xj, yj] = poly[j]
-    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) hit = !hit
-  }
-  return hit
-}
-const inLetter = (p) => inPoly(p, OUTER) && !inPoly(p, HOLE)
-const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
-const polyPath = (poly) => poly.map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ') + ' Z'
+// --- path emitters ---------------------------------------------------------
+const n = (v) => Math.round(v * 100) / 100
 
-/** True when a point pair is a consecutive edge of the outline or the hole —
- *  i.e. the mesh edge coincides with the silhouette. Indices follow the point
- *  set's layout: OUTER first, then HOLE, then interior samples. */
-const onBoundary = (a, b) => {
-  const ring = (lo, n) => {
-    if (a < lo || b < lo || a >= lo + n || b >= lo + n) return false
-    const d = Math.abs(a - b)
-    return d === 1 || d === n - 1
-  }
-  return ring(0, OUTER.length) || ring(OUTER.length, HOLE.length)
-}
-
-/** waist controls how thin the rays are: at 0.16 they read as diamonds. */
-const star = (cx, cy, r, waist = 0.085) => {
-  const w = r * waist
-  const f = (v) => Math.round(v * 10) / 10
+/** Rounded rect, clockwise from just right of the top-left corner. */
+function rectPath({ x, y, w, h, r }) {
+  const max = Math.min(w, h) / 2
+  const tl = Math.min(r.tl, max)
+  const tr = Math.min(r.tr, max)
+  const br = Math.min(r.br, max)
+  const bl = Math.min(r.bl, max)
+  const a = (rx, ex, ey) => (rx > 0 ? `A ${n(rx)} ${n(rx)} 0 0 1 ${n(ex)} ${n(ey)} ` : `L ${n(ex)} ${n(ey)} `)
   return (
-    `M ${f(cx)} ${f(cy - r)} Q ${f(cx + w)} ${f(cy - w)} ${f(cx + r)} ${f(cy)} ` +
-    `Q ${f(cx + w)} ${f(cy + w)} ${f(cx)} ${f(cy + r)} ` +
-    `Q ${f(cx - w)} ${f(cy + w)} ${f(cx - r)} ${f(cy)} ` +
-    `Q ${f(cx - w)} ${f(cy - w)} ${f(cx)} ${f(cy - r)} Z`
+    `M ${n(x + tl)} ${n(y)} ` +
+    `L ${n(x + w - tr)} ${n(y)} ` +
+    a(tr, x + w, y + tr) +
+    `L ${n(x + w)} ${n(y + h - br)} ` +
+    a(br, x + w - br, y + h) +
+    `L ${n(x + bl)} ${n(y + h)} ` +
+    a(bl, x, y + h - bl) +
+    `L ${n(x)} ${n(y + tl)} ` +
+    a(tl, x + tl, y) +
+    'Z'
   )
 }
 
-/** Triangulate the glyph's interior at a given density. */
-function mesh({ step, minDist, edgeEvery, dropBoundary = false }) {
-  // Deterministic jitter — a fixed sequence beats Math.random for a logo.
-  let seed = 20260803
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)
-
-  const pts = [...OUTER.map((p) => [...p]), ...HOLE.map((p) => [...p])]
-  // Interior samples on a jittered grid, kept clear of each other so the
-  // triangles stay well-shaped.
-  for (let y = 380; y < 1700; y += step) {
-    for (let x = 600; x < 1600; x += step) {
-      const p = [x + (rnd() - 0.5) * step * 0.75, y + (rnd() - 0.5) * step * 0.75]
-      if (!inLetter(p)) continue
-      if (pts.some((q) => dist(p, q) < minDist)) continue
-      pts.push(p)
-    }
-  }
-  // Extra points along the outline: vertices sitting on the silhouette are
-  // what make the facets read as facets.
-  for (let i = 0; i < OUTER.length; i++) {
-    const a = OUTER[i]
-    const b = OUTER[(i + 1) % OUTER.length]
-    const n = Math.floor(dist(a, b) / edgeEvery)
-    for (let k = 1; k <= n; k++) {
-      const t = k / (n + 1)
-      pts.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
-    }
-  }
-
-  // Delaunay, brute force: n is small and correctness beats cleverness.
-  const circum = (a, b, c) => {
-    const [ax, ay] = a
-    const [bx, by] = b
-    const [cx, cy] = c
-    const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
-    if (Math.abs(d) < 1e-9) return null
-    const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
-    const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
-    return { c: [ux, uy], r: Math.hypot(ax - ux, ay - uy) }
-  }
-  const tris = []
-  for (let i = 0; i < pts.length; i++) {
-    for (let j = i + 1; j < pts.length; j++) {
-      for (let k = j + 1; k < pts.length; k++) {
-        const cc = circum(pts[i], pts[j], pts[k])
-        if (!cc) continue
-        let ok = true
-        for (let m = 0; m < pts.length && ok; m++) {
-          if (m === i || m === j || m === k) continue
-          if (dist(pts[m], cc.c) < cc.r - 1e-6) ok = false
-        }
-        if (!ok) continue
-        const centroid = [
-          (pts[i][0] + pts[j][0] + pts[k][0]) / 3,
-          (pts[i][1] + pts[j][1] + pts[k][1]) / 3,
-        ]
-        if (!inLetter(centroid)) continue // clips the mesh to the glyph
-        tris.push([i, j, k])
-      }
-    }
-  }
-
-  // Unique edges, minus anything crossing the counter.
-  const edges = new Map()
-  for (const [i, j, k] of tris) {
-    for (const [a, b] of [[i, j], [j, k], [k, i]]) {
-      const key = a < b ? `${a}:${b}` : `${b}:${a}`
-      if (edges.has(key)) continue
-      const at = (t) => [pts[a][0] + (pts[b][0] - pts[a][0]) * t, pts[a][1] + (pts[b][1] - pts[a][1]) * t]
-      if ([0.25, 0.5, 0.75].some((t) => inPoly(at(t), HOLE))) continue
-      // Edges that ARE the silhouette draw nothing new — at UI sizes they
-      // only thicken the outline into a smudge.
-      if (dropBoundary && onBoundary(a, b)) continue
-      edges.set(key, [a, b])
-    }
-  }
-  const d = [...edges.values()]
-    .map(([a, b]) => `M ${Math.round(pts[a][0])} ${Math.round(pts[a][1])} L ${Math.round(pts[b][0])} ${Math.round(pts[b][1])}`)
-    .join(' ')
-  const interior = pts
-    .map((p, i) => [p, i])
-    .filter(([p, i]) => i >= OUTER.length + HOLE.length && inLetter(p))
-  return { pts, tris, edges, d, interior }
+/**
+ * Half ring: down the outer edge from 12 to 6 o'clock, a radial cut inwards,
+ * back up the inner edge, and a radial cut out again. One closed contour,
+ * wound clockwise like the rects so nonzero filling unions them.
+ */
+function halfRingPath({ x, y, w, h, ratio }) {
+  const rx = w / 2
+  const ry = h / 2
+  const cx = x + rx
+  const cy = y + ry
+  const ix = rx * ratio
+  const iy = ry * ratio
+  return (
+    `M ${n(cx)} ${n(cy - ry)} ` +
+    `A ${n(rx)} ${n(ry)} 0 0 1 ${n(cx)} ${n(cy + ry)} ` +
+    `L ${n(cx)} ${n(cy + iy)} ` +
+    `A ${n(ix)} ${n(iy)} 0 0 0 ${n(cx)} ${n(cy - iy)} Z`
+  )
 }
 
-const gradientDef = (id) =>
-  `<linearGradient id="${id}" x1="0.28" y1="0" x2="0.6" y2="1">` +
+const LETTER = [rectPath(STEM), rectPath(BAR_TOP), rectPath(BAR_BOTTOM), halfRingPath(BOWL)].join(' ')
+
+// --- the gradient ----------------------------------------------------------
+// userSpaceOnUse puts the axis in the document's own coordinates, so every
+// subpath samples the same line no matter where it sits. (Polyform's own
+// gradients are normalised per node, which is why the shapes in the document
+// each carry their own remapped start/end — same axis, expressed differently.)
+const bounds = {
+  minX: Math.min(STEM.x, BAR_TOP.x, BAR_BOTTOM.x, BOWL.x),
+  minY: Math.min(STEM.y, BAR_TOP.y, BAR_BOTTOM.y, BOWL.y),
+  maxX: Math.max(STEM.x + STEM.w, BAR_TOP.x + BAR_TOP.w, BAR_BOTTOM.x + BAR_BOTTOM.w, BOWL.x + BOWL.w),
+  maxY: Math.max(STEM.y + STEM.h, BAR_TOP.y + BAR_TOP.h, BAR_BOTTOM.y + BAR_BOTTOM.h, BOWL.y + BOWL.h),
+}
+const bw = bounds.maxX - bounds.minX
+const bh = bounds.maxY - bounds.minY
+const AXIS = {
+  x1: n(bounds.minX + LEAN_TOP * bw),
+  y1: n(bounds.minY),
+  x2: n(bounds.minX + LEAN_BOTTOM * bw),
+  y2: n(bounds.maxY),
+}
+const gradient = (id) =>
+  `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" ` +
+  `x1="${AXIS.x1}" y1="${AXIS.y1}" x2="${AXIS.x2}" y2="${AXIS.y2}">` +
   SKIN.map((s) => `<stop offset="${s.at}" stop-color="${s.color}"/>`).join('') +
   `</linearGradient>`
 
-// --- the full logo ---------------------------------------------------------
-// The gradient lives in the file so the SVG is correct on its own, in a
-// browser or any other tool. Polyform's importer does not read paint servers
-// via url() — it warns and falls back — so whoever places it sets the same
-// four stops as a real gradient fill afterwards. Keep the two in sync.
-const full = mesh({ step: 172, minDist: 96, edgeEvery: 260 })
-const sparkles = full.interior
-  .filter((_, i) => i % 3 === 0)
-  .slice(0, 14)
-  .map(([p], i) => star(p[0], p[1], 34 + (i % 3) * 12))
-
+// --- emit ------------------------------------------------------------------
 const logo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048" width="2048" height="2048">
-  <defs>${gradientDef('pf-skin')}</defs>
+  <defs>${gradient('pf-skin')}</defs>
   <g id="Polyform Logo">
-    <path id="Backdrop" fill="${BACKDROP}" d="M 0 0 L 2048 0 L 2048 2048 L 0 2048 Z"/>
-    <path id="P" fill="url(#pf-skin)" fill-rule="evenodd" d="${polyPath(OUTER)} ${polyPath(HOLE)}"/>
-    <path id="Mesh" fill="none" stroke="${INK}" stroke-width="3" d="${full.d}"/>
-    <path id="Sparkles" fill="${INK}" d="${sparkles.join(' ')}"/>
-    <path id="Tip Spark" fill="#2DE8DC" d="${star(554, 310, 76, 0.06)}"/>
+    <path id="Tile" fill="${BACKDROP}" d="${rectPath({ ...TILE, r: { tl: TILE.r, tr: TILE.r, br: TILE.r, bl: TILE.r } })}"/>
+    <path id="P" fill="url(#pf-skin)" d="${LETTER}"/>
   </g>
 </svg>
 `
 
-// --- the UI mark -----------------------------------------------------------
-// Square viewBox centred on the glyph, coarse facets, heavier strokes so they
-// survive being drawn 14 pixels tall. No backdrop: it sits on app chrome.
-const coarse = mesh({ step: 430, minDist: 320, edgeEvery: 700, dropBoundary: true })
-const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="310 256 1524 1524" width="1524" height="1524">
-  <defs>${gradientDef('pf-mark-skin')}</defs>
-  <g id="Polyform Mark">
-    <path fill="url(#pf-mark-skin)" fill-rule="evenodd" d="${polyPath(OUTER)} ${polyPath(HOLE)}"/>
-    <path fill="none" stroke="${INK}" stroke-width="34" stroke-opacity="0.6" d="${coarse.d}"/>
-  </g>
+// Square viewBox centred on the letter: the mark sits on app chrome, so it
+// carries no tile of its own.
+const side = Math.max(bw, bh)
+const VIEWBOX = `${n(bounds.minX + bw / 2 - side / 2)} ${n(bounds.minY + bh / 2 - side / 2)} ${n(side)} ${n(side)}`
+const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}" width="${n(side)}" height="${n(side)}">
+  <defs>${gradient('pf-mark-skin')}</defs>
+  <path id="Polyform Mark" fill="url(#pf-mark-skin)" d="${LETTER}"/>
 </svg>
 `
 
@@ -208,30 +147,27 @@ fs.mkdirSync(OUT, { recursive: true })
 fs.writeFileSync(path.join(OUT, 'polyform-logo.svg'), logo)
 fs.writeFileSync(path.join(OUT, 'polyform-mark.svg'), mark)
 
-// The UI draws the mark inline (see ui/icons.tsx). Emit its path data as a
-// module instead of leaving a hand-copied duplicate to drift out of sync.
-const REPO = path.join(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
 const tsPath = path.join(REPO, 'src', 'renderer', 'src', 'ui', 'mark-paths.ts')
 if (fs.existsSync(path.dirname(tsPath))) {
   fs.writeFileSync(
     tsPath,
     `// GENERATED by scripts/make-logo.mjs — do not edit by hand.\n` +
       `// Re-run \`node scripts/make-logo.mjs\` after changing the logo geometry.\n\n` +
-      `/** Square viewBox centred on the glyph. */\n` +
-      `export const MARK_VIEWBOX = '310 256 1524 1524'\n\n` +
-      `/** Outer silhouette + counter, filled with fill-rule="evenodd". */\n` +
-      `export const MARK_GLYPH =\n  '${polyPath(OUTER)} ${polyPath(HOLE)}'\n\n` +
-      `/** Coarse facets: enough to read as low-poly at 14px, no more. */\n` +
-      `export const MARK_FACETS =\n  '${coarse.d}'\n\n` +
+      `/** Square viewBox centred on the letter. */\n` +
+      `export const MARK_VIEWBOX = '${VIEWBOX}'\n\n` +
+      `/** The whole letter as ONE path: four clockwise subpaths, nonzero fill.\n` +
+      ` *  One path means one coverage computation, so no hairline where the\n` +
+      ` *  stem, the bars and the bowl meet. */\n` +
+      `export const MARK_GLYPH =\n  '${LETTER}'\n\n` +
+      `/** Gradient axis in the same user space as MARK_GLYPH. */\n` +
+      `export const MARK_AXIS = ${JSON.stringify(AXIS)}\n\n` +
       `/** The skin gradient, shared with resources/polyform-*.svg. */\n` +
-      `export const MARK_STOPS: { at: number; color: string }[] = ${JSON.stringify(SKIN)}\n\n` +
-      `export const MARK_INK = '${INK}'\n`,
+      `export const MARK_STOPS: { at: number; color: string }[] = ${JSON.stringify(SKIN)}\n`,
   )
   console.log(`wrote ${path.relative(REPO, tsPath)}`)
 }
 console.log(
-  `logo: points=${full.pts.length} triangles=${full.tris.length} edges=${full.edges.size} ` +
-    `sparkles=${sparkles.length} bytes=${logo.length}\n` +
-    `mark: points=${coarse.pts.length} triangles=${coarse.tris.length} edges=${coarse.edges.size} ` +
-    `bytes=${mark.length}`,
+  `letter bounds ${n(bounds.minX)},${n(bounds.minY)} ${n(bw)}x${n(bh)}; ` +
+    `axis ${AXIS.x1},${AXIS.y1} -> ${AXIS.x2},${AXIS.y2}\n` +
+    `logo ${logo.length} bytes, mark ${mark.length} bytes, viewBox "${VIEWBOX}"`,
 )

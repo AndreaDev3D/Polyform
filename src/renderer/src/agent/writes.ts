@@ -195,6 +195,17 @@ function sanitize(props: Record<string, unknown>, where: string): Record<string,
       case 'pointCount':
         out.pointCount = Math.max(3, Math.min(60, Math.trunc(num(value, `${where}.pointCount`))))
         break
+      // Ellipse arc (schema v5): pies, rings and arc segments. Clamped the
+      // same way the geometry clamps, so a written value round-trips.
+      case 'arcStart':
+        out.arcStart = num(value, `${where}.arcStart`)
+        break
+      case 'arcSweep':
+        out.arcSweep = Math.max(-1, Math.min(1, num(value, `${where}.arcSweep`)))
+        break
+      case 'arcRatio':
+        out.arcRatio = Math.max(0, Math.min(0.999, num(value, `${where}.arcRatio`)))
+        break
       case 'innerRatio':
         out.innerRatio = Math.max(0.05, Math.min(1, num(value, `${where}.innerRatio`)))
         break

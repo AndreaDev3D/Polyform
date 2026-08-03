@@ -680,8 +680,27 @@ export function renderNodesToCanvas(
   const viewBox: AABB = { ...box }
   ctx.setTransform(scale, 0, 0, scale, -box.minX * scale, -box.minY * scale)
   // Draw only the requested subtrees, in scene z-order.
+  //
+  // drawNode applies the node's LOCAL matrix, because in the normal recursion
+  // the context is already in the parent's space. Drawing a nested node
+  // directly means that space has to be established here — without it, a shape
+  // inside a frame is painted at its frame-local position while the viewport
+  // sits at its world position, so the render comes out EMPTY. That silently
+  // broke exporting any selection inside a frame, and every agent snapshot of
+  // a nested node.
   const rank = scene.zRank()
   const sorted = [...ids].sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0))
-  for (const id of sorted) drawNode(ctx, scene, id, opts, viewBox)
+  for (const id of sorted) {
+    const parentId = scene.parentOf(id)
+    if (!parentId) {
+      drawNode(ctx, scene, id, opts, viewBox)
+      continue
+    }
+    const pm = scene.worldMatrix(parentId)
+    ctx.save()
+    ctx.transform(pm.a, pm.b, pm.c, pm.d, pm.e, pm.f)
+    drawNode(ctx, scene, id, opts, viewBox)
+    ctx.restore()
+  }
   return canvas
 }

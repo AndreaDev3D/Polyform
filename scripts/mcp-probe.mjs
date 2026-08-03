@@ -193,6 +193,27 @@ try {
         offset: { x: 0, y: 4 }, blur: 8 }],
       cornerRadius: { tl: 8, tr: 8, br: 8, bl: 8 } }
     s.addNode(n, null, 0)
+    // A frame far from the origin with a child inside it: rendering that child
+    // ALONE has to establish the frame's space, or the export lands off-canvas
+    // and comes back blank (regression guard).
+    const frame = { id: 'probe-frame', type: 'FRAME', name: 'Probe Frame',
+      visible: true, locked: false, opacity: 1, blendMode: 'NORMAL',
+      x: 4000, y: 3000, width: 600, height: 400, rotation: 0,
+      fills: [solid(0.1, 0.1, 0.12)], strokes: [], strokeWeight: 0,
+      strokeAlign: 'INSIDE', strokeDash: [], effects: [], clipsContent: true,
+      cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 }, children: [],
+      // Frames carry a layout record; without it every consumer that reads
+      // layout.mode throws (which is how a hand-built fixture bites).
+      layout: { mode: 'NONE', gap: 10, paddingTop: 10, paddingRight: 10,
+        paddingBottom: 10, paddingLeft: 10, counterAlign: 'MIN',
+        primarySizing: 'FIXED', counterSizing: 'FIXED' } }
+    s.addNode(frame, null, 1)
+    const nested = { id: 'probe-nested', type: 'ELLIPSE', name: 'Probe Nested',
+      visible: true, locked: false, opacity: 1, blendMode: 'NORMAL',
+      x: 100, y: 80, width: 400, height: 240, rotation: 0,
+      fills: [solid(1, 0.306, 0)], strokes: [], strokeWeight: 0,
+      strokeAlign: 'INSIDE', strokeDash: [], effects: [] }
+    s.addNode(nested, 'probe-frame', 0)
     globalThis.__polyform.documentStore.transient()
     return 'ok'
   })()`)
@@ -557,6 +578,60 @@ try {
     fail('agent commit missing from the change feed')
   } else {
     console.log('MCP PASS: agent commit visible in the change feed')
+  }
+
+  // --- arc geometry is writable AND readable -------------------------------
+  // Schema v5 shipped pies/rings/arc segments, but the agent surface could
+  // neither set nor see them: an ellipse read back as a plain disc whatever
+  // it really was, which is how a half-ring gets mistaken for a circle.
+  const arcMade = await client.callTool({
+    name: 'edit_document',
+    arguments: {
+      label: 'Half ring',
+      edits: [{
+        op: 'create', type: 'ELLIPSE', ref: 'ring',
+        props: { name: 'Half Ring', x: 1400, y: 400, width: 300, height: 300,
+          fill: '#FF4E00', arcStart: 0, arcSweep: 0.5, arcRatio: 0.3 },
+      }],
+    },
+  })
+  if (arcMade.isError) {
+    fail(`arc create failed: ${arcMade.content.map((c) => c.text).join(' ')}`)
+  } else {
+    const ringId = JSON.parse(arcMade.content.find((c) => c.type === 'text').text).created.ring.id
+    const back = JSON.parse((await client.callTool({ name: 'get_node', arguments: { id: ringId } })).content[0].text).node
+    if (!back.arc || back.arc.sweep !== 0.5 || back.arc.ratio !== 0.3) {
+      fail(`arc did not round-trip: ${JSON.stringify(back.arc)}`)
+    } else {
+      console.log(`MCP PASS: arc geometry round-trips (${JSON.stringify(back.arc)})`)
+    }
+    // And it must actually BE a half ring: the left half stays empty.
+    const rshot = await client.callTool({ name: 'get_node_image', arguments: { id: ringId, maxSize: 300 } })
+    const rpng = decodePng(Buffer.from(rshot.content.find((c) => c.type === 'image').data, 'base64'))
+    const leftMid = rpng.hex(Math.round(rpng.width * 0.12), Math.round(rpng.height / 2))
+    const rightMid = rpng.hex(Math.round(rpng.width * 0.88), Math.round(rpng.height / 2))
+    if (rightMid !== '#FF4E00' || leftMid === '#FF4E00') {
+      fail(`half ring rendered wrong (left ${leftMid}, right ${rightMid})`)
+    } else {
+      console.log('MCP PASS: the half ring renders as a half ring, not a disc')
+    }
+  }
+
+  // --- a nested node renders on its own ------------------------------------
+  // get_node_image on a shape INSIDE a frame used to come back empty: the
+  // viewport was placed in world space while the shape was drawn in its
+  // frame-local space, so it fell outside the canvas. Same code path as
+  // File -> Export, so this was a blank PNG for any selection in a frame.
+  const nestedShot = await client.callTool({ name: 'get_node_image', arguments: { id: 'probe-nested', maxSize: 200 } })
+  if (nestedShot.isError) {
+    fail(`get_node_image failed on a nested node: ${nestedShot.content.map((c) => c.text).join(' ')}`)
+  } else {
+    const png = decodePng(Buffer.from(nestedShot.content.find((c) => c.type === 'image').data, 'base64'))
+    if (!png.colors.has('#FF4E00')) {
+      fail(`nested node rendered blank — saw only ${[...png.colors].slice(0, 4).join(', ')}`)
+    } else {
+      console.log('MCP PASS: a node inside a frame renders on its own (not blank)')
+    }
   }
 
   // --- svg import: markup in, editable VECTOR geometry out ----------------

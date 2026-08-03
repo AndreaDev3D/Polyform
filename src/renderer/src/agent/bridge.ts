@@ -183,6 +183,18 @@ function detail(id: NodeId, depth: number, budget: { left: number }): unknown {
     if (!uniform || r.tl !== 0) out.cornerRadius = uniform ? r.tl : [r.tl, r.tr, r.br, r.bl]
   }
   if ('clipsContent' in node) out.clipsContent = node.clipsContent
+  // Shape-defining geometry. Without these an agent cannot see what it is
+  // looking at: an ellipse reads as a plain disc when it is really a pie or a
+  // ring, and a star's points/innerRatio are writable but were unreadable.
+  if (node.type === 'ELLIPSE') {
+    const { arcStart = 0, arcSweep = 1, arcRatio = 0 } = node
+    if (arcStart !== 0 || arcSweep !== 1 || arcRatio !== 0) {
+      out.arc = { start: round(arcStart), sweep: round(arcSweep), ratio: round(arcRatio) }
+    }
+  }
+  if (node.type === 'POLYGON' || node.type === 'STAR') out.pointCount = node.pointCount
+  if (node.type === 'STAR') out.innerRatio = round(node.innerRatio)
+  if (node.type === 'VECTOR' && node.windingRule === 'EVENODD') out.windingRule = 'EVENODD'
   if ('layout' in node) {
     const l = layout(node.layout)
     if (l) out.autoLayout = l
