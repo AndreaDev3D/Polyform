@@ -6,9 +6,32 @@
   --pf-bg-2: #262626;
   --pf-bg-3: #2f2f2f;
   --pf-border: #383838;
+  /* Hairline for floating surfaces: a light inner edge reads as "above"
+   * where a darker border reads as "inset". */
+  --pf-border-soft: rgba(255, 255, 255, 0.09);
   --pf-text: #e6e6e6;
   --pf-text-dim: #9a9a9a;
   --pf-accent: #4f9eff;
+  --pf-accent-dim: #2f6dbf;
+
+  /* One elevation scale, so floating things agree on how high they are. */
+  --pf-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --pf-shadow-2: 0 4px 16px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --pf-shadow-3: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  /* Motion: one duration for state, one for surfaces. */
+  --pf-dur-fast: 120ms;
+  --pf-dur: 180ms;
+  --pf-ease: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* Honour the OS setting rather than animating regardless (checklist item,
+ * and the right thing for a tool people use all day). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pf-dur-fast: 0ms;
+    --pf-dur: 0ms;
+  }
 }
 
 html,
@@ -61,9 +84,88 @@ textarea {
 .pf-btn {
   @apply inline-flex items-center justify-center rounded px-2 py-1 text-xs cursor-default;
   color: var(--pf-text);
+  transition:
+    background var(--pf-dur-fast) var(--pf-ease),
+    filter var(--pf-dur-fast) var(--pf-ease);
 }
 .pf-btn:hover {
   background: var(--pf-bg-3);
+}
+.pf-btn:disabled {
+  opacity: 0.38;
+}
+.pf-btn:disabled:hover {
+  background: transparent;
+}
+
+/* Floating surface: the toolbar pill, popovers, the colour picker. */
+.pf-floating {
+  background: color-mix(in srgb, var(--pf-bg-2) 92%, transparent);
+  border: 1px solid var(--pf-border-soft);
+  border-radius: 12px;
+  box-shadow: var(--pf-shadow-3);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* Tool button: square, centred, with a real pressed/active state. */
+.pf-tool-btn {
+  @apply inline-flex items-center justify-center rounded-lg cursor-default shrink-0;
+  width: 30px;
+  height: 30px;
+  color: var(--pf-text-dim);
+  transition:
+    background var(--pf-dur-fast) var(--pf-ease),
+    color var(--pf-dur-fast) var(--pf-ease);
+}
+.pf-tool-btn:hover {
+  background: var(--pf-bg-3);
+  color: var(--pf-text);
+}
+.pf-tool-btn:active {
+  background: var(--pf-bg-3);
+}
+.pf-tool-btn.active {
+  background: var(--pf-accent);
+  color: #fff;
+}
+.pf-tool-btn:disabled {
+  opacity: 0.35;
+}
+.pf-tool-btn:disabled:hover {
+  background: transparent;
+  color: var(--pf-text-dim);
+}
+
+/* Keyboard focus must stay visible — never remove the ring (a11y). */
+.pf-btn:focus-visible,
+.pf-tool-btn:focus-visible,
+.pf-icon-btn:focus-visible,
+.pf-input:focus-visible {
+  outline: 2px solid var(--pf-accent);
+  outline-offset: 1px;
+}
+
+/* Small product mark in the top bar. */
+.pf-mark {
+  @apply inline-block shrink-0 rounded;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(135deg, var(--pf-accent), #8b5cf6);
+}
+
+.pf-fade-in {
+  animation: pf-fade-in var(--pf-dur) var(--pf-ease);
+}
+@keyframes pf-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .pf-icon-btn {

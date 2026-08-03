@@ -6,7 +6,8 @@ import { documentStore, useDocVersion } from '../state/document'
 import { dispatchMenuAction, saveFlow } from '../state/actions'
 import { listSystemFontFamilies } from '../engine/fonts'
 import { installShortcuts } from './shortcuts'
-import { Toolbar } from './Toolbar'
+import { TopBar } from './TopBar'
+import { FloatingToolbar } from './FloatingToolbar'
 import { LayersPanel } from './LayersPanel'
 import { Inspector } from './Inspector'
 import { CanvasView } from './CanvasView'
@@ -51,11 +52,14 @@ export function App() {
 
   return (
     <div className="flex flex-col h-full">
-      <Toolbar />
+      <TopBar />
       <div className="flex flex-1 min-h-0">
         <LayersPanel />
+        {/* The canvas owns this box; the tool pill floats inside it so it
+         * stays centred on the drawing area, not on the whole window. */}
         <div className="flex-1 min-w-0 relative">
           <CanvasView />
+          <FloatingToolbar />
         </div>
         <Inspector />
       </div>
