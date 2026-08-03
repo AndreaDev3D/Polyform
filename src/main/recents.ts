@@ -31,6 +31,24 @@ export async function listRecents(): Promise<RecentEntry[]> {
   }
 }
 
+/**
+ * The bundle's saved preview, for the welcome screen's cards.
+ *
+ * The path arrives from the renderer, so it is checked against the recents
+ * list rather than trusted: plugin scripts share the renderer realm (F-15),
+ * and "read me any file" is not a capability this needs to hand them.
+ */
+export async function readRecentThumbnail(bundlePath: string): Promise<Uint8Array | null> {
+  const entries = await listRecents()
+  if (!entries.some((e) => e.path === bundlePath)) return null
+  try {
+    return new Uint8Array(await fs.readFile(path.join(bundlePath, 'thumbnail.png')))
+  } catch {
+    // Projects saved before thumbnails, or never saved: the card falls back.
+    return null
+  }
+}
+
 export async function pushRecent(bundlePath: string, title: string): Promise<void> {
   const entries = await listRecents()
   const filtered = entries.filter((e) => e.path !== bundlePath)

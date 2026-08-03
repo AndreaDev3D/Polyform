@@ -1,10 +1,18 @@
+import { createRequire } from 'node:module'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// The product version, baked in at build time. app.getVersion() cannot be
+// trusted here: run from source, Electron finds no package.json beside
+// out/main and reports its OWN version instead (the welcome screen showed
+// "v38.8.6"). package.json is the one source of truth either way.
+const { version } = createRequire(import.meta.url)('./package.json') as { version: string }
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    define: { __APP_VERSION__: JSON.stringify(version) },
     build: {
       rollupOptions: {
         input: {

@@ -9,7 +9,7 @@ import { ProjectManager } from './project'
 import { parseCliCommand, runCli } from './cli'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
 import { mcpStart, mcpStop, mcpStatus, mcpSetGrants, onMcpStatus } from './mcp'
-import { listRecents, pushRecent } from './recents'
+import { listRecents, pushRecent, readRecentThumbnail } from './recents'
 import { installMenu } from './menu'
 
 // NOTE: do NOT force-enable SharedArrayBuffer here. It sounds like a free
@@ -224,6 +224,10 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('recents:list', () => listRecents())
+  ipcMain.handle('recents:thumbnail', (_e, bundlePath: string) => readRecentThumbnail(bundlePath))
+  // Baked in from package.json at build time — see electron.vite.config.ts
+  // for why app.getVersion() is the wrong answer when run from source.
+  ipcMain.handle('app:version', () => __APP_VERSION__)
 
   ipcMain.handle('history:append', (_e, label: string, opsJson: string) => {
     return projects.history.append(label, opsJson)

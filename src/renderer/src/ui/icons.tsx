@@ -218,6 +218,11 @@ export const CubeIcon = (p: P) => (
   </I>
 )
 
+export const FolderIcon = (p: P) => (
+  <I {...p}>
+    <path d="M1.75 4.25a1 1 0 011-1h3l1.5 1.75h5a1 1 0 011 1v6a1 1 0 01-1 1H2.75a1 1 0 01-1-1v-7.75z" />
+  </I>
+)
 export const ImageIcon = (p: P) => (
   <I {...p}>
     <rect x="2" y="2.5" width="12" height="11" rx="1" />

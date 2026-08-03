@@ -171,6 +171,9 @@ export interface PolyformApi {
   projectSave: (payload: SaveProjectPayload) => Promise<boolean>
   projectSaveAs: (payload: SaveProjectPayload) => Promise<ProjectInfo | null>
   recentsList: () => Promise<RecentEntry[]>
+  /** A recent bundle's saved preview PNG; null when it has none. */
+  recentsThumbnail: (path: string) => Promise<Uint8Array | null>
+  appVersion: () => Promise<string>
   historyAppend: (label: string, opsJson: string) => Promise<number>
   historySetCursor: (cursor: number) => Promise<void>
   assetsImportDialog: (kind?: 'image' | 'model') => Promise<ImportedAsset[] | null>
