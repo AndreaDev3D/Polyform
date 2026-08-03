@@ -68,6 +68,31 @@ function createWindow(hidden = false): void {
   if (!hidden) {
     installMenu(mainWindow)
     mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+    // ready-to-show is the ONLY thing that reveals the window, so a load that
+    // never paints leaves a running process with no window and no error —
+    // indistinguishable from "the app doesn't start". Say what happened.
+    mainWindow.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
+      // -3 is ERR_ABORTED: a redirect or a reload superseding this load.
+      if (!isMainFrame || code === -3) return
+      mainWindow?.show()
+      failOpen(
+        'Polyform could not load its interface',
+        `${desc} (${code})\n${url}\n\n` +
+          'In development this usually means the Vite dev server is not reachable — ' +
+          'check that `npm run dev` printed a URL, and that nothing else holds its port.',
+      )
+    })
+
+    // Last resort: a window must become visible even if nothing ever paints,
+    // because an invisible failure is the one no one can debug.
+    const watchdog = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+        console.error('[polyform] renderer never painted after 10s — showing the window anyway')
+        mainWindow.show()
+      }
+    }, 10_000)
+    mainWindow.on('closed', () => clearTimeout(watchdog))
   }
 
   mainWindow.on('close', (e) => {
