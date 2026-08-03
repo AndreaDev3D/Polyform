@@ -156,14 +156,17 @@ export function TextInput({ value, onCommit, placeholder, className }: { value: 
   )
 }
 
-export function Select<T extends string>({ value, options, onChange, className }: { value: T | ''; options: { value: T; label: string }[]; onChange: (v: T) => void; className?: string }) {
+export function Select<T extends string>({ value, options, onChange, className, placeholder = 'Mixed' }: { value: T | ''; options: { value: T; label: string }[]; onChange: (v: T) => void; className?: string; placeholder?: string }) {
   return (
     <select
       className={`pf-input appearance-none cursor-default ${className ?? ''}`}
       value={value}
       onChange={(e) => onChange(e.target.value as T)}
     >
-      {value === '' && <option value="">Mixed</option>}
+      {/* An empty value means "differs across the selection" for property
+       * rows, but "nothing chosen yet" for pickers — so the caller names it.
+       * It read "Mixed" on the style dropdown, which meant nothing. */}
+      {value === '' && <option value="">{placeholder}</option>}
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}

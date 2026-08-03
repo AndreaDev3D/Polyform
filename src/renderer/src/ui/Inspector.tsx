@@ -51,7 +51,7 @@ import { listComponents } from '../engine/components'
 import { ComponentIcon } from './icons'
 import type { PatchOp } from '../engine/commands'
 import { NumberInput, Section, Segmented, Select, round } from './components'
-import { ColorPicker } from './ColorPicker'
+import { ColorPicker, type PickerPaintType } from './ColorPicker'
 import { rgbaToCss, rgbaToHex } from '../engine/color'
 import {
   AlignBottomIcon,
@@ -204,6 +204,15 @@ export function Inspector() {
       return paint.stops[picker.stopIndex ?? 0]?.color ?? { r: 0, g: 0, b: 0, a: 1 }
     }
     return { r: 0.5, g: 0.5, b: 0.5, a: 1 }
+  })()
+
+  /** The paint type the picker should offer to switch, if any. */
+  const pickerPaintType = ((): PickerPaintType | undefined => {
+    if (!picker || picker.kind === 'effect') return undefined
+    const list = picker.kind === 'fill' ? first.fills : first.strokes
+    const paint = list[picker.index]
+    if (!paint || paint.type === 'IMAGE') return undefined
+    return paint.type
   })()
 
   // ------------------------------------------------------------------
@@ -661,7 +670,33 @@ export function Inspector() {
         </div>
       </Section>
 
-      {picker && <ColorPicker color={pickerColor} anchor={picker.anchor} onLive={livePaintColor} onClose={closePicker} />}
+      {picker && (
+        <ColorPicker
+          color={pickerColor}
+          anchor={picker.anchor}
+          onLive={livePaintColor}
+          onClose={closePicker}
+          // Paint type and shared styles only make sense for fills and
+          // strokes — an effect's colour is just a colour.
+          paintType={pickerPaintType}
+          onPaintType={
+            pickerPaintType
+              ? (t) => {
+                  const kind = picker.kind
+                  const i = picker.index
+                  commit((n) => {
+                    const list = structuredClone(kind === 'fill' ? n.fills : n.strokes)
+                    if (list[i]) list[i] = convertPaintType(list[i], t)
+                    return kind === 'fill' ? { fills: list } : { strokes: list }
+                  }, 'Change Paint Type')
+                }
+              : undefined
+          }
+          onApplyStyle={
+            picker.kind === 'fill' ? (id) => applyColorStyle(id) : undefined
+          }
+        />
+      )}
     </div>
   )
 }
@@ -1066,6 +1101,7 @@ function FillStyleChip({ node }: { node: SceneNode }) {
       {styles.length > 0 && (
         <Select
           value=""
+          placeholder="Apply style…"
           options={styles.map((s) => ({ value: s.id, label: s.name }))}
           onChange={(id) => applyColorStyle(id)}
           className="flex-1"

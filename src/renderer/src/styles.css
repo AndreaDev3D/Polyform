@@ -154,6 +154,42 @@ textarea {
   background: linear-gradient(135deg, var(--pf-accent), #8b5cf6);
 }
 
+/* Colour-picker bits. */
+.pf-swatch {
+  @apply rounded cursor-default shrink-0;
+  width: 22px;
+  height: 22px;
+  /* Checker shows through partial alpha; the inner ring keeps a white
+   * swatch visible against a light popover. */
+  background-image: repeating-conic-gradient(#666 0 25%, #999 0 50%);
+  background-size: 8px 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition: transform var(--pf-dur-fast) var(--pf-ease);
+}
+.pf-swatch:hover {
+  transform: scale(1.12);
+}
+.pf-swatch:focus-visible {
+  outline: 2px solid var(--pf-accent);
+  outline-offset: 1px;
+}
+
+.pf-picker-label {
+  @apply text-[10px] uppercase;
+  color: var(--pf-text-dim);
+  letter-spacing: 0.06em;
+  margin: 12px 0 6px;
+}
+
+.pf-slider-knob {
+  @apply absolute top-1/2 rounded-full pointer-events-none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
 .pf-fade-in {
   animation: pf-fade-in var(--pf-dur) var(--pf-ease);
 }
