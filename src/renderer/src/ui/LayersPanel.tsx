@@ -134,6 +134,8 @@ interface DragState {
   target: { parentId: NodeId | null; index: number; nestInto: NodeId | null } | null
   startedAt: { x: number; y: number }
   active: boolean
+  /** Kept so capture can be taken later, when the gesture becomes a drag. */
+  pointerId: number
 }
 
 interface RowInfo {
@@ -166,6 +168,8 @@ export function LayersPanel() {
   const selection = useEditor((s) => s.selection)
   const leftTab = useEditor((s) => s.leftTab)
   const [collapsed, setCollapsed] = useState<Set<NodeId>>(new Set())
+  /** Set when a drag begins in earnest, so its trailing click is ignored. */
+  const suppressClick = useRef(false)
   const [renaming, setRenaming] = useState<NodeId | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -196,6 +200,13 @@ export function LayersPanel() {
   }
 
   const rowClick = (e: React.MouseEvent, id: NodeId) => {
+    // A completed drag is followed by a click on whatever row the pointer was
+    // released over. Acting on it would move the selection somewhere the user
+    // never clicked, so the drag consumes it.
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       setSelection(selection.includes(id) ? selection.filter((s) => s !== id) : [...selection, id])
     } else {
@@ -208,13 +219,29 @@ export function LayersPanel() {
   const beginDrag = (e: React.PointerEvent, id: NodeId) => {
     if (e.button !== 0 || renaming) return
     const ids = selection.includes(id) ? [...selection] : [id]
-    setDrag({ ids, target: null, startedAt: { x: e.clientX, y: e.clientY }, active: false })
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    // Deliberately NO setPointerCapture here. Capturing on pointerdown makes
+    // the browser dispatch the following click AND dblclick to the capturing
+    // row, so a click on the caret never reached the caret (it selected the
+    // row instead) and the second click became a rename. Capture starts in
+    // dragMove, once the gesture is actually a drag.
+    setDrag({ ids, target: null, startedAt: { x: e.clientX, y: e.clientY }, active: false, pointerId: e.pointerId })
   }
 
   const dragMove = (e: React.PointerEvent) => {
     if (!drag) return
     if (!drag.active && Math.abs(e.clientY - drag.startedAt.y) < 4) return
+    // Past the threshold this IS a drag: take the pointer now so it keeps
+    // reporting even when it leaves the list.
+    if (!drag.active) {
+      try {
+        ;(e.currentTarget as HTMLElement).setPointerCapture(drag.pointerId)
+      } catch {
+        // The pointer may already be gone; the drag still tracks per-row.
+      }
+      suppressClick.current = true
+      // Dragging a row is a statement about which layers you mean.
+      if (!drag.ids.every((id) => selection.includes(id))) setSelection(drag.ids)
+    }
     const list = listRef.current
     if (!list) return
     const rowEls = Array.from(list.querySelectorAll<HTMLElement>('[data-layer-row]'))
@@ -332,16 +359,24 @@ export function LayersPanel() {
               } ${node.visible ? '' : 'opacity-45'}`}
               style={{ paddingLeft: 6 + depth * 14 }}
               onClick={(e) => rowClick(e, id)}
-              onDoubleClick={() => setRenaming(id)}
               onPointerDown={(e) => beginDrag(e, id)}
               onPointerMove={dragMove}
             >
               <span
                 className="w-4 h-4 flex items-center justify-center text-[var(--pf-text-dim)]"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (container) toggleCollapse(id)
-                }}
+                title={container ? (collapsed.has(id) ? 'Expand' : 'Collapse') : undefined}
+                // Leaf rows have no caret, so their 16px of empty space stays
+                // part of the row: still selectable, still draggable.
+                onPointerDown={container ? (e) => e.stopPropagation() : undefined}
+                onClick={
+                  container
+                    ? (e) => {
+                        e.stopPropagation()
+                        toggleCollapse(id)
+                      }
+                    : undefined
+                }
+                onDoubleClick={container ? (e) => e.stopPropagation() : undefined}
               >
                 {container &&
                   (collapsed.has(id) ? <ChevronRightIcon width={10} height={10} /> : <ChevronDownIcon width={10} height={10} />)}
@@ -373,6 +408,13 @@ export function LayersPanel() {
                         ? 'text-white'
                         : ''
                   }`}
+                  // Rename lives on the NAME. On the whole row, double-clicking
+                  // the caret to collapse renamed the layer instead.
+                  title="Double-click to rename"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    setRenaming(id)
+                  }}
                 >
                   {node.name}
                 </span>
