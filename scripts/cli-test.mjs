@@ -41,14 +41,35 @@ function fail(msg) {
 /** The serve chain is cmd→cli.js→electron→relay: on Windows, killing the
  * direct child orphans the grandchildren, so take down the whole tree. */
 let serveTransport = null
+/** Captured once at spawn: the transport forgets its child on close. */
+let servePid = null
 function killServeTree() {
-  const pid = serveTransport?.pid
+  // The captured pid, NOT serveTransport.pid: the SDK drops its child handle
+  // on close, so by cleanup time the transport reports null and the whole
+  // serve chain (electron main + its relay grandchild) leaks — each leftover
+  // then holds the userData cache lock and the port for the next run.
+  const pid = servePid
   if (pid) {
     try {
       spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', shell: true })
     } catch {
       /* already gone */
     }
+  }
+}
+
+/** Belt and braces: kill anything still holding THIS run's bundle path, so a
+ * missed pid can never leak a process past the gate. */
+function killStragglers() {
+  if (process.platform !== 'win32') return
+  const ps =
+    `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
+    `Where-Object { $_.CommandLine -like '*${WORK}*' } | ` +
+    `ForEach-Object { taskkill /F /T /PID $_.ProcessId }`
+  try {
+    spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore' })
+  } catch {
+    /* best effort */
   }
 }
 
@@ -154,6 +175,11 @@ try {
       ),
     ),
   ])
+  // AFTER connect: the SDK spawns the child in transport.start(), so reading
+  // .pid at construction time yields null — and a null pid silently skipped
+  // the whole cleanup, leaving a serve chain per run holding the port and the
+  // userData cache lock.
+  servePid = transport.pid
   pass('stdio MCP client connected (client spawned the server — no port, no token)')
 
   const { tools } = await client.listTools()
@@ -248,6 +274,7 @@ try {
   // (cmd→cli.js→electron→relay) holds pipe handles that keep this process
   // alive forever — it wedged three runs before this teardown existed.
   killServeTree()
+  killStragglers()
   try {
     fs.rmSync(WORK, { recursive: true, force: true })
   } catch {
