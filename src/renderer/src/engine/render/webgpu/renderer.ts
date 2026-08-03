@@ -1431,10 +1431,17 @@ export class WebGPURenderer {
     const geometric = node.type !== 'GROUP' && node.type !== 'TEXT' && node.type !== 'LINE'
     const hasFillPaint = node.fills.some((f) => f.visible)
     const hasStrokePaint = node.strokes.some((s) => s.visible)
+    // A container with nothing of its own to paint casts from its whole
+    // subtree, as one silhouette — the reference flattens these to a scratch
+    // buffer for exactly this reason (compositeEffects in canvas2d.ts).
+    const kidCount = (node as { children?: readonly NodeId[] }).children?.length ?? 0
+    const flattens =
+      kidCount > 0 && (node.type === 'GROUP' || (isFrameLike(node) && !hasFillPaint && !hasStrokePaint))
     let shadowCaster: 'fill' | 'stroke' | 'self' | null = null
     if (drop) {
       if (node.type === 'TEXT') shadowCaster = hasFillPaint ? 'self' : null
-      else if (node.type === 'GROUP') shadowCaster = null
+      else if (node.type === 'GROUP') shadowCaster = flattens ? 'self' : null
+      else if (flattens) shadowCaster = 'self'
       else if (hasFillPaint) shadowCaster = 'fill'
       else if (hasStrokePaint && !isFrameLike(node)) shadowCaster = 'stroke'
     }
@@ -1471,7 +1478,9 @@ export class WebGPURenderer {
     // 2. Drop shadow composite (layer range patched after the caster bakes).
     let shadowSpec: FxLayerSpec | null = null
     if (drop && shadowCaster) {
-      const bb = scene.worldAABB(node.id)
+      // A flattened container casts from its children, which for a
+      // non-clipping one can reach outside its own box.
+      const bb = flattens ? this.subtreeBounds(node.id) : scene.worldAABB(node.id)
       const pad = drop.blur * 1.5 + Math.max(Math.abs(drop.offset.x), Math.abs(drop.offset.y)) + 2
       const lay = this.layerGeom(bb, pad)
       const key = `fx${this.fxKeyCounter++}`

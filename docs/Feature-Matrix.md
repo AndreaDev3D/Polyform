@@ -174,9 +174,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Dashed strokes | Dash pattern control | ✅ | |
 | Per-side strokes | Different weights on top/right/bottom/left | 📋 | |
 | Stroke caps & joins | Cap (butt/round/square) and join controls | 📋 | |
-| Drop shadow | Offset/blur/spread/color shadow effect | ✅ | |
-| Inner shadow | Shadow cast inside the shape | ✅ | |
-| Layer blur | Gaussian blur on the layer | ✅ | |
+| Drop shadow | Offset/blur/spread/color shadow effect | ✅ | On a group or an unpainted frame it is cast by the children's union silhouette, as one shape (both renderers; `group-effects` parity fixture) |
+| Inner shadow | Shadow cast inside the shape | 🟡 | Needs a path to clip to, so it is a no-op on groups |
+| Layer blur | Gaussian blur on the layer | ✅ | Blurs a container's assembled composite, not each child |
 | Background blur | Blur content behind a translucent layer | 🟡 | Canvas2D default: backdrop-capture self-draw, expensive on very large canvases; GPU mode: scoped pass split, cost bounded per effect node (ADR-017) |
 | Blend modes | Full Photoshop-style blend mode list | 🟡 | All 16 modeled modes in both renderers (GPU: MULTIPLY/SCREEN fixed-function, rest W3C composite shaders); Figma's linear/plus variants not modeled |
 | Layer opacity | 0–100% object opacity | ✅ | |

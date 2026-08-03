@@ -54,6 +54,40 @@ describe('SceneGraph', () => {
     expect(box.maxX).toBeGreaterThanOrEqual(100) // group's own 100x100 frame
   })
 
+  it("a container's effect padding reaches around its children, not just itself", () => {
+    // A group has no geometry of its own, so its drop shadow is cast by what
+    // is inside it. Padding only the (zero-sized) group rect left the shadow
+    // outside the box, which cropped it out of exports.
+    const scene = new SceneGraph()
+    const group = createNode('GROUP', 'G') as GroupNode
+    group.width = 0
+    group.height = 0
+    group.x = 200
+    group.y = 200
+    scene.addNode(group, null, 0)
+    const rect = createNode('RECTANGLE', 'R')
+    rect.x = 0
+    rect.y = 0
+    rect.width = 100
+    rect.height = 100
+    scene.addNode(rect, group.id, 0)
+
+    const plain = scene.worldAABB(group.id)
+    expect(plain.maxX).toBeCloseTo(300)
+    expect(plain.maxY).toBeCloseTo(300)
+
+    group.effects = [
+      { type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 1 }, offset: { x: 0, y: 8 }, blur: 16 },
+    ]
+    scene.bump()
+    const shadowed = scene.worldAABB(group.id)
+    // pad = max(|offset| + blur) = 24 on every side.
+    expect(shadowed.minX).toBeCloseTo(176)
+    expect(shadowed.minY).toBeCloseTo(176)
+    expect(shadowed.maxX).toBeCloseTo(324)
+    expect(shadowed.maxY).toBeCloseTo(324)
+  })
+
   it('render order excludes boolean children and respects z', () => {
     const scene = new SceneGraph()
     const bool = createNode('BOOLEAN', 'B')

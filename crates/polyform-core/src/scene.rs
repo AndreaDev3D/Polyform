@@ -453,6 +453,7 @@ impl SceneGraph {
         if is_container_type(&node_type) && node_type != "BOOLEAN" {
             let clips = is_frame_like_type(&node_type) && bool_of(node, "clipsContent", false);
             if !clips {
+                let mut kids: Option<Aabb> = None;
                 for cid in children_ids(node) {
                     let Some(child) = self.get_node(&cid) else { continue };
                     if !bool_of(child, "visible", true) {
@@ -460,8 +461,19 @@ impl SceneGraph {
                     }
                     let cb = self.world_aabb(&cid);
                     if !aabb_is_empty(cb) {
-                        aabb = aabb_union(aabb, cb);
+                        kids = Some(match kids {
+                            Some(k) => aabb_union(k, cb),
+                            None => cb,
+                        });
                     }
+                }
+                if let Some(kids) = kids {
+                    // A container with no geometry of its own casts its effects
+                    // from its CONTENTS, so its own padding has to reach around
+                    // them as well — the pad applied to the (often zero-sized)
+                    // container rect above doesn't.
+                    let pad = Self::node_pad(node);
+                    aabb = aabb_union(aabb, if pad > 0.0 { aabb_expand(kids, pad) } else { kids });
                 }
             }
         }

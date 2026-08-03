@@ -2,12 +2,12 @@
 // everything paints into a GPU-composited <canvas>. The draw path is kept
 // behind plain functions so a WebGPU backend can replace it (ADR-003).
 
-import type { NodeId, Paint, SceneNode, BlendMode, Model3dNode } from '../types'
+import type { NodeId, Paint, SceneNode, BlendMode, Model3dNode, DropShadowEffect } from '../types'
 import { isContainer } from '../types'
 import type { SceneGraph } from '../scene'
 import type { SpatialIndex } from '../spatial-index'
 import type { AABB } from '../geometry'
-import { aabbIntersects } from '../geometry'
+import { aabbIntersects, matInvert } from '../geometry'
 import type { SubPath } from '../shapes'
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
@@ -474,6 +474,154 @@ function drawChildren(
   while (maskDepth-- > 0) ctx.restore()
 }
 
+/**
+ * Effects that have to apply to a container's COMPOSITE instead of to each
+ * child separately.
+ *
+ * A group's drop shadow is cast by the silhouette of everything inside it, as
+ * one shape: no shadow falls in the seam between two touching children, and a
+ * layer blur blurs the assembled picture rather than each piece on its own.
+ * That is what Figma does, and what our own SVG export already did by hanging
+ * the filter on the `<g>`. Canvas shadow and filter state is per-draw-call, so
+ * the only way to get it here is to render the subtree once, off to the side,
+ * and composite the result as a single image.
+ *
+ * Containers that paint their own geometry keep the cheaper direct path: their
+ * shadow comes from their own outline, which is also what Figma shows.
+ *
+ * Two effects stay out of this: an INNER_SHADOW needs a path to clip to and a
+ * group has none, and a BACKGROUND_BLUR inside a flattened subtree samples the
+ * scratch buffer, which has no backdrop to blur.
+ */
+function compositeEffects(
+  node: SceneNode,
+  paintsSelf: boolean,
+): { drop: DropShadowEffect | null; blur: number } | null {
+  if (paintsSelf || node.type === 'BOOLEAN' || !isContainer(node) || node.children.length === 0) {
+    return null
+  }
+  let drop: DropShadowEffect | null = null
+  let blur = 0
+  for (const fx of node.effects) {
+    if (!fx.visible) continue
+    // Last one wins, matching the direct path's overwrite of ctx state.
+    if (fx.type === 'DROP_SHADOW') drop = fx
+    else if (fx.type === 'LAYER_BLUR' && fx.radius > 0) blur = fx.radius
+  }
+  return drop || blur > 0 ? { drop, blur } : null
+}
+
+/**
+ * Scratch canvases for the flattening path, one per nesting level so a
+ * flattened group inside another does not paint over its parent's buffer. They
+ * only ever grow, and are bounded by the target canvas plus the effect's reach.
+ */
+const flattenPool: (HTMLCanvasElement | OffscreenCanvas)[] = []
+let flattenDepth = 0
+
+function scratchCanvas(depth: number): HTMLCanvasElement | OffscreenCanvas {
+  const existing = flattenPool[depth]
+  if (existing) return existing
+  // OffscreenCanvas where it exists (the parity harness renders into one, and
+  // it skips DOM bookkeeping), a detached <canvas> otherwise.
+  const made =
+    typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : document.createElement('canvas')
+  flattenPool[depth] = made
+  return made
+}
+
+/** Cap on how far past the viewport a shadow or blur is allowed to pull, in
+ *  device px, so an extreme blur can't ask for an unbounded buffer. */
+const FLATTEN_MAX_REACH = 400
+
+/**
+ * Render a container's subtree into a scratch canvas, then composite that one
+ * image with the shadow/blur applied to it as a whole.
+ */
+function drawFlattened(
+  ctx: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  node: SceneNode,
+  opts: RenderOptions,
+  viewBox: AABB,
+  deviceScale: number,
+  fx: { drop: DropShadowEffect | null; blur: number },
+): void {
+  // The subtree's device-space box, mapped straight from its world box through
+  // (current CTM) ∘ (world → node-local), so rotation doesn't inflate it twice.
+  const inv = matInvert(scene.worldMatrix(node.id))
+  const toDevice = ctx.getTransform().multiply(new DOMMatrix([inv.a, inv.b, inv.c, inv.d, inv.e, inv.f]))
+  const wb = scene.worldAABB(node.id)
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [wx, wy] of [
+    [wb.minX, wb.minY],
+    [wb.maxX, wb.minY],
+    [wb.maxX, wb.maxY],
+    [wb.minX, wb.maxY],
+  ]) {
+    const p = toDevice.transformPoint(new DOMPoint(wx, wy))
+    minX = Math.min(minX, p.x)
+    minY = Math.min(minY, p.y)
+    maxX = Math.max(maxX, p.x)
+    maxY = Math.max(maxY, p.y)
+  }
+
+  // Content outside the viewport can still cast into it, so the buffer covers
+  // the visible area expanded by the effect's reach — no further.
+  const shadowReach = fx.drop
+    ? (fx.drop.blur * 1.5 + Math.max(Math.abs(fx.drop.offset.x), Math.abs(fx.drop.offset.y))) * deviceScale
+    : 0
+  const reach = Math.min(FLATTEN_MAX_REACH, Math.max(shadowReach, fx.blur * 3 * deviceScale)) + 2
+  const bx = Math.max(Math.floor(minX) - 2, -Math.ceil(reach))
+  const by = Math.max(Math.floor(minY) - 2, -Math.ceil(reach))
+  const w = Math.min(Math.ceil(maxX) + 2, ctx.canvas.width + Math.ceil(reach)) - bx
+  const h = Math.min(Math.ceil(maxY) + 2, ctx.canvas.height + Math.ceil(reach)) - by
+  if (w <= 0 || h <= 0) return
+
+  const scratch = scratchCanvas(flattenDepth)
+  if (scratch.width < w) scratch.width = w
+  if (scratch.height < h) scratch.height = h
+  const octx = scratch.getContext('2d') as CanvasRenderingContext2D | null
+  if (!octx) {
+    // No buffer to be had: better a shadow-less group than a missing one.
+    drawNodeContent(ctx, scene, node, opts, viewBox, deviceScale)
+    return
+  }
+  octx.setTransform(1, 0, 0, 1, 0, 0)
+  octx.clearRect(0, 0, w, h)
+  octx.setTransform(new DOMMatrix([1, 0, 0, 1, -bx, -by]).multiply(ctx.getTransform()))
+  // Opacity goes INTO the buffer rather than onto the blit, so children keep
+  // compositing against each other exactly as they do on the direct path (and
+  // as the GPU backend's layer path does). Flattening a group's opacity is a
+  // separate change, and one that would have to be made in both renderers.
+  octx.globalAlpha = ctx.globalAlpha
+  flattenDepth++
+  try {
+    drawNodeContent(octx, scene, node, opts, viewBox, deviceScale)
+  } finally {
+    flattenDepth--
+  }
+
+  ctx.save()
+  // Device space for the blit: shadow offsets and blur radii are device-space
+  // quantities, and the buffer is already rasterized. Alpha is already in the
+  // buffer; the blend mode still applies, to the composite as a whole.
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
+  if (fx.drop) {
+    ctx.shadowColor = rgbaToCss(fx.drop.color)
+    ctx.shadowOffsetX = fx.drop.offset.x * deviceScale
+    ctx.shadowOffsetY = fx.drop.offset.y * deviceScale
+    ctx.shadowBlur = fx.drop.blur * deviceScale
+  }
+  if (fx.blur > 0) ctx.filter = `blur(${fx.blur * deviceScale}px)`
+  ctx.drawImage(scratch, 0, 0, w, h, bx, by, w, h)
+  ctx.restore()
+}
+
 function drawNode(
   ctx: CanvasRenderingContext2D,
   scene: SceneGraph,
@@ -493,8 +641,26 @@ function drawNode(
   const deviceScale = opts.camera.zoom * opts.dpr
   const paintsSelf =
     node.type !== 'GROUP' && (node.fills.some((f) => f.visible) || node.strokes.some((s) => s.visible))
+  const composite = compositeEffects(node, paintsSelf)
+  if (composite) {
+    drawFlattened(ctx, scene, node, opts, viewBox, deviceScale, composite)
+    ctx.restore()
+    return
+  }
   applyEffectsBeforeDraw(ctx, node, deviceScale, paintsSelf)
+  drawNodeContent(ctx, scene, node, opts, viewBox, deviceScale)
+  ctx.restore()
+}
 
+/** The node's own painting, with no effect state of its own applied. */
+function drawNodeContent(
+  ctx: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  node: SceneNode,
+  opts: RenderOptions,
+  viewBox: AABB,
+  deviceScale: number,
+): void {
   switch (node.type) {
     case 'FRAME':
     case 'COMPONENT':
@@ -562,7 +728,6 @@ function drawNode(
       break
     }
   }
-  ctx.restore()
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, opts: RenderOptions, viewBox: AABB): void {

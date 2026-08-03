@@ -250,6 +250,54 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Effects on a container apply to its composite: one shadow around the
+    // union of the children, none in the seam where they touch.
+    name: 'group-effects',
+    badLimit: 0.045,
+    build: (s) => {
+      // A speech bubble: rounded body + a tail that overlaps it. Per-child
+      // shadows would draw a hard edge along the join.
+      const bubble = make(s, 'GROUP', null, {
+        effects: [{ type: 'DROP_SHADOW', visible: true, color: { r: 0, g: 0, b: 0, a: 0.65 }, offset: { x: 0, y: 10 }, blur: 16 }],
+      })
+      make(s, 'RECTANGLE', bubble.id, {
+        x: 50, y: 40, width: 220, height: 130,
+        cornerRadius: { tl: 28, tr: 28, br: 28, bl: 28 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.85, g: 0.85, b: 0.87, a: 1 } }],
+      })
+      make(s, 'POLYGON', bubble.id, {
+        x: 120, y: 150, width: 70, height: 70, pointCount: 3, rotation: 180,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.85, g: 0.85, b: 0.87, a: 1 } }],
+      })
+      // An unpainted frame casts from its children too — it has no outline of
+      // its own to cast from.
+      const frame = make(s, 'FRAME', null, {
+        x: 330, y: 30, width: 260, height: 190, fills: [], clipsContent: false,
+        effects: [{ type: 'DROP_SHADOW', visible: true, color: { r: 0.15, g: 0.05, b: 0.3, a: 0.75 }, offset: { x: 8, y: 8 }, blur: 8 }],
+      })
+      make(s, 'ELLIPSE', frame.id, {
+        x: 20, y: 30, width: 110, height: 110,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.95, g: 0.6, b: 0.3, a: 1 } }],
+      })
+      make(s, 'RECTANGLE', frame.id, {
+        x: 90, y: 70, width: 130, height: 90, rotation: 15,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.35, g: 0.8, b: 0.7, a: 1 } }],
+      })
+      // Layer blur on a group blurs the assembled picture, not each piece.
+      const blurred = make(s, 'GROUP', null, {
+        effects: [{ type: 'LAYER_BLUR', visible: true, radius: 6 }],
+      })
+      make(s, 'RECTANGLE', blurred.id, {
+        x: 70, y: 280, width: 150, height: 110,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.9, g: 0.35, b: 0.45, a: 1 } }],
+      })
+      make(s, 'ELLIPSE', blurred.id, {
+        x: 170, y: 300, width: 130, height: 100,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.3, g: 0.55, b: 0.95, a: 1 } }],
+      })
+    },
+  },
+  {
     name: 'effects-blurs',
     badLimit: 0.06,
     build: (s) => {

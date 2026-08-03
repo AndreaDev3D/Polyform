@@ -301,11 +301,21 @@ export class SceneGraph {
     if (isContainer(node) && node.type !== 'BOOLEAN') {
       const clips = isFrameLike(node) && node.clipsContent
       if (!clips) {
+        let kids: AABB | null = null
         for (const cid of node.children) {
           const child = this.getNode(cid)
           if (!child || !child.visible) continue
           const cb = this.worldAABB(cid)
-          if (!aabbIsEmpty(cb)) box = aabbUnion(box, cb)
+          if (!aabbIsEmpty(cb)) kids = kids ? aabbUnion(kids, cb) : cb
+        }
+        if (kids) {
+          // A container with no geometry of its own casts its effects from its
+          // CONTENTS, so its own padding has to reach around them as well —
+          // the pad applied to the (often zero-sized) container rect above
+          // doesn't. Without this a group's drop shadow is cropped out of
+          // exports and culled early at the viewport edge.
+          const pad = this.nodePad(node)
+          box = aabbUnion(box, pad > 0 ? aabbExpand(kids, pad) : kids)
         }
       }
     }
