@@ -5,7 +5,8 @@
 // carrying (a chip on the cursor), where will it land (an insertion line
 // indented to the target level, or a ring around the container it nests into),
 // and where did it come from (the source rows fade). Refusals say why on the
-// chip instead of going quiet. The rules themselves live in engine/layer-drop.
+// chip instead of going quiet, and holding near either end of the list scrolls
+// it. The rules themselves live in engine/layer-drop.
 
 import { useEffect, useRef, useState } from 'react'
 import type { NodeId, SceneNode } from '../engine/types'
@@ -43,6 +44,10 @@ import { AssetsPanel } from './AssetsPanel'
 /** Row indent, in px per level — shared by the rows and the drop line. */
 const INDENT = 14
 const INDENT_BASE = 6
+/** Drag auto-scroll: edge band in px, and px per frame at its outer edge. */
+const AUTOSCROLL_BAND = 32
+const AUTOSCROLL_MIN = 1.5
+const AUTOSCROLL_MAX = 16
 
 function PagesSection() {
   useDocVersion()
@@ -189,6 +194,8 @@ export function LayersPanel() {
   const suppressClick = useRef(false)
   const [renaming, setRenaming] = useState<NodeId | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
+  /** Latest cursor position, for the auto-scroll loop between pointer events. */
+  const pointerRef = useRef({ x: 0, y: 0 })
   const listRef = useRef<HTMLDivElement>(null)
   const scene = documentStore.scene
 
@@ -208,6 +215,36 @@ export function LayersPanel() {
     }
   }
   pushRows(scene.rootIds(), 0)
+
+  // Auto-scroll: hold the cursor near either end of the list and it keeps
+  // scrolling, so a target off the bottom of a long tree is reachable at all.
+  // Speed ramps with how far into the edge band you are — a fixed rate is
+  // either too slow to be useful or too fast to aim with.
+  useEffect(() => {
+    if (!drag?.active) return
+    const ids = drag.ids
+    let raf = 0
+    const step = () => {
+      raf = requestAnimationFrame(step)
+      const list = listRef.current
+      if (!list || list.scrollHeight <= list.clientHeight) return
+      const r = list.getBoundingClientRect()
+      const { x, y } = pointerRef.current
+      let depth = 0
+      if (y < r.top + AUTOSCROLL_BAND) depth = -(r.top + AUTOSCROLL_BAND - y) / AUTOSCROLL_BAND
+      else if (y > r.bottom - AUTOSCROLL_BAND) depth = (y - (r.bottom - AUTOSCROLL_BAND)) / AUTOSCROLL_BAND
+      if (depth === 0) return
+      const dir = Math.sign(depth)
+      const t = Math.min(1, Math.abs(depth))
+      const before = list.scrollTop
+      list.scrollTop = before + dir * (AUTOSCROLL_MIN + (AUTOSCROLL_MAX - AUTOSCROLL_MIN) * t * t)
+      // At either end of the range nothing moved, so nothing needs re-reading.
+      if (list.scrollTop !== before) updateDrop(ids, x, y)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag?.active])
 
   // Escape abandons a drag, the same way it backs out of a canvas gesture.
   // Capture phase, so the global shortcut handler doesn't also clear the
@@ -257,6 +294,7 @@ export function LayersPanel() {
     // row, so a click on the caret never reached the caret (it selected the
     // row instead) and the second click became a rename. Capture starts in
     // dragMove, once the gesture is actually a drag.
+    pointerRef.current = { x: e.clientX, y: e.clientY }
     setDrag({
       ids,
       target: null,
@@ -269,21 +307,12 @@ export function LayersPanel() {
     })
   }
 
-  const dragMove = (e: React.PointerEvent) => {
-    if (!drag) return
-    if (!drag.active && Math.abs(e.clientY - drag.startedAt.y) < 4) return
-    // Past the threshold this IS a drag: take the pointer now so it keeps
-    // reporting even when it leaves the list.
-    if (!drag.active) {
-      try {
-        ;(e.currentTarget as HTMLElement).setPointerCapture(drag.pointerId)
-      } catch {
-        // The pointer may already be gone; the drag still tracks per-row.
-      }
-      suppressClick.current = true
-      // Dragging a row is a statement about which layers you mean.
-      if (!drag.ids.every((id) => selection.includes(id))) setSelection(drag.ids)
-    }
+  /**
+   * Re-read the drop target for a cursor position. Called from pointermove and
+   * again from the auto-scroll loop, because scrolling moves the rows under a
+   * cursor that never moved.
+   */
+  const updateDrop = (ids: NodeId[], x: number, y: number) => {
     const list = listRef.current
     if (!list) return
     const rowEls = Array.from(list.querySelectorAll<HTMLElement>('[data-layer-row]'))
@@ -291,15 +320,15 @@ export function LayersPanel() {
     let overId: NodeId | null = null
     for (const el of rowEls) {
       const rect = el.getBoundingClientRect()
-      if (e.clientY < rect.top || e.clientY > rect.bottom) continue
+      if (y < rect.top || y > rect.bottom) continue
       overId = el.dataset.layerRow as NodeId
-      placement = dropOnRow(scene, drag.ids, overId, (e.clientY - rect.top) / rect.height)
+      placement = dropOnRow(scene, ids, overId, (y - rect.top) / rect.height)
       break
     }
     // Past the last row, in the empty space below the tree.
     const lastRow = rowEls[rowEls.length - 1]
-    if (!overId && lastRow && e.clientY > lastRow.getBoundingClientRect().bottom) {
-      placement = dropAtEnd(scene, drag.ids)
+    if (!overId && lastRow && y > lastRow.getBoundingClientRect().bottom) {
+      placement = dropAtEnd(scene, ids)
       overId = rows[rows.length - 1].id
     }
 
@@ -313,7 +342,29 @@ export function LayersPanel() {
             depth: placement.target.parentId === scene.activePage.id ? 0 : (depthOf.get(overId) ?? 0),
           }
         : null
-    setDrag({ ...drag, active: true, target: placement.target, line, refuse: placement.refuse, pointer: { x: e.clientX, y: e.clientY } })
+    // Functional, because the auto-scroll loop holds a render-old `drag`.
+    setDrag((prev) =>
+      prev ? { ...prev, active: true, target: placement.target, line, refuse: placement.refuse, pointer: { x, y } } : prev,
+    )
+  }
+
+  const dragMove = (e: React.PointerEvent) => {
+    if (!drag) return
+    pointerRef.current = { x: e.clientX, y: e.clientY }
+    if (!drag.active && Math.abs(e.clientY - drag.startedAt.y) < 4) return
+    // Past the threshold this IS a drag: take the pointer now so it keeps
+    // reporting even when it leaves the list.
+    if (!drag.active) {
+      try {
+        ;(e.currentTarget as HTMLElement).setPointerCapture(drag.pointerId)
+      } catch {
+        // The pointer may already be gone; the drag still tracks per-row.
+      }
+      suppressClick.current = true
+      // Dragging a row is a statement about which layers you mean.
+      if (!drag.ids.every((id) => selection.includes(id))) setSelection(drag.ids)
+    }
+    updateDrop(drag.ids, e.clientX, e.clientY)
   }
 
   const endDrag = () => {
