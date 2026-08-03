@@ -5,7 +5,7 @@ import { create } from 'zustand'
 import type { NodeId } from '../engine/types'
 import type { AABB } from '../engine/geometry'
 import type { Camera } from '../engine/render/canvas2d'
-import type { ArcHandleKind, PenDraft, SnapGuide } from '../engine/render/overlays'
+import type { ArcHandleKind, CornerKind, PenDraft, SnapGuide } from '../engine/render/overlays'
 
 export type Tool =
   | 'select'
@@ -50,6 +50,10 @@ interface EditorState {
   vectorSelection: number[]
   /** Arc handle under an active drag, so the overlay can show its readout. */
   arcDrag: ArcHandleKind | null
+  /** Corner-radius handle under an active drag. */
+  cornerDrag: CornerKind | null
+  /** Transient one-line message: why a command did nothing, mostly. */
+  status: string | null
   /** Version-history browser visibility. */
   showHistory: boolean
   /** Agent-connection consent panel visibility. */
@@ -78,6 +82,8 @@ interface EditorState {
   setVectorEditId: (id: NodeId | null) => void
   setVectorSelection: (ids: number[]) => void
   setArcDrag: (k: ArcHandleKind | null) => void
+  setCornerDrag: (k: CornerKind | null) => void
+  setStatus: (text: string | null) => void
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
   setGpuRender: (v: boolean) => void
@@ -104,6 +110,8 @@ export const useEditor = create<EditorState>((set) => ({
   orbitingId: null,
   vectorSelection: [],
   arcDrag: null,
+  cornerDrag: null,
+  status: null,
   showHistory: false,
   showAgent: false,
   leftTab: 'layers' as const,
@@ -129,6 +137,8 @@ export const useEditor = create<EditorState>((set) => ({
   setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [] }),
   setVectorSelection: (vectorSelection) => set({ vectorSelection }),
   setArcDrag: (arcDrag) => set({ arcDrag }),
+  setCornerDrag: (cornerDrag) => set({ cornerDrag }),
+  setStatus: (status) => set({ status }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),
   setGpuRender: (gpuRender) => {

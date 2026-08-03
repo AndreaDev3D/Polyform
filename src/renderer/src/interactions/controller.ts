@@ -21,19 +21,25 @@ import { constrainFrameChildren } from '../engine/constraints'
 import type { PatchOp } from '../engine/commands'
 import { removeSubtreeOps } from '../engine/commands'
 import {
+  CORNER_KEYS,
   RULER_SIZE,
   arcEditTarget,
   arcHandles,
   arcRadiusFromLocal,
   arcTurnsFromLocal,
   boxHandles,
+  cornerEditTarget,
+  cornerHandles,
+  cornerRadiusFromLocal,
   hitArcHandle,
+  hitCornerHandle,
   hitHandle,
   screenToWorld,
   selectionScreenBox,
   frameLabels,
   worldToScreen,
   type ArcHandleKind,
+  type CornerKind,
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
@@ -93,6 +99,15 @@ type Mode =
        *  drag opens the arc is undecidable until the pointer actually moves;
        *  the first movement direction resolves it (see pointerMove). */
       wholeTurn: boolean
+    }
+  | {
+      kind: 'corner'
+      part: CornerKind
+      nodeId: NodeId
+      snapshots: DragNodeSnapshot[]
+      /** Alt at pointerdown means "all four corners", decided once so the
+       *  gesture does not change meaning halfway through. */
+      allCorners: boolean
     }
   | { kind: 'draw'; rec: OpRecorder; nodeId: NodeId; startWorld: Vec2; parentId: NodeId | null }
   | { kind: 'pen' }
@@ -324,7 +339,24 @@ export class InteractionController {
       }
     }
 
-    // 3. Frame name labels.
+    // 3. Corner-radius handles (rounded shapes only).
+    const cornerNode = cornerEditTarget(this.scene, state.selection)
+    if (cornerNode) {
+      const corner = hitCornerHandle(cornerHandles(this.scene, cornerNode, state.camera), screen)
+      if (corner) {
+        this.mode = {
+          kind: 'corner',
+          part: corner.kind,
+          nodeId: cornerNode.id,
+          snapshots: this.snapshotNodes([cornerNode.id], ['cornerRadius']),
+          allCorners: mods.alt,
+        }
+        editor.set({ cornerDrag: corner.kind })
+        return
+      }
+    }
+
+    // 4. Frame name labels.
     for (const label of frameLabels(this.scene, state.camera)) {
       if (
         screen.x >= label.x - 2 &&
@@ -337,7 +369,7 @@ export class InteractionController {
       }
     }
 
-    // 4. Scene hit test.
+    // 5. Scene hit test.
     const hits = hitTestAll(this.scene, this.index, world, {
       tolerancePx: 4,
       zoom: state.camera.zoom,
@@ -670,6 +702,26 @@ export class InteractionController {
         documentStore.transient()
         return
       }
+      case 'corner': {
+        const node = this.scene.getNode(this.mode.nodeId)
+        if (!node || !('cornerRadius' in node)) return
+        const local = this.toLocal(node.id, world)
+        let radius = cornerRadiusFromLocal(node, this.mode.part, local)
+        if (mods.shift) radius = Math.round(radius / 4) * 4
+        const next = { ...node.cornerRadius }
+        if (this.mode.allCorners) {
+          next.tl = radius
+          next.tr = radius
+          next.br = radius
+          next.bl = radius
+        } else {
+          next[CORNER_KEYS[this.mode.part]] = radius
+        }
+        node.cornerRadius = next
+        this.scene.bump()
+        documentStore.transient()
+        return
+      }
       case 'draw': {
         const node = this.scene.getNode(this.mode.nodeId)
         if (!node) return
@@ -848,6 +900,12 @@ export class InteractionController {
     }
     const arcNode = arcEditTarget(this.scene, state.selection)
     if (arcNode && hitArcHandle(arcHandles(this.scene, arcNode, state.camera), screen)) {
+      this.cursorOverride = 'crosshair'
+      if (state.hover) editor.set({ hover: null })
+      return
+    }
+    const cornerNode = cornerEditTarget(this.scene, state.selection)
+    if (cornerNode && hitCornerHandle(cornerHandles(this.scene, cornerNode, state.camera), screen)) {
       this.cursorOverride = 'crosshair'
       if (state.hover) editor.set({ hover: null })
       return
@@ -1065,6 +1123,10 @@ export class InteractionController {
       case 'arc':
         editor.set({ arcDrag: null })
         this.commitFromSnapshots(this.mode.snapshots, 'Edit Arc')
+        break
+      case 'corner':
+        editor.set({ cornerDrag: null })
+        this.commitFromSnapshots(this.mode.snapshots, 'Corner Radius')
         break
       case 'draw': {
         const node = this.scene.getNode(this.mode.nodeId)
@@ -1538,7 +1600,8 @@ export class InteractionController {
       this.mode.kind === 'move' ||
       this.mode.kind === 'resize' ||
       this.mode.kind === 'rotate' ||
-      this.mode.kind === 'arc'
+      this.mode.kind === 'arc' ||
+      this.mode.kind === 'corner'
     ) {
       // Restore every snapshotted property so the aborted drag leaves no trace.
       for (const s of this.mode.snapshots) {
@@ -1548,7 +1611,7 @@ export class InteractionController {
       }
       this.scene.bump()
       documentStore.transient()
-      editor.set({ arcDrag: null })
+      editor.set({ arcDrag: null, cornerDrag: null })
     }
     if (this.mode.kind === 'vector-vertex' || this.mode.kind === 'vector-cp') {
       const id = editor.get().vectorEditId

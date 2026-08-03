@@ -151,6 +151,7 @@ export type MenuActionId =
   | 'object.sendBackward'
   | 'object.bringToFront'
   | 'object.sendToBack'
+  | 'object.flatten'
   | 'object.union'
   | 'object.subtract'
   | 'object.intersect'

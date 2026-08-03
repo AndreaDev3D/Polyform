@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useEditor } from '../state/editor'
 import {
   booleanSelection,
+  flattenSelection,
   copySelection,
   createComponentFromSelection,
   createInstanceFromSelection,
@@ -76,6 +77,7 @@ export function ContextMenu() {
     { label: 'Bring Forward', shortcut: 'Ctrl+]', action: () => reorderSelection('forward'), disabled: !has },
     { label: 'Send Backward', shortcut: 'Ctrl+[', action: () => reorderSelection('backward'), disabled: !has },
     { label: 'Send to Back', shortcut: 'Ctrl+Shift+[', action: () => reorderSelection('back'), disabled: !has, separatorAfter: true },
+    { label: 'Flatten', shortcut: 'Ctrl+E', action: flattenSelection, disabled: !has },
     { label: 'Union Selection', action: () => booleanSelection('UNION'), disabled: !multi },
     { label: 'Subtract Selection', action: () => booleanSelection('SUBTRACT'), disabled: !multi },
     { label: 'Intersect Selection', action: () => booleanSelection('INTERSECT'), disabled: !multi },

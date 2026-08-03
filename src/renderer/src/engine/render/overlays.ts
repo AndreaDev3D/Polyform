@@ -2,7 +2,7 @@
 // handles, marquee, snap guides, frame name labels, pen-tool preview.
 // Handle geometry is exported so pointer interaction shares one source.
 
-import type { EllipseNode, Guide, NodeId, Vec2, VectorNode } from '../types'
+import type { EllipseNode, Guide, NodeId, SceneNode, Vec2, VectorNode } from '../types'
 import type { SceneGraph } from '../scene'
 import type { AABB } from '../geometry'
 import { aabbIsEmpty, applyMat } from '../geometry'
@@ -45,6 +45,8 @@ export interface OverlayState {
   camera: Camera
   /** Arc handle being dragged right now (drives the readout chip). */
   arcDrag?: ArcHandleKind | null
+  /** Corner-radius handle being dragged right now. */
+  cornerDrag?: CornerKind | null
   width: number
   height: number
   dpr: number
@@ -273,6 +275,136 @@ export function hitArcHandle(handles: ArcHandle[], p: Vec2): ArcHandle | null {
   return null
 }
 
+// ---------------------------------------------------------------------------
+// Corner radius handles
+//
+// One handle per corner, sitting at the centre of that corner's arc — which is
+// where the rounding actually pivots, so dragging it along the diagonal reads
+// as "make this corner rounder". Each corner is independent; the inspector's
+// four fields are the same numbers.
+// ---------------------------------------------------------------------------
+
+export type CornerKind = 'radius-tl' | 'radius-tr' | 'radius-br' | 'radius-bl'
+
+export interface CornerHandle {
+  kind: CornerKind
+  x: number
+  y: number
+}
+
+const CORNER_HANDLE_R = 3.5
+const CORNER_HANDLE_PAD = 7
+/** At radius 0 the handle would sit under the resize handle, so keep it this
+ *  many screen px inside the corner regardless. */
+const CORNER_MIN_INSET = 13
+/** Below this on-screen size the handles are more clutter than control. */
+const CORNER_MIN_BOX = 44
+
+/** A node whose corners can be rounded, when exactly one is selected. */
+export function cornerEditTarget(scene: SceneGraph, ids: NodeId[]): SceneNode | null {
+  if (ids.length !== 1) return null
+  const node = scene.getNode(ids[0])
+  if (!node || node.locked) return null
+  if (!('cornerRadius' in node)) return null
+  // INSTANCE has corners but its internals are not editable in place.
+  if (node.type === 'INSTANCE') return null
+  if (nearestInstanceAncestor(scene, node.id) !== null) return null
+  return node
+}
+
+export function cornerHandles(
+  scene: SceneGraph,
+  node: SceneNode,
+  camera: Camera,
+): CornerHandle[] {
+  if (!('cornerRadius' in node)) return []
+  const w = node.width
+  const h = node.height
+  // Hide on a shape too small to aim at; the inspector still works.
+  if (Math.min(w, h) * camera.zoom < CORNER_MIN_BOX) return []
+  const m = scene.worldMatrix(node.id)
+  const toScreen = (p: Vec2) => worldToScreen(camera, applyMat(m, p))
+  const inset = CORNER_MIN_INSET / camera.zoom
+  const maxR = Math.min(w, h) / 2
+  const r = node.cornerRadius
+  const at = (kind: CornerKind, radius: number, cx: number, cy: number, sx: number, sy: number): CornerHandle => {
+    const d = Math.min(Math.max(radius, inset), maxR)
+    const p = toScreen({ x: cx + sx * d, y: cy + sy * d })
+    return { kind, x: p.x, y: p.y }
+  }
+  return [
+    at('radius-tl', r.tl, 0, 0, 1, 1),
+    at('radius-tr', r.tr, w, 0, -1, 1),
+    at('radius-br', r.br, w, h, -1, -1),
+    at('radius-bl', r.bl, 0, h, 1, -1),
+  ]
+}
+
+export function hitCornerHandle(handles: CornerHandle[], p: Vec2): CornerHandle | null {
+  for (const h of handles) {
+    if (Math.hypot(p.x - h.x, p.y - h.y) <= CORNER_HANDLE_PAD) return h
+  }
+  return null
+}
+
+/** The corner's own point and inward diagonal, in the node's local space. */
+export function cornerAnchor(node: SceneNode, kind: CornerKind): { corner: Vec2; sx: number; sy: number } {
+  const w = 'width' in node ? node.width : 0
+  const h = 'height' in node ? node.height : 0
+  switch (kind) {
+    case 'radius-tl':
+      return { corner: { x: 0, y: 0 }, sx: 1, sy: 1 }
+    case 'radius-tr':
+      return { corner: { x: w, y: 0 }, sx: -1, sy: 1 }
+    case 'radius-br':
+      return { corner: { x: w, y: h }, sx: -1, sy: -1 }
+    case 'radius-bl':
+      return { corner: { x: 0, y: h }, sx: 1, sy: -1 }
+  }
+}
+
+/** Radius implied by a node-local pointer position, projected on the diagonal. */
+export function cornerRadiusFromLocal(node: SceneNode, kind: CornerKind, p: Vec2): number {
+  const { corner, sx, sy } = cornerAnchor(node, kind)
+  const w = 'width' in node ? node.width : 0
+  const h = 'height' in node ? node.height : 0
+  // Project onto the 45° diagonal: (dx + dy) / 2 is the distance along it, so a
+  // drag that is not exactly diagonal still feels linear.
+  const dx = (p.x - corner.x) * sx
+  const dy = (p.y - corner.y) * sy
+  return Math.max(0, Math.min((dx + dy) / 2, Math.min(w, h) / 2))
+}
+
+export const CORNER_KEYS: Record<CornerKind, 'tl' | 'tr' | 'br' | 'bl'> = {
+  'radius-tl': 'tl',
+  'radius-tr': 'tr',
+  'radius-br': 'br',
+  'radius-bl': 'bl',
+}
+
+function drawCornerHandles(
+  ctx: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  node: SceneNode,
+  state: OverlayState,
+): void {
+  if (!('cornerRadius' in node)) return
+  const dragging = state.cornerDrag ?? null
+  const handles = cornerHandles(scene, node, state.camera)
+  for (const h of handles) {
+    ctx.beginPath()
+    ctx.arc(h.x, h.y, h.kind === dragging ? CORNER_HANDLE_R + 1.5 : CORNER_HANDLE_R, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = ACCENT
+    ctx.lineWidth = 1.5
+    ctx.fill()
+    ctx.stroke()
+  }
+  if (!dragging) return
+  const h = handles.find((x) => x.kind === dragging)
+  if (h) drawChip(ctx, h.x, h.y - 24, `${Math.round(node.cornerRadius[CORNER_KEYS[dragging]])}`)
+}
+
 function arcChipText(node: EllipseNode, kind: ArcHandleKind): string {
   if (kind === 'arc-start') return `${Math.round((node.arcStart ?? 0) * 360)}°`
   if (kind === 'arc-sweep') return `${Math.round((node.arcSweep ?? 1) * 100)}%`
@@ -414,6 +546,10 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
     // Ellipse arc: the two sweep ends and the inner radius, draggable.
     const arcNode = arcEditTarget(scene, state.selection)
     if (arcNode) drawArcHandles(ctx, scene, arcNode, state)
+
+    // Corner radius: one handle per corner, each independent.
+    const cornerNode = cornerEditTarget(scene, state.selection)
+    if (cornerNode) drawCornerHandles(ctx, scene, cornerNode, state)
   }
 
   // Marquee

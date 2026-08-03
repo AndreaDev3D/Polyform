@@ -12,7 +12,11 @@ import {
   arcHandles,
   arcRadiusFromLocal,
   arcTurnsFromLocal,
+  cornerEditTarget,
+  cornerHandles,
+  cornerRadiusFromLocal,
   hitArcHandle,
+  hitCornerHandle,
 } from './overlays'
 
 const CAMERA = { x: 0, y: 0, zoom: 1 }
@@ -153,5 +157,104 @@ describe('hitArcHandle', () => {
     expect(hitArcHandle(handles, { x: 104, y: 103 })?.kind).toBe('arc-start')
     expect(hitArcHandle(handles, { x: 198, y: 96 })?.kind).toBe('arc-ratio')
     expect(hitArcHandle(handles, { x: 150, y: 100 })).toBeNull()
+  })
+})
+
+// --- corner radius handles -------------------------------------------------
+
+describe('cornerEditTarget / cornerHandles', () => {
+  const rect = (props: Record<string, unknown> = {}) => {
+    const scene = new SceneGraph()
+    const node = createNode('RECTANGLE', 'r')
+    node.x = 0
+    node.y = 0
+    node.width = 400
+    node.height = 300
+    Object.assign(node, props)
+    scene.addNode(node, null, 0)
+    return { scene, node }
+  }
+
+  it('accepts one unlocked rounded-capable node, refuses others', () => {
+    const { scene, node } = rect()
+    expect(cornerEditTarget(scene, [node.id])?.id).toBe(node.id)
+    node.locked = true
+    expect(cornerEditTarget(scene, [node.id])).toBeNull()
+    node.locked = false
+
+    const line = createNode('LINE', 'l')
+    scene.addNode(line, null, 1)
+    expect(cornerEditTarget(scene, [line.id])).toBeNull() // no cornerRadius
+    expect(cornerEditTarget(scene, [node.id, line.id])).toBeNull() // not single
+  })
+
+  it('parks each handle a minimum inset in when the radius is 0', () => {
+    const { scene, node } = rect()
+    const hs = cornerHandles(scene, node, CAMERA)
+    expect(hs.map((h) => h.kind)).toEqual(['radius-tl', 'radius-tr', 'radius-br', 'radius-bl'])
+    // 13px inset at zoom 1, so it never hides under the resize handle.
+    expect(hs[0].x).toBeCloseTo(13, 6)
+    expect(hs[0].y).toBeCloseTo(13, 6)
+    expect(hs[2].x).toBeCloseTo(400 - 13, 6)
+    expect(hs[2].y).toBeCloseTo(300 - 13, 6)
+  })
+
+  it('follows each corner’s own radius', () => {
+    const { scene, node } = rect({ cornerRadius: { tl: 60, tr: 0, br: 120, bl: 20 } })
+    const hs = cornerHandles(scene, node, CAMERA)
+    expect(hs[0].x).toBeCloseTo(60, 6) // tl at its own radius
+    expect(hs[1].x).toBeCloseTo(400 - 13, 6) // tr at 0 -> minimum inset
+    expect(hs[2].x).toBeCloseTo(400 - 120, 6)
+    expect(hs[3].y).toBeCloseTo(300 - 20, 6)
+  })
+
+  it('clamps the handle to half the short side', () => {
+    const { scene, node } = rect({ cornerRadius: { tl: 9999, tr: 0, br: 0, bl: 0 } })
+    const hs = cornerHandles(scene, node, CAMERA)
+    expect(hs[0].x).toBeCloseTo(150, 6) // min(400,300)/2
+  })
+
+  it('keeps the inset constant in screen pixels across zoom', () => {
+    const { scene, node } = rect()
+    for (const zoom of [0.5, 1, 4]) {
+      const h = cornerHandles(scene, node, { x: 0, y: 0, zoom })[0]
+      expect(h.x).toBeCloseTo(13, 6)
+    }
+  })
+
+  it('hides the handles on a shape too small to aim at', () => {
+    const { scene, node } = rect({ width: 30, height: 30 })
+    expect(cornerHandles(scene, node, CAMERA)).toHaveLength(0)
+    // ...but zooming in brings them back.
+    expect(cornerHandles(scene, node, { x: 0, y: 0, zoom: 4 })).toHaveLength(4)
+  })
+})
+
+describe('cornerRadiusFromLocal', () => {
+  const node = (() => {
+    const n = createNode('RECTANGLE', 'r')
+    n.width = 400
+    n.height = 300
+    return n
+  })()
+
+  it('projects the pointer onto the corner diagonal', () => {
+    expect(cornerRadiusFromLocal(node, 'radius-tl', { x: 40, y: 40 })).toBeCloseTo(40, 6)
+    // Off-diagonal drags still read linearly: the mean of the two distances.
+    expect(cornerRadiusFromLocal(node, 'radius-tl', { x: 60, y: 20 })).toBeCloseTo(40, 6)
+    expect(cornerRadiusFromLocal(node, 'radius-br', { x: 400 - 30, y: 300 - 50 })).toBeCloseTo(40, 6)
+  })
+
+  it('never goes negative or past half the short side', () => {
+    expect(cornerRadiusFromLocal(node, 'radius-tl', { x: -80, y: -80 })).toBe(0)
+    expect(cornerRadiusFromLocal(node, 'radius-tl', { x: 900, y: 900 })).toBeCloseTo(150, 6)
+  })
+})
+
+describe('hitCornerHandle', () => {
+  it('picks within 7px', () => {
+    const hs = [{ kind: 'radius-tl' as const, x: 20, y: 20 }]
+    expect(hitCornerHandle(hs, { x: 24, y: 23 })?.kind).toBe('radius-tl')
+    expect(hitCornerHandle(hs, { x: 40, y: 20 })).toBeNull()
   })
 })

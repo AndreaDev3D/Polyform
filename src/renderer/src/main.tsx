@@ -62,7 +62,8 @@ void Promise.all([
   import('./state/editor'),
   import('./interactions/controller'),
   import('./engine/render/overlays'),
-]).then(([d, e, i, o]) => {
+  import('./state/actions'),
+]).then(([d, e, i, o, a]) => {
   ;(globalThis as Record<string, unknown>).__polyform = {
     documentStore: d.documentStore,
     editor: e.editor,
@@ -70,6 +71,9 @@ void Promise.all([
     // Screen-space geometry, so harnesses can aim real pointer events at the
     // handles the user sees instead of re-deriving where they ought to be.
     overlays: o,
+    // The command layer, so a harness can invoke what a menu invokes rather
+    // than reimplementing it.
+    actions: a,
   }
 })
 

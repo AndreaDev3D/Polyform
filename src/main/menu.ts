@@ -92,6 +92,8 @@ export function buildMenu(send: (id: MenuActionId) => void): Menu {
         { label: 'Create Instance', click: () => send('object.createInstance') },
         { label: 'Detach Instance', accelerator: 'CmdOrCtrl+Alt+B', click: () => send('object.detachInstance') },
         { type: 'separator' },
+        { label: 'Flatten', accelerator: 'CmdOrCtrl+E', click: () => send('object.flatten') },
+        { type: 'separator' },
         { label: 'Boolean Union', click: () => send('object.union') },
         { label: 'Boolean Subtract', click: () => send('object.subtract') },
         { label: 'Boolean Intersect', click: () => send('object.intersect') },

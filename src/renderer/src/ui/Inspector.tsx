@@ -121,6 +121,15 @@ export function Inspector() {
     )
   }
 
+  /** Corners that already differ have four values to show — hiding them behind
+   *  a link would leave the panel looking empty while the shape is clearly
+   *  asymmetric. Dragging one corner handle on canvas lands here. */
+  const cornersDiffer = nodes.some((n) => {
+    const r = (n as { cornerRadius?: { tl: number; tr: number; br: number; bl: number } }).cornerRadius
+    return r ? !(r.tl === r.tr && r.tr === r.br && r.br === r.bl) : false
+  })
+  const showCorners = cornersExpanded || cornersDiffer
+
   const first = nodes[0]
 
   const common = <T,>(get: (n: SceneNode) => T): T | null => {
@@ -251,13 +260,17 @@ export function Inspector() {
           <NumberInput label="W" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => setSelectionSize('width', v)} />
           <NumberInput label="H" value={common((n) => round(n.height))} min={0} onCommit={(v) => setSelectionSize('height', v)} />
           <NumberInput label="⟳" value={common((n) => round(n.rotation))} suffix="°" onCommit={(v) => commit(() => ({ rotation: v }), 'Set Rotation')} />
-          {hasCorner && !cornersExpanded && (
+          {hasCorner && !showCorners && (
             <NumberInput
               label="⌒"
+              // null, not NaN: null is how a field says "mixed" and shows its
+              // placeholder. NaN reached the input as a value and rendered
+              // literally — visible the moment corners differ, which the
+              // canvas handles now make routine.
               value={common((n) => {
                 const r = (n as { cornerRadius?: { tl: number; tr: number; br: number; bl: number } }).cornerRadius
                 if (!r) return 0
-                return r.tl === r.tr && r.tr === r.br && r.br === r.bl ? round(r.tl) : NaN
+                return r.tl === r.tr && r.tr === r.br && r.br === r.bl ? round(r.tl) : null
               })}
               min={0}
               onCommit={(v) => commit(() => ({ cornerRadius: { tl: v, tr: v, br: v, bl: v } }), 'Set Corner Radius')}
@@ -265,11 +278,11 @@ export function Inspector() {
           )}
         </div>
         {hasCorner && (
-          <button className="mt-1.5 text-[10px] text-[var(--pf-text-dim)] hover:text-white" onClick={() => setCornersExpanded(!cornersExpanded)}>
-            {cornersExpanded ? '− Uniform corner radius' : '+ Individual corners'}
+          <button className="mt-1.5 text-[10px] text-[var(--pf-text-dim)] hover:text-white" onClick={() => setCornersExpanded(!showCorners)}>
+            {showCorners ? '− Uniform corner radius' : '+ Individual corners'}
           </button>
         )}
-        {hasCorner && cornersExpanded && (
+        {hasCorner && showCorners && (
           <div className="grid grid-cols-4 gap-1 mt-1">
             {(['tl', 'tr', 'br', 'bl'] as const).map((corner) => (
               <NumberInput

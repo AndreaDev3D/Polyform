@@ -21,7 +21,7 @@ import { cloneNode, createNode, createPage, isContainer, newId } from '../engine
 import type { PatchOp, NodeBundle } from '../engine/commands'
 import { applyOp, extractBundle, makeUpdateOp, reIdBundle, removeSubtreeOps, undoOps } from '../engine/commands'
 import { constrainFrameChildren, type ChildRect } from '../engine/constraints'
-import { applyMat, matInvert, aabbIsEmpty, aabbUnion, emptyAABB, type AABB } from '../engine/geometry'
+import { applyMat, matInvert, matMultiply, aabbIsEmpty, aabbUnion, emptyAABB, type AABB } from '../engine/geometry'
 import { documentStore } from './document'
 import { editor } from './editor'
 import { assetCache } from '../engine/assets'
@@ -29,6 +29,16 @@ import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance } from '../engine/hit-test'
 import { importSvgDocument } from '../engine/import/svg-import'
+import { nodeOutline, type SubPath } from '../engine/shapes'
+import { booleanRings } from '../engine/booleans'
+import {
+  anchorNetworkAtOrigin,
+  networkBounds,
+  normalizeWinding,
+  ringsToSubPaths,
+  subPathsToNetwork,
+  transformSubPath,
+} from '../engine/flatten'
 import { listComponents } from '../engine/components'
 import { SceneGraph } from '../engine/scene'
 import { decodeScene } from '../engine/serialization'
@@ -144,6 +154,20 @@ export function setSelection(ids: NodeId[]): void {
 // ---------------------------------------------------------------------------
 
 let clipboard: NodeBundle | null = null
+
+/**
+ * Say something on the status bar for a few seconds. The app had no way to
+ * explain a refusal, so a command that declined to run just looked broken.
+ */
+let statusTimer: ReturnType<typeof setTimeout> | null = null
+export function setStatus(text: string | null): void {
+  editor.set({ status: text })
+  if (statusTimer) clearTimeout(statusTimer)
+  if (!text) return
+  statusTimer = setTimeout(() => {
+    if (editor.get().status === text) editor.set({ status: null })
+  }, 4500)
+}
 
 export function copySelection(): void {
   const ids = byZ(topSelection())
@@ -311,6 +335,89 @@ export function frameSelection(): void {
 export function booleanSelection(op: BooleanOp): void {
   if (topSelection().length < 2) return
   wrapSelection('BOOLEAN', op)
+}
+
+/**
+ * Bake the selection into one editable VECTOR (Figma's Flatten).
+ *
+ * A primitive has no anchors to grab — flattening an ellipse is how you get
+ * its four points and their handles so you can start pulling the curve about.
+ * A BOOLEAN contributes its computed rings, so its operation is baked in
+ * rather than lost.
+ *
+ * Contours are concatenated as subpaths, not CSG-merged, so curves survive.
+ * Winding is normalised first (see engine/flatten) so nonzero filling shows
+ * the union of overlapping contours instead of cancelling them into holes.
+ */
+export function flattenSelection(): void {
+  const scene = documentStore.scene
+  const ids = byZ(topSelection()).filter((id) => {
+    const n = scene.getNode(id)
+    return n && !n.locked && !isInsideInstance(scene, id)
+  })
+  if (ids.length === 0) return
+
+  // TEXT would need glyph outlines, which nodeOutline does not produce (it
+  // returns the layout box) — flattening it would silently turn words into a
+  // rectangle, so it is refused rather than mangled.
+  const text = ids.filter((id) => scene.getNode(id)?.type === 'TEXT')
+  if (text.length > 0) {
+    setStatus('Flatten cannot outline text yet — deselect the text layer first.')
+    return
+  }
+  if (ids.length === 1 && scene.getNode(ids[0])?.type === 'VECTOR') {
+    setStatus('That layer is already a vector.')
+    return
+  }
+
+  const topId = ids[ids.length - 1]
+  const parentId = scene.parentOf(topId)
+  const sameParent = ids.every((id) => scene.parentOf(id) === parentId)
+  const targetParent = sameParent ? parentId : null
+  // Everything is gathered in the target parent's space, so the result sits
+  // exactly where the originals looked.
+  const toParent = targetParent ? matInvert(scene.worldMatrix(targetParent)) : null
+
+  const paths: SubPath[] = []
+  for (const id of ids) {
+    const node = scene.requireNode(id)
+    const own = node.type === 'BOOLEAN' ? ringsToSubPaths(booleanRings(scene, node)) : nodeOutline(node)
+    const world = scene.worldMatrix(id)
+    const m = toParent ? matMultiply(toParent, world) : world
+    for (const sp of own) paths.push(transformSubPath(sp, m))
+  }
+  const network = subPathsToNetwork(normalizeWinding(paths))
+  if (network.vertices.length < 2) return
+
+  const { network: local, dx, dy } = anchorNetworkAtOrigin(network)
+  const bounds = networkBounds(network)
+
+  // Paint comes from the bottom-most source, matching how a boolean adopts it.
+  const source = scene.requireNode(ids[0])
+  const vector = createNode('VECTOR', ids.length === 1 ? source.name : 'Flattened')
+  if (vector.type !== 'VECTOR') return
+  vector.network = local
+  vector.x = dx
+  vector.y = dy
+  vector.width = Math.max(1, bounds.maxX - bounds.minX)
+  vector.height = Math.max(1, bounds.maxY - bounds.minY)
+  vector.fills = structuredClone(source.fills)
+  vector.strokes = structuredClone(source.strokes)
+  vector.strokeWeight = source.strokeWeight
+  vector.strokeAlign = source.strokeAlign
+  vector.strokeDash = [...source.strokeDash]
+  vector.effects = structuredClone(source.effects)
+  vector.opacity = source.opacity
+  vector.blendMode = source.blendMode
+
+  const insertIndex = sameParent ? scene.indexInParent(topId) + 1 : scene.childListOf(targetParent).length
+  const rec = new OpRecorder()
+  rec.add(vector, targetParent, insertIndex)
+  for (const id of ids) rec.removeSubtree(id)
+  rec.commit('Flatten')
+  setSelection([vector.id])
+  // One shape in means "show me its points", so open the editor on it.
+  if (ids.length === 1) editor.set({ vectorEditId: vector.id, vectorSelection: [] })
 }
 
 export function ungroupSelection(): void {
@@ -1467,6 +1574,9 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'object.sendToBack':
       reorderSelection('back')
+      break
+    case 'object.flatten':
+      flattenSelection()
       break
     case 'object.union':
       booleanSelection('UNION')
