@@ -20,6 +20,7 @@ import process from 'node:process'
 import { inflateSync } from 'node:zlib'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { killElectronMatching } from './proc-cleanup.mjs'
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const ELECTRON = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron')
@@ -55,21 +56,6 @@ function killServeTree() {
     } catch {
       /* already gone */
     }
-  }
-}
-
-/** Belt and braces: kill anything still holding THIS run's bundle path, so a
- * missed pid can never leak a process past the gate. */
-function killStragglers() {
-  if (process.platform !== 'win32') return
-  const ps =
-    `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
-    `Where-Object { $_.CommandLine -like '*${WORK}*' } | ` +
-    `ForEach-Object { taskkill /F /T /PID $_.ProcessId }`
-  try {
-    spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore' })
-  } catch {
-    /* best effort */
   }
 }
 
@@ -274,7 +260,7 @@ try {
   // (cmd→cli.js→electron→relay) holds pipe handles that keep this process
   // alive forever — it wedged three runs before this teardown existed.
   killServeTree()
-  killStragglers()
+  killElectronMatching(WORK)
   try {
     fs.rmSync(WORK, { recursive: true, force: true })
   } catch {

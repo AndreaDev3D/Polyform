@@ -18,6 +18,7 @@ import process from 'node:process'
 import { inflateSync } from 'node:zlib'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { killElectronMatching } from './proc-cleanup.mjs'
 
 /**
  * Minimal PNG reader, so the image gates can check what is actually IN the
@@ -843,6 +844,8 @@ try {
   electron.kill()
   if (process.platform === 'win32') {
     spawn('taskkill', ['/F', '/T', '/PID', String(electron.pid)], { stdio: 'ignore', shell: true })
+    // The shell wrapper is often already gone; sweep this run by identity too.
+    killElectronMatching(`--remote-debugging-port=${PORT}`)
   }
   setTimeout(() => {
     // Remove the temp bundles the harness hook created (this run's and any

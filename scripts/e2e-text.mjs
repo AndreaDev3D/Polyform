@@ -13,6 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import process from 'node:process'
+import { killElectronMatching } from './proc-cleanup.mjs'
 
 const PORT = 9333
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
@@ -239,9 +240,11 @@ try {
     /* ignore */
   }
   electron.kill()
-  // Windows: electron spawns via shell; make sure the tree dies.
+  // Windows: the pid we hold is a shell wrapper that may already be gone, so
+  // also sweep by identity or the instance outlives the gate.
   if (process.platform === 'win32') {
     spawn('taskkill', ['/F', '/T', '/PID', String(electron.pid)], { stdio: 'ignore', shell: true })
   }
+  killElectronMatching(`--remote-debugging-port=${PORT}`)
   setTimeout(() => process.exit(process.exitCode ?? 0), 1500)
 }
