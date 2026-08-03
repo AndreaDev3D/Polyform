@@ -10,7 +10,7 @@ import { parseCliCommand, runCli } from './cli'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
 import { mcpStart, mcpStop, mcpStatus, mcpSetGrants, onMcpStatus } from './mcp'
 import { listRecents, pushRecent, readRecentThumbnail } from './recents'
-import { installMenu } from './menu'
+import { clickMenuItem, installMenu } from './menu'
 
 // NOTE: do NOT force-enable SharedArrayBuffer here. It sounds like a free
 // win (threaded WASM inference), but ort's threaded runtime then uses
@@ -20,6 +20,8 @@ import { installMenu } from './menu'
 
 const projects = new ProjectManager()
 let mainWindow: BrowserWindow | null = null
+/** Height of the custom title bar; the renderer's header must match it. */
+const TITLEBAR_HEIGHT = 40
 let isDirty = false
 let closeConfirmed = false
 
@@ -70,6 +72,14 @@ function createWindow(hidden = false): void {
     title: 'Polyform',
     icon: devWindowIcon(),
     show: false,
+    // Frameless with the OS keeping its window controls: the buttons stay
+    // native (snap layouts, hover previews, correct hit targets) while the
+    // rest of the bar is ours to draw. Colours match --pf-bg-0 / --pf-text-dim
+    // so the overlay is invisible against the app's own header.
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'darwin'
+      ? { trafficLightPosition: { x: 12, y: 12 } }
+      : { titleBarOverlay: { color: '#171717', symbolColor: '#9a9a9a', height: TITLEBAR_HEIGHT } }),
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -260,6 +270,10 @@ function registerIpc(): void {
     refreshTitle()
     return info
   })
+
+  // The custom title bar's menu invokes the NATIVE item by id, so every
+  // command keeps exactly one implementation.
+  ipcMain.handle('menu:invoke', (_e, id: string) => clickMenuItem(id))
 
   ipcMain.handle('recents:list', () => listRecents())
   ipcMain.handle('recents:thumbnail', (_e, bundlePath: string) => readRecentThumbnail(bundlePath))

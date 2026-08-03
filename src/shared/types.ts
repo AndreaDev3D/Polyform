@@ -171,6 +171,8 @@ export interface PolyformApi {
   projectOpen: (path?: string) => Promise<OpenProjectResult | null>
   projectSave: (payload: SaveProjectPayload) => Promise<boolean>
   projectSaveAs: (payload: SaveProjectPayload) => Promise<ProjectInfo | null>
+  /** Click a native menu item by id (the custom title bar's menu). */
+  menuInvoke: (id: string) => Promise<boolean>
   recentsList: () => Promise<RecentEntry[]>
   /** A recent bundle's saved preview PNG; null when it has none. */
   recentsThumbnail: (path: string) => Promise<Uint8Array | null>

@@ -224,6 +224,75 @@ textarea {
   color: #fff;
 }
 
+/* Custom title bar --------------------------------------------------------- */
+
+/* The frameless window's drag handle. Anything clickable inside must opt out,
+ * or the OS takes the press for a window move and the control never sees it. */
+.pf-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.pf-nodrag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.pf-menu-title {
+  @apply inline-flex items-center h-full px-2.5 text-[12px] cursor-default rounded;
+  color: var(--pf-text-dim);
+  transition: background var(--pf-dur-fast) var(--pf-ease), color var(--pf-dur-fast) var(--pf-ease);
+}
+.pf-menu-title:hover {
+  color: var(--pf-text);
+  background: var(--pf-bg-2);
+}
+.pf-menu-title.active {
+  color: var(--pf-text);
+  background: var(--pf-bg-3);
+}
+.pf-menu-title:focus-visible {
+  outline: 2px solid var(--pf-accent);
+  outline-offset: -2px;
+}
+
+.pf-menu-panel {
+  @apply absolute left-0 z-50 py-1;
+  top: 100%;
+  min-width: 232px;
+  background: color-mix(in srgb, var(--pf-bg-2) 97%, transparent);
+  border: 1px solid var(--pf-border-soft);
+  border-radius: 8px;
+  box-shadow: var(--pf-shadow-3);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+.pf-menu-item {
+  @apply flex items-center gap-6 w-full px-3 py-1 text-left text-[12px] cursor-default;
+  color: var(--pf-text);
+}
+.pf-menu-item:hover {
+  background: var(--pf-accent-solid);
+  color: #fff;
+}
+.pf-menu-item:focus-visible {
+  outline: 2px solid var(--pf-accent);
+  outline-offset: -2px;
+}
+
+.pf-menu-accel {
+  @apply ml-auto shrink-0 text-[11px] tabular-nums;
+  color: var(--pf-text-dim);
+}
+.pf-menu-item:hover .pf-menu-accel {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.pf-menu-sep {
+  margin: 4px 8px;
+  border-top: 1px solid var(--pf-border);
+}
+
 /* Welcome screen ---------------------------------------------------------- */
 
 /* Two very soft accent washes, so the start screen reads as a surface with

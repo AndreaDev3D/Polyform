@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { RecentEntry } from '../../../shared/types'
 import { newProjectFlow, openProjectFlow } from '../state/actions'
 import { FolderIcon, PlusIcon, PolyformMark } from './icons'
+import { useTitlebarGeometry } from './titlebar'
 
 /** Blob URLs for the previews, loaded lazily and revoked on unmount. */
 function useThumbnails(recents: RecentEntry[]): Map<string, string> {
@@ -72,6 +73,7 @@ export function WelcomeScreen() {
   const [recents, setRecents] = useState<RecentEntry[]>([])
   const [version, setVersion] = useState('')
   const thumbs = useThumbnails(recents)
+  const { height: titlebarHeight } = useTitlebarGeometry()
   const mod = window.polyform.platform === 'darwin' ? '⌘' : 'Ctrl'
 
   useEffect(() => {
@@ -80,10 +82,15 @@ export function WelcomeScreen() {
   }, [])
 
   return (
-    <div className="pf-welcome h-full overflow-y-auto">
+    <div className="pf-welcome h-full flex flex-col">
+      {/* This screen has no title bar of its own, and a frameless window with
+          no drag region cannot be moved at all. Reserve the same strip the
+          title bar occupies elsewhere. */}
+      <div className="pf-drag shrink-0" style={{ height: titlebarHeight }} />
+      <div className="flex-1 overflow-y-auto">
       {/* Centred vertically while the content is short, top-aligned and
           scrolling once the recents grid outgrows the window. */}
-      <div className="min-h-full flex items-center justify-center px-10 py-14">
+      <div className="min-h-full flex items-center justify-center px-10 pb-14 pt-4">
         <div className="w-full max-w-[1120px] flex flex-col lg:flex-row gap-12">
         {/* Identity + the two things you can do from here. */}
         <div className="lg:w-[300px] shrink-0">
@@ -183,6 +190,7 @@ export function WelcomeScreen() {
           )}
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

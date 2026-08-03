@@ -1,11 +1,17 @@
-// Slim document bar: what file am I in, what's selected, how zoomed am I,
-// and is it saved. Tools moved to the floating pill (FloatingToolbar), so
-// this row carries context only — 36px instead of 48px of chrome.
+// The custom title bar. The window is frameless (main sets titleBarStyle
+// 'hidden'), so this row IS the title bar: it carries the mark, the app's own
+// menu, the document name, zoom and Save — and it is the window's drag handle.
+//
+// The OS still draws the minimise/maximise/close buttons as an overlay on the
+// right, so the bar reserves that width. Everything interactive opts out of
+// the drag region, or it would be unclickable.
 
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
 import { saveFlow, zoomAt, zoomToFit } from '../state/actions'
 import { MinusIcon, PlusIcon, PolyformMark } from './icons'
+import { MenuBar } from './MenuBar'
+import { useTitlebarGeometry } from './titlebar'
 
 const ZOOM_PRESETS = [0.5, 1, 2]
 
@@ -15,13 +21,26 @@ export function TopBar() {
   const zoom = useEditor((s) => s.camera.zoom)
   const title = documentStore.projectInfo?.manifest.title ?? 'Untitled'
   const dirty = documentStore.dirty
+  const { inset, height } = useTitlebarGeometry()
+  const isMac = window.polyform.platform === 'darwin'
 
   return (
-    <div className="flex items-center h-9 px-3 gap-3 bg-[var(--pf-bg-0)] border-b border-[var(--pf-border)] shrink-0">
-      {/* Identity, left — where Figma keeps it. */}
-      <div className="flex items-center gap-2 min-w-0">
-        <PolyformMark size={15} className="shrink-0" />
-        <span className="text-xs font-medium truncate max-w-[22rem]">{title}</span>
+    <div
+      className="pf-drag flex items-center gap-2 bg-[var(--pf-bg-0)] border-b border-[var(--pf-border)] shrink-0"
+      // Height comes from the OS so the native buttons sit exactly inside this
+      // row. Left padding clears macOS traffic lights; right padding clears
+      // the Windows/Linux control buttons.
+      style={{ height, paddingLeft: isMac ? 78 : 8, paddingRight: inset + 8 }}
+    >
+      <PolyformMark size={16} className="pf-nodrag shrink-0" />
+
+      {/* macOS puts the menu in the system bar, so drawing one here would be a
+          duplicate; every other platform gets ours. */}
+      {!isMac && <MenuBar />}
+
+      {/* The document name centres the bar the way a title bar should read. */}
+      <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-2">
+        <span className="text-[11px] text-[var(--pf-text-dim)] truncate max-w-[24rem]">{title}</span>
         {dirty && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-[var(--pf-text-dim)] shrink-0"
@@ -30,16 +49,14 @@ export function TopBar() {
         )}
       </div>
 
-      <span className="flex-1" />
-
       {selection.length > 0 && (
-        <span className="text-[11px] text-[var(--pf-text-dim)] tabular-nums">
+        <span className="pf-nodrag text-[11px] text-[var(--pf-text-dim)] tabular-nums shrink-0">
           {selection.length} selected
         </span>
       )}
 
       {/* Zoom: a stepper whose readout is also the fit button. */}
-      <div className="flex items-center gap-0.5 rounded-md bg-[var(--pf-bg-2)] p-0.5">
+      <div className="pf-nodrag flex items-center gap-0.5 rounded-md bg-[var(--pf-bg-2)] p-0.5 shrink-0">
         <button className="pf-tool-btn h-6 w-6" title="Zoom out" aria-label="Zoom out" onClick={() => zoomAt(null, 0.8)}>
           <MinusIcon />
         </button>
@@ -61,7 +78,7 @@ export function TopBar() {
       </div>
 
       <button
-        className="pf-btn h-7 px-3 bg-[var(--pf-accent-solid)] text-white font-medium hover:bg-[var(--pf-accent-solid-hover)]"
+        className="pf-nodrag pf-btn h-7 px-3 bg-[var(--pf-accent-solid)] text-white font-medium hover:bg-[var(--pf-accent-solid-hover)] shrink-0"
         onClick={() => void saveFlow()}
         title="Save — Ctrl+S"
       >

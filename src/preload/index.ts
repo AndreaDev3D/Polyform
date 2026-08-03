@@ -16,6 +16,7 @@ const api: PolyformApi = {
   projectOpen: (path?: string) => ipcRenderer.invoke('project:open', path),
   projectSave: (payload: SaveProjectPayload) => ipcRenderer.invoke('project:save', payload),
   projectSaveAs: (payload: SaveProjectPayload) => ipcRenderer.invoke('project:saveAs', payload),
+  menuInvoke: (id: string) => ipcRenderer.invoke('menu:invoke', id),
   recentsList: () => ipcRenderer.invoke('recents:list'),
   recentsThumbnail: (path: string) => ipcRenderer.invoke('recents:thumbnail', path),
   appVersion: () => ipcRenderer.invoke('app:version'),
