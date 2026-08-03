@@ -5,7 +5,7 @@ import { create } from 'zustand'
 import type { NodeId } from '../engine/types'
 import type { AABB } from '../engine/geometry'
 import type { Camera } from '../engine/render/canvas2d'
-import type { PenDraft, SnapGuide } from '../engine/render/overlays'
+import type { ArcHandleKind, PenDraft, SnapGuide } from '../engine/render/overlays'
 
 export type Tool =
   | 'select'
@@ -48,6 +48,8 @@ interface EditorState {
   orbitingId: NodeId | null
   /** Selected vertex ids within vector edit mode. */
   vectorSelection: number[]
+  /** Arc handle under an active drag, so the overlay can show its readout. */
+  arcDrag: ArcHandleKind | null
   /** Version-history browser visibility. */
   showHistory: boolean
   /** Agent-connection consent panel visibility. */
@@ -75,6 +77,7 @@ interface EditorState {
   setShowRulers: (v: boolean) => void
   setVectorEditId: (id: NodeId | null) => void
   setVectorSelection: (ids: number[]) => void
+  setArcDrag: (k: ArcHandleKind | null) => void
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
   setGpuRender: (v: boolean) => void
@@ -100,6 +103,7 @@ export const useEditor = create<EditorState>((set) => ({
   vectorEditId: null,
   orbitingId: null,
   vectorSelection: [],
+  arcDrag: null,
   showHistory: false,
   showAgent: false,
   leftTab: 'layers' as const,
@@ -124,6 +128,7 @@ export const useEditor = create<EditorState>((set) => ({
   setShowRulers: (showRulers) => set({ showRulers }),
   setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [] }),
   setVectorSelection: (vectorSelection) => set({ vectorSelection }),
+  setArcDrag: (arcDrag) => set({ arcDrag }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),
   setGpuRender: (gpuRender) => {

@@ -670,7 +670,19 @@ describe('shapes module behind the wasm flag', () => {
     const star = createNode('STAR', 's')
     star.width = 90
     star.height = 90
-    const nodes: SceneNode[] = [rect, star]
+    // An arced ellipse: nodeOutline has to route to arc_path, not ellipse_path
+    // (it did not, so every arc drew as a whole ellipse under this backend).
+    const donut = createNode('ELLIPSE', 'd')
+    if (donut.type !== 'ELLIPSE') throw new Error('unreachable')
+    donut.width = 140
+    donut.height = 100
+    donut.arcStart = -0.125
+    donut.arcSweep = 0.7
+    donut.arcRatio = 0.4
+    const full = createNode('ELLIPSE', 'f')
+    full.width = 60
+    full.height = 60
+    const nodes: SceneNode[] = [rect, star, donut, full]
 
     setEngineBackend('shapes', 'ts')
     const tsOutlines = nodes.map((n) => nodeOutline(n))

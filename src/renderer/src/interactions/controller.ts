@@ -2,7 +2,15 @@
 // move (with snapping + reparenting), resize, rotate, marquee, shape drawing,
 // pen paths, text placement, panning, and wheel zoom/pan.
 
-import type { ModelPose, NodeId, SceneNode, Vec2, VectorNetwork, VectorNode } from '../engine/types'
+import type {
+  EllipseNode,
+  ModelPose,
+  NodeId,
+  SceneNode,
+  Vec2,
+  VectorNetwork,
+  VectorNode,
+} from '../engine/types'
 import { createNode, isContainer, newId } from '../engine/types'
 import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, type AABB } from '../engine/geometry'
 import { documentStore } from '../state/document'
@@ -14,12 +22,18 @@ import type { PatchOp } from '../engine/commands'
 import { removeSubtreeOps } from '../engine/commands'
 import {
   RULER_SIZE,
+  arcEditTarget,
+  arcHandles,
+  arcRadiusFromLocal,
+  arcTurnsFromLocal,
   boxHandles,
+  hitArcHandle,
   hitHandle,
   screenToWorld,
   selectionScreenBox,
   frameLabels,
   worldToScreen,
+  type ArcHandleKind,
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
@@ -63,6 +77,22 @@ type Mode =
       startAngle: number
       snapshots: DragNodeSnapshot[]
       worldCenters: Map<NodeId, Vec2>
+    }
+  | {
+      kind: 'arc'
+      part: ArcHandleKind
+      nodeId: NodeId
+      snapshots: DragNodeSnapshot[]
+      /** Turns accumulated since pointerdown, unwrapped across the ±180° seam
+       *  so a full spin keeps counting instead of snapping back. */
+      delta: number
+      lastTurns: number
+      start0: number
+      sweep0: number
+      /** Both ends of a whole turn sit in the same place, so which way the
+       *  drag opens the arc is undecidable until the pointer actually moves;
+       *  the first movement direction resolves it (see pointerMove). */
+      wholeTurn: boolean
     }
   | { kind: 'draw'; rec: OpRecorder; nodeId: NodeId; startWorld: Vec2; parentId: NodeId | null }
   | { kind: 'pen' }
@@ -283,7 +313,18 @@ export class InteractionController {
       }
     }
 
-    // 2. Frame name labels.
+    // 2. Arc handles on a selected ellipse. After the box handles, which sit
+    //    on the outline itself; the arc ring handles are inset clear of them.
+    const arcNode = arcEditTarget(this.scene, state.selection)
+    if (arcNode) {
+      const arc = hitArcHandle(arcHandles(this.scene, arcNode, state.camera), screen)
+      if (arc) {
+        this.startArcDrag(arcNode, arc.kind, world)
+        return
+      }
+    }
+
+    // 3. Frame name labels.
     for (const label of frameLabels(this.scene, state.camera)) {
       if (
         screen.x >= label.x - 2 &&
@@ -296,7 +337,7 @@ export class InteractionController {
       }
     }
 
-    // 3. Scene hit test.
+    // 4. Scene hit test.
     const hits = hitTestAll(this.scene, this.index, world, {
       tolerancePx: 4,
       zoom: state.camera.zoom,
@@ -431,6 +472,26 @@ export class InteractionController {
       snapshots: this.snapshotNodes(ids, ['rotation', 'x', 'y']),
       worldCenters,
     }
+  }
+
+  /** World point in a node's own space (rotation- and nesting-aware). */
+  private toLocal(id: NodeId, world: Vec2): Vec2 {
+    return applyMat(matInvert(this.scene.worldMatrix(id)), world)
+  }
+
+  private startArcDrag(node: EllipseNode, part: ArcHandleKind, world: Vec2): void {
+    this.mode = {
+      kind: 'arc',
+      part,
+      nodeId: node.id,
+      snapshots: this.snapshotNodes([node.id], ['arcStart', 'arcSweep', 'arcRatio']),
+      delta: 0,
+      lastTurns: arcTurnsFromLocal(node, this.toLocal(node.id, world)),
+      start0: node.arcStart ?? 0,
+      sweep0: clamp(node.arcSweep ?? 1, -1, 1),
+      wholeTurn: Math.abs(Math.abs(node.arcSweep ?? 1) - 1) < 1e-6,
+    }
+    editor.set({ arcDrag: part })
   }
 
   private startDrawing(type: SceneNode['type'], world: Vec2, _mods: PointerMods): void {
@@ -570,6 +631,39 @@ export class InteractionController {
             const local = parentId ? applyMat(matInvert(this.scene.worldMatrix(parentId)), cNew) : cNew
             node.x = local.x - node.width / 2
             node.y = local.y - node.height / 2
+          }
+        }
+        this.scene.bump()
+        documentStore.transient()
+        return
+      }
+      case 'arc': {
+        const node = this.scene.getNode(this.mode.nodeId)
+        if (!node || node.type !== 'ELLIPSE') return
+        const local = this.toLocal(node.id, world)
+        if (this.mode.part === 'arc-ratio') {
+          const k = arcRadiusFromLocal(node, local)
+          node.arcRatio = clamp(mods.shift ? Math.round(k * 20) / 20 : k, 0, 0.99)
+        } else {
+          const turns = arcTurnsFromLocal(node, local)
+          this.mode.delta += wrapTurns(turns - this.mode.lastTurns)
+          this.mode.lastTurns = turns
+          if (this.mode.wholeTurn && this.mode.delta !== 0) {
+            // Opening a whole ellipse: dragging the way the sweep runs carves
+            // the arc out of nothing (0 -> the pointer), dragging against it
+            // takes a bite out of a full turn instead.
+            const dir = Math.sign(this.mode.sweep0) || 1
+            this.mode.sweep0 = Math.sign(this.mode.delta) === dir ? 0 : dir
+            this.mode.wholeTurn = false
+          }
+          const snap = (t: number) => (mods.shift ? Math.round(t * 24) / 24 : t)
+          if (this.mode.part === 'arc-start') {
+            // Move this end, leave the other where it is.
+            const raw = snap(this.mode.start0 + this.mode.delta)
+            node.arcSweep = clamp(this.mode.start0 + this.mode.sweep0 - raw, -1, 1)
+            node.arcStart = wrapTurns(raw)
+          } else {
+            node.arcSweep = clamp(snap(this.mode.sweep0 + this.mode.delta), -1, 1)
           }
         }
         this.scene.bump()
@@ -751,6 +845,12 @@ export class InteractionController {
         if (state.hover) editor.set({ hover: null })
         return
       }
+    }
+    const arcNode = arcEditTarget(this.scene, state.selection)
+    if (arcNode && hitArcHandle(arcHandles(this.scene, arcNode, state.camera), screen)) {
+      this.cursorOverride = 'crosshair'
+      if (state.hover) editor.set({ hover: null })
+      return
     }
     const hits = hitTestAll(this.scene, this.index, world, { tolerancePx: 4, zoom: state.camera.zoom })
     const deepest = hits[0] ?? null
@@ -961,6 +1061,10 @@ export class InteractionController {
         break
       case 'rotate':
         this.commitFromSnapshots(this.mode.snapshots, 'Rotate')
+        break
+      case 'arc':
+        editor.set({ arcDrag: null })
+        this.commitFromSnapshots(this.mode.snapshots, 'Edit Arc')
         break
       case 'draw': {
         const node = this.scene.getNode(this.mode.nodeId)
@@ -1430,7 +1534,12 @@ export class InteractionController {
       this.mode.rec.rollback()
       setSelection([])
     }
-    if (this.mode.kind === 'move' || this.mode.kind === 'resize' || this.mode.kind === 'rotate') {
+    if (
+      this.mode.kind === 'move' ||
+      this.mode.kind === 'resize' ||
+      this.mode.kind === 'rotate' ||
+      this.mode.kind === 'arc'
+    ) {
       // Restore every snapshotted property so the aborted drag leaves no trace.
       for (const s of this.mode.snapshots) {
         const node = this.scene.getNode(s.id)
@@ -1439,6 +1548,7 @@ export class InteractionController {
       }
       this.scene.bump()
       documentStore.transient()
+      editor.set({ arcDrag: null })
     }
     if (this.mode.kind === 'vector-vertex' || this.mode.kind === 'vector-cp') {
       const id = editor.get().vectorEditId
@@ -1522,6 +1632,15 @@ function scaleChildren(
   if (container && isContainer(container)) {
     for (const cid of container.children) walk(cid)
   }
+}
+
+/** Wrap turns into [-0.5, 0.5) — used both to unwrap a drag across the seam
+ *  and to keep a stored start angle in the readable ±180° half. */
+function wrapTurns(t: number): number {
+  let v = t % 1
+  if (v >= 0.5) v -= 1
+  if (v < -0.5) v += 1
+  return v
 }
 
 function norm180(deg: number): number {

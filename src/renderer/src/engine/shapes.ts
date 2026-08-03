@@ -315,8 +315,13 @@ function wasmNodeOutline(node: SceneNode): SubPath[] {
       const r = node.cornerRadius
       return decodeSubPaths(w.roundedRectPath(node.width, node.height, r.tl, r.tr, r.br, r.bl))
     }
-    case 'ELLIPSE':
-      return decodeSubPaths(w.ellipsePath(node.width, node.height))
+    case 'ELLIPSE': {
+      const { arcStart = 0, arcSweep = 1, arcRatio = 0 } = node
+      if (isFullEllipse(arcSweep, arcRatio)) {
+        return decodeSubPaths(w.ellipsePath(node.width, node.height))
+      }
+      return decodeSubPaths(w.arcPath(node.width, node.height, arcStart, arcSweep, arcRatio))
+    }
     case 'LINE':
       return decodeSubPaths(w.linePath(node.width))
     case 'POLYGON':

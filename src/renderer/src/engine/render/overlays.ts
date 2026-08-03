@@ -2,10 +2,11 @@
 // handles, marquee, snap guides, frame name labels, pen-tool preview.
 // Handle geometry is exported so pointer interaction shares one source.
 
-import type { Guide, NodeId, Vec2, VectorNode } from '../types'
+import type { EllipseNode, Guide, NodeId, Vec2, VectorNode } from '../types'
 import type { SceneGraph } from '../scene'
 import type { AABB } from '../geometry'
 import { aabbIsEmpty, applyMat } from '../geometry'
+import { nearestInstanceAncestor } from '../hit-test'
 import type { Camera } from './canvas2d'
 
 export const HANDLE_SIZE = 8
@@ -42,6 +43,8 @@ export interface PenDraft {
 
 export interface OverlayState {
   camera: Camera
+  /** Arc handle being dragged right now (drives the readout chip). */
+  arcDrag?: ArcHandleKind | null
   width: number
   height: number
   dpr: number
@@ -172,6 +175,146 @@ export function hitHandle(handles: Handle[], p: Vec2): Handle | null {
   return null
 }
 
+// ---------------------------------------------------------------------------
+// Ellipse arc handles
+//
+// Three round handles on a selected ellipse: the two ends of the sweep, on
+// the outline, and the inner radius, on the hole. They are the direct-
+// manipulation twin of the inspector's Arc row and read/write the same three
+// fields, so the angle convention here has to match arcPath() exactly:
+// turns clockwise from 12 o'clock, normalized by the radii.
+// ---------------------------------------------------------------------------
+
+export type ArcHandleKind = 'arc-start' | 'arc-sweep' | 'arc-ratio'
+
+export interface ArcHandle {
+  kind: ArcHandleKind
+  /** Screen position (center). */
+  x: number
+  y: number
+}
+
+const ARC_HANDLE_R = 4
+const ARC_HANDLE_PAD = 7
+/** Ring handles sit this many screen px inside the outline. Without the
+ *  inset, a start angle of 0/90/180/270° would park the handle exactly under
+ *  a box edge handle, and one of the two would be unreachable. */
+const ARC_RING_INSET = 10
+
+/** The one ellipse whose arc is editable on canvas right now, if any. */
+export function arcEditTarget(scene: SceneGraph, ids: NodeId[]): EllipseNode | null {
+  if (ids.length !== 1) return null
+  const node = scene.getNode(ids[0])
+  if (!node || node.type !== 'ELLIPSE' || node.locked) return null
+  // Instance internals are not editable in place — nothing would commit.
+  if (nearestInstanceAncestor(scene, node.id) !== null) return null
+  return node
+}
+
+/**
+ * Turns (clockwise from 12 o'clock) of a node-local point about the ellipse
+ * centre — the inverse of the mapping arcPath() walks. Dividing by the radii
+ * first means the handle tracks the pointer along the ellipse rather than
+ * along a circle, which matters as soon as the shape is not square.
+ */
+export function arcTurnsFromLocal(node: EllipseNode, p: Vec2): number {
+  const rx = Math.max(1e-6, node.width / 2)
+  const ry = Math.max(1e-6, node.height / 2)
+  return Math.atan2((p.y - ry) / ry, (p.x - rx) / rx) / (Math.PI * 2) + 0.25
+}
+
+/** Parametric radius of a node-local point: 0 is the centre, 1 the outline. */
+export function arcRadiusFromLocal(node: EllipseNode, p: Vec2): number {
+  const rx = Math.max(1e-6, node.width / 2)
+  const ry = Math.max(1e-6, node.height / 2)
+  return Math.hypot((p.x - rx) / rx, (p.y - ry) / ry)
+}
+
+export function arcHandles(scene: SceneGraph, node: EllipseNode, camera: Camera): ArcHandle[] {
+  const rx = node.width / 2
+  const ry = node.height / 2
+  const start = node.arcStart ?? 0
+  const sweep = Math.max(-1, Math.min(1, node.arcSweep ?? 1))
+  const ratio = Math.max(0, Math.min(0.999, node.arcRatio ?? 0))
+  const m = scene.worldMatrix(node.id)
+  const toScreen = (p: Vec2) => worldToScreen(camera, applyMat(m, p))
+  const at = (turns: number, k: number): Vec2 => {
+    const a = (turns - 0.25) * Math.PI * 2
+    return toScreen({ x: rx + rx * k * Math.cos(a), y: ry + ry * k * Math.sin(a) })
+  }
+  const centre = toScreen({ x: rx, y: ry })
+  // Inset in screen space so it stays the same few pixels at any zoom,
+  // rotation or aspect ratio (and never crosses the centre on a tiny shape).
+  const inset = (p: Vec2): Vec2 => {
+    const d = Math.hypot(p.x - centre.x, p.y - centre.y)
+    if (d < 1e-6) return p
+    const t = Math.min(ARC_RING_INSET, d * 0.4) / d
+    return { x: p.x + (centre.x - p.x) * t, y: p.y + (centre.y - p.y) * t }
+  }
+
+  const handles: ArcHandle[] = []
+  // A whole turn puts both ends in the same place: one handle, not two on top
+  // of each other. Dragging it is what opens the arc in the first place.
+  if (Math.abs(Math.abs(sweep) - 1) > 1e-6) {
+    const s = inset(at(start, 1))
+    handles.push({ kind: 'arc-start', x: s.x, y: s.y })
+  }
+  const e = inset(at(start + sweep, 1))
+  handles.push({ kind: 'arc-sweep', x: e.x, y: e.y })
+  const r = at(start + sweep / 2, ratio)
+  handles.push({ kind: 'arc-ratio', x: r.x, y: r.y })
+  return handles
+}
+
+export function hitArcHandle(handles: ArcHandle[], p: Vec2): ArcHandle | null {
+  for (const h of handles) {
+    if (Math.hypot(p.x - h.x, p.y - h.y) <= ARC_HANDLE_PAD) return h
+  }
+  return null
+}
+
+function arcChipText(node: EllipseNode, kind: ArcHandleKind): string {
+  if (kind === 'arc-start') return `${Math.round((node.arcStart ?? 0) * 360)}°`
+  if (kind === 'arc-sweep') return `${Math.round((node.arcSweep ?? 1) * 100)}%`
+  return `Ratio ${Math.round((node.arcRatio ?? 0) * 100)}%`
+}
+
+function drawArcHandles(
+  ctx: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  node: EllipseNode,
+  state: OverlayState,
+): void {
+  const dragging = state.arcDrag ?? null
+  const handles = arcHandles(scene, node, state.camera)
+  for (const h of handles) {
+    ctx.beginPath()
+    ctx.arc(h.x, h.y, h.kind === dragging ? ARC_HANDLE_R + 1 : ARC_HANDLE_R, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = ACCENT
+    ctx.lineWidth = 1.5
+    ctx.fill()
+    ctx.stroke()
+  }
+  if (!dragging) return
+  const h = handles.find((x) => x.kind === dragging)
+  if (h) drawChip(ctx, h.x, h.y - 24, arcChipText(node, dragging))
+}
+
+// ---------------------------------------------------------------------------
+
+/** The blue readout pill: dimensions under a selection, values under a drag. */
+function drawChip(ctx: CanvasRenderingContext2D, cx: number, top: number, text: string): void {
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif'
+  const tw = ctx.measureText(text).width
+  ctx.fillStyle = ACCENT
+  ctx.beginPath()
+  ctx.roundRect(cx - tw / 2 - 4, top, tw + 8, 16, 3)
+  ctx.fill()
+  ctx.fillStyle = '#fff'
+  ctx.fillText(text, cx - tw / 2, top + 11.5)
+}
+
 function strokePolygon(ctx: CanvasRenderingContext2D, pts: Vec2[], color: string, width = 1): void {
   ctx.strokeStyle = color
   ctx.lineWidth = width
@@ -266,18 +409,11 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
       const hpx = Math.abs(se.y - nw.y) / camera.zoom
       label = `${round2(wpx)} × ${round2(hpx)}`
     }
-    if (label) {
-      ctx.font = '10px "Segoe UI", system-ui, sans-serif'
-      const tw = ctx.measureText(label).width
-      ctx.fillStyle = ACCENT
-      const bx = cx - tw / 2 - 4
-      const by = bottom + 6
-      ctx.beginPath()
-      ctx.roundRect(bx, by, tw + 8, 16, 3)
-      ctx.fill()
-      ctx.fillStyle = '#fff'
-      ctx.fillText(label, cx - tw / 2, by + 11.5)
-    }
+    if (label) drawChip(ctx, cx, bottom + 6, label)
+
+    // Ellipse arc: the two sweep ends and the inner radius, draggable.
+    const arcNode = arcEditTarget(scene, state.selection)
+    if (arcNode) drawArcHandles(ctx, scene, arcNode, state)
   }
 
   // Marquee

@@ -150,6 +150,7 @@ export function CanvasView() {
           showRulers: state.showRulers,
           vectorEditId: state.vectorEditId,
           vectorSelection: state.vectorSelection,
+          arcDrag: state.arcDrag,
         })
         container.style.cursor = interactionController.cursor
       }

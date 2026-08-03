@@ -61,11 +61,15 @@ void Promise.all([
   import('./state/document'),
   import('./state/editor'),
   import('./interactions/controller'),
-]).then(([d, e, i]) => {
+  import('./engine/render/overlays'),
+]).then(([d, e, i, o]) => {
   ;(globalThis as Record<string, unknown>).__polyform = {
     documentStore: d.documentStore,
     editor: e.editor,
     interactionController: i.interactionController,
+    // Screen-space geometry, so harnesses can aim real pointer events at the
+    // handles the user sees instead of re-deriving where they ought to be.
+    overlays: o,
   }
 })
 
