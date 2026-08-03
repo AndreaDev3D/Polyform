@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 import type { NodeId, SceneNode } from '../engine/types'
 import { isContainer } from '../engine/types'
 import { documentStore, useDocVersion } from '../state/document'
-import { useEditor } from '../state/editor'
+import { editor, useEditor } from '../state/editor'
 import { OpRecorder, addPage, deletePage, renamePage, renameNode, setSelection, switchPage } from '../state/actions'
 import {
   ChevronDownIcon,
@@ -359,6 +359,16 @@ export function LayersPanel() {
               } ${node.visible ? '' : 'opacity-45'}`}
               style={{ paddingLeft: 6 + depth * 14 }}
               onClick={(e) => rowClick(e, id)}
+              // Same menu as right-clicking the object on canvas: one command
+              // set, reached from wherever the layer is in front of you.
+              onContextMenu={(e) => {
+                e.preventDefault()
+                // Right-clicking outside the selection acts on what you
+                // pointed at, exactly like the canvas does; inside it, the
+                // multi-selection is kept.
+                if (!selection.includes(id)) setSelection([id])
+                editor.set({ contextMenu: { x: e.clientX, y: e.clientY } })
+              }}
               onPointerDown={(e) => beginDrag(e, id)}
               onPointerMove={dragMove}
             >

@@ -38,12 +38,19 @@ export function ContextMenu() {
     if (!contextMenu) return
     const close = () => setContextMenu(null)
     window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
     window.addEventListener('blur', close)
     function onDown(e: PointerEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) close()
     }
+    // Escape closes it. Without this the only way out was clicking elsewhere,
+    // and the nearest empty spot may be inside the menu itself.
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') close()
+    }
     return () => {
       window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
       window.removeEventListener('blur', close)
     }
   }, [contextMenu, setContextMenu])
