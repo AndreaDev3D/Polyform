@@ -10,6 +10,7 @@ import type {
   BooleanOp,
   Constraint,
   Effect,
+  EllipseNode,
   FrameNode,
   GradientPaint,
   ImagePaint,
@@ -24,6 +25,7 @@ import type {
   TextNode,
 } from '../engine/types'
 import { defaultPose, solid } from '../engine/types'
+import { isFullEllipse } from '../engine/shapes'
 import { isSplatFormat } from '../render3d/island'
 import { documentStore, useDocVersion } from '../state/document'
 import { useEditor } from '../state/editor'
@@ -222,6 +224,7 @@ export function Inspector() {
   const hasCorner = nodes.every((n) => n.type === 'RECTANGLE' || n.type === 'FRAME')
   const isText = nodes.every((n) => n.type === 'TEXT')
   const isBool = nodes.every((n) => n.type === 'BOOLEAN')
+  const isEllipse = nodes.every((n) => n.type === 'ELLIPSE')
   const isPolygon = nodes.every((n) => n.type === 'POLYGON')
   const isStar = nodes.every((n) => n.type === 'STAR')
   const isModel3d = nodes.length === 1 && first.type === 'MODEL3D'
@@ -278,6 +281,53 @@ export function Inspector() {
                 }
               />
             ))}
+          </div>
+        )}
+        {isEllipse && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] uppercase tracking-wide text-[var(--pf-text-dim)]">Arc</span>
+              {!isFullEllipse(
+                common((n) => (n as EllipseNode).arcSweep ?? 1) ?? 1,
+                common((n) => (n as EllipseNode).arcRatio ?? 0) ?? 0,
+              ) && (
+                <button
+                  className="pf-btn !py-0 text-[10px] bg-[var(--pf-bg-3)]"
+                  title="Back to a full ellipse"
+                  onClick={() =>
+                    commit(() => ({ arcStart: 0, arcSweep: 1, arcRatio: 0 }), 'Reset Arc')
+                  }
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {/* Degrees and percent in the UI; turns and fractions in the
+               * model, so the geometry math stays unit-free. */}
+              <NumberInput
+                label="⟲"
+                title="Start angle"
+                value={common((n) => round(((n as EllipseNode).arcStart ?? 0) * 360))}
+                onCommit={(v) => commit(() => ({ arcStart: v / 360 }), 'Set Arc Start')}
+              />
+              <NumberInput
+                label="◔"
+                title="Sweep"
+                value={common((n) => round(((n as EllipseNode).arcSweep ?? 1) * 100))}
+                min={-100}
+                max={100}
+                onCommit={(v) => commit(() => ({ arcSweep: v / 100 }), 'Set Arc Sweep')}
+              />
+              <NumberInput
+                label="◎"
+                title="Inner radius (donut)"
+                value={common((n) => round(((n as EllipseNode).arcRatio ?? 0) * 100))}
+                min={0}
+                max={99}
+                onCommit={(v) => commit(() => ({ arcRatio: v / 100 }), 'Set Arc Ratio')}
+              />
+            </div>
           </div>
         )}
         {isPolygon && (

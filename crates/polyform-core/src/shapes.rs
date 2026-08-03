@@ -94,6 +94,58 @@ pub fn ellipse_path(w: f64, h: f64) -> SubPath {
     }
 }
 
+/// Arc / pie / ring from an ellipse — the twin of `arcPath` in shapes.ts.
+/// `start`/`sweep` are turns clockwise from 12 o'clock; `ratio` is the inner
+/// radius as a fraction of the outer. Must stay bit-identical to the TS
+/// version: the differential fuzz suite compares them directly.
+pub fn arc_path(w: f64, h: f64, start: f64, sweep: f64, ratio: f64) -> SubPath {
+    let rx = w / 2.0;
+    let ry = h / 2.0;
+    let cx = rx;
+    let cy = ry;
+    let inner = ratio.clamp(0.0, 0.999);
+    let turns = sweep.clamp(-1.0, 1.0);
+    let total = turns * std::f64::consts::PI * 2.0;
+    let from = start * std::f64::consts::PI * 2.0 - std::f64::consts::FRAC_PI_2;
+
+    let steps = ((total.abs() / std::f64::consts::FRAC_PI_2).ceil() as i64).max(1);
+    let step = total / steps as f64;
+    let handle = |d: f64| (4.0 / 3.0) * (d / 4.0).tan();
+
+    let mut anchors: Vec<Anchor> = Vec::new();
+    let mut walk = |k: f64, forward: bool, anchors: &mut Vec<Anchor>| {
+        for i in 0..=steps {
+            let t = if forward { i } else { steps - i };
+            let angle = from + step * t as f64;
+            let px = cx + rx * k * angle.cos();
+            let py = cy + ry * k * angle.sin();
+            let hl = handle(step) * if forward { 1.0 } else { -1.0 };
+            let dx = -rx * k * angle.sin() * hl;
+            let dy = ry * k * angle.cos() * hl;
+            let first = i == 0;
+            let last = i == steps;
+            anchors.push(anchor(
+                vec2(px, py),
+                if first { None } else { Some(vec2(px - dx, py - dy)) },
+                if last { None } else { Some(vec2(px + dx, py + dy)) },
+            ));
+        }
+    };
+
+    walk(1.0, true, &mut anchors);
+    if inner > 0.0 {
+        walk(inner, false, &mut anchors);
+    } else if turns.abs() < 1.0 {
+        anchors.push(anchor(vec2(cx, cy), None, None));
+    }
+    SubPath { closed: true, anchors }
+}
+
+/// True when the arc fields still describe a plain, unbroken ellipse.
+pub fn is_full_ellipse(sweep: f64, ratio: f64) -> bool {
+    (sweep.abs() - 1.0).abs() < 1e-9 && ratio <= 0.0
+}
+
 pub fn line_path(w: f64) -> SubPath {
     SubPath {
         closed: false,

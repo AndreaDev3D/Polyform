@@ -18,6 +18,8 @@ export function Section({ title, actions, children }: { title: string; actions?:
 
 interface NumberInputProps {
   label?: string
+  /** Tooltip — glyph labels (⟲ ◔ ◎) need words somewhere. */
+  title?: string
   value: number | null
   onCommit: (v: number) => void
   step?: number
@@ -29,7 +31,7 @@ interface NumberInputProps {
 }
 
 /** Figma-style number field: type to set, drag the label to scrub. */
-export function NumberInput({ label, value, onCommit, step = 1, min = -Infinity, max = Infinity, precision = 2, suffix, className }: NumberInputProps) {
+export function NumberInput({ label, title, value, onCommit, step = 1, min = -Infinity, max = Infinity, precision = 2, suffix, className }: NumberInputProps) {
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(false)
   const dragRef = useRef<{ startX: number; startVal: number; active: boolean } | null>(null)
@@ -83,10 +85,11 @@ export function NumberInput({ label, value, onCommit, step = 1, min = -Infinity,
   }
 
   return (
-    <div className={`flex items-center gap-1 ${className ?? ''}`}>
+    <div className={`flex items-center gap-1 ${className ?? ''}`} title={title}>
       {label && (
         <span
           className="text-[10px] text-[var(--pf-text-dim)] w-4 shrink-0 cursor-ew-resize select-none"
+          title={title ? `${title} — drag to scrub` : 'Drag to scrub'}
           onPointerDown={onLabelPointerDown}
         >
           {label}

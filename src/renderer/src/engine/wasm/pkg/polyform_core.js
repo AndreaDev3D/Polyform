@@ -350,6 +350,21 @@ export function applyMat(m, x, y) {
 }
 
 /**
+ * @param {number} w
+ * @param {number} h
+ * @param {number} start
+ * @param {number} sweep
+ * @param {number} ratio
+ * @returns {Float64Array}
+ */
+export function arcPath(w, h, start, sweep, ratio) {
+    const ret = wasm.arcPath(w, h, start, sweep, ratio);
+    var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
+    return v1;
+}
+
+/**
  * data: [childCount, (blobLen, <SubPath blob of blobLen f64s>)*]
  * op: 0 union, 1 subtract, 2 intersect, 3 exclude.
  * Returns a rings blob: [ringCount, (len, (x, y) * len)*].

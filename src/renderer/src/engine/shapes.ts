@@ -80,6 +80,67 @@ export function ellipsePath(w: number, h: number): SubPath {
   }
 }
 
+/**
+ * Arc / pie / ring / donut-segment from an ellipse (Figma's "Arc" fields).
+ *
+ * `start` and `sweep` are turns (0..1 = one full revolution), measured
+ * clockwise from 12 o'clock so the numbers match what the inspector shows
+ * in degrees. `ratio` is the inner radius as a fraction of the outer: 0 is
+ * a solid pie, 0.5 leaves a hole half the size.
+ *
+ * A full sweep with no hole is exactly the plain ellipse, so callers can
+ * always route through here — but the caller checks that case first and
+ * uses `ellipsePath`, keeping byte-identical output for every existing
+ * document (and the parity fixtures with it).
+ */
+export function arcPath(w: number, h: number, start: number, sweep: number, ratio: number): SubPath {
+  const rx = w / 2
+  const ry = h / 2
+  const cx = rx
+  const cy = ry
+  const inner = Math.max(0, Math.min(0.999, ratio))
+  // Clamp to a full turn; a longer sweep would overlap itself.
+  const turns = Math.max(-1, Math.min(1, sweep))
+  const total = turns * Math.PI * 2
+  const from = start * Math.PI * 2 - Math.PI / 2
+
+  // Cubic arc segments, at most a quarter turn each so the Kappa
+  // approximation stays within a fraction of a pixel.
+  const steps = Math.max(1, Math.ceil(Math.abs(total) / (Math.PI / 2)))
+  const step = total / steps
+
+  const onEllipse = (angle: number, k: number): Vec2 =>
+    pt(cx + rx * k * Math.cos(angle), cy + ry * k * Math.sin(angle))
+  /** Tangent handle length for a cubic spanning `d` radians. */
+  const handle = (d: number) => (4 / 3) * Math.tan(d / 4)
+
+  const anchors: Anchor[] = []
+  const walk = (k: number, forward: boolean) => {
+    for (let i = 0; i <= steps; i++) {
+      const t = forward ? i : steps - i
+      const angle = from + step * t
+      const p = onEllipse(angle, k)
+      const hl = handle(step) * (forward ? 1 : -1)
+      // Derivative of the parametric ellipse, scaled to the handle length.
+      const dx = -rx * k * Math.sin(angle) * hl
+      const dy = ry * k * Math.cos(angle) * hl
+      const first = i === 0
+      const last = i === steps
+      anchors.push(anchor(p, first ? null : pt(p.x - dx, p.y - dy), last ? null : pt(p.x + dx, p.y + dy)))
+    }
+  }
+
+  walk(1, true)
+  if (inner > 0) walk(inner, false)
+  else if (Math.abs(turns) < 1) anchors.push(anchor(pt(cx, cy)))
+  return { closed: true, anchors }
+}
+
+/** True when the arc fields still describe a plain, unbroken ellipse. */
+export function isFullEllipse(sweep: number, ratio: number): boolean {
+  return Math.abs(Math.abs(sweep) - 1) < 1e-9 && ratio <= 0
+}
+
 export function linePath(w: number): SubPath {
   return { closed: false, anchors: [anchor(pt(0, 0)), anchor(pt(w, 0))] }
 }
@@ -212,8 +273,11 @@ export function nodeOutline(node: SceneNode): SubPath[] {
     case 'COMPONENT':
     case 'INSTANCE':
       return [roundedRectPath(node.width, node.height, node.cornerRadius)]
-    case 'ELLIPSE':
-      return [ellipsePath(node.width, node.height)]
+    case 'ELLIPSE': {
+      const { arcStart = 0, arcSweep = 1, arcRatio = 0 } = node
+      if (isFullEllipse(arcSweep, arcRatio)) return [ellipsePath(node.width, node.height)]
+      return [arcPath(node.width, node.height, arcStart, arcSweep, arcRatio)]
+    }
     case 'LINE':
       return [linePath(node.width)]
     case 'POLYGON':

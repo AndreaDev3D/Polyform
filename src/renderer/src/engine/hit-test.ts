@@ -16,7 +16,7 @@ import {
   pointInPolygonRings,
   pointInRoundedRect,
 } from './geometry'
-import { flattenSubPath, nodeOutline } from './shapes'
+import { flattenSubPath, isFullEllipse, nodeOutline } from './shapes'
 import { booleanRings } from './booleans'
 
 export interface HitOptions {
@@ -66,6 +66,11 @@ export function preciseHit(scene: SceneGraph, id: NodeId, worldPt: Vec2, tolWorl
       return (nearX <= strokeTol && withinY) || (nearY <= strokeTol && withinX)
     }
     case 'ELLIPSE': {
+      // An arc/pie/ring is not an ellipse: test its real outline, or
+      // clicking the missing wedge would still select the node.
+      if (!isFullEllipse(node.arcSweep ?? 1, node.arcRatio ?? 0)) {
+        return hitOutline(node, p, hasFill, strokeTol, false)
+      }
       const rx = node.width / 2
       const ry = node.height / 2
       if (hasFill && pointInEllipse(p, rx, ry, rx, ry)) return true
@@ -90,19 +95,32 @@ export function preciseHit(scene: SceneGraph, id: NodeId, worldPt: Vec2, tolWorl
     }
     case 'POLYGON':
     case 'STAR':
-    case 'VECTOR': {
-      const subpaths = nodeOutline(node)
-      const closedRings = subpaths.filter((sp) => sp.closed).map((sp) => flattenSubPath(sp, 0.5))
-      const openRings = subpaths.filter((sp) => !sp.closed).map((sp) => flattenSubPath(sp, 0.5))
-      if (hasFill && closedRings.length > 0) {
-        const evenOdd = node.type === 'VECTOR' && node.windingRule === 'EVENODD'
-        if (pointInPolygonRings(p, closedRings, evenOdd)) return true
-      }
-      if (closedRings.length > 0 && ringsMinDist(p, closedRings, true) <= strokeTol) return true
-      if (openRings.length > 0 && ringsMinDist(p, openRings, false) <= strokeTol) return true
-      return false
-    }
+    case 'VECTOR':
+      return hitOutline(
+        node,
+        p,
+        hasFill,
+        strokeTol,
+        node.type === 'VECTOR' && node.windingRule === 'EVENODD',
+      )
   }
+}
+
+/** Fill + stroke proximity against a node's real flattened outline. */
+function hitOutline(
+  node: SceneNode,
+  p: Vec2,
+  hasFill: boolean,
+  strokeTol: number,
+  evenOdd: boolean,
+): boolean {
+  const subpaths = nodeOutline(node)
+  const closedRings = subpaths.filter((sp) => sp.closed).map((sp) => flattenSubPath(sp, 0.5))
+  const openRings = subpaths.filter((sp) => !sp.closed).map((sp) => flattenSubPath(sp, 0.5))
+  if (hasFill && closedRings.length > 0 && pointInPolygonRings(p, closedRings, evenOdd)) return true
+  if (closedRings.length > 0 && ringsMinDist(p, closedRings, true) <= strokeTol) return true
+  if (openRings.length > 0 && ringsMinDist(p, openRings, false) <= strokeTol) return true
+  return false
 }
 
 function eligible(scene: SceneGraph, id: NodeId, opts: HitOptions): boolean {

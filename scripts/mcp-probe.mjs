@@ -283,7 +283,7 @@ try {
   const docCall = await client.callTool({ name: 'get_document', arguments: {} })
   const doc = JSON.parse(docCall.content[0].text)
   if (doc.project !== 'Probe') fail(`expected the live project title, got ${JSON.stringify(doc.project)}`)
-  if (doc.schemaVersion !== 4) fail(`expected schemaVersion 4, got ${doc.schemaVersion}`)
+  if (doc.schemaVersion !== 5) fail(`expected schemaVersion 5, got ${doc.schemaVersion}`)
   const rect = doc.tree.find((n) => n && n.name === 'Probe Rect')
   if (!rect || rect.width !== 300) fail(`live node not visible to the agent: ${JSON.stringify(doc.tree)}`)
   else console.log(`MCP PASS: agent reads the live document (${doc.nodeCount} nodes, saw "${rect.name}" ${rect.width}x${rect.height})`)

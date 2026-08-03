@@ -65,7 +65,7 @@ describe('MODEL3D node type (schema v4)', () => {
     } as unknown as PolyformDocument & { rootIds?: NodeId[] }
     const before = JSON.stringify(v3.nodes)
     const doc = migrateDocument(v3)
-    expect(doc.schemaVersion).toBe(4)
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION)
     expect(JSON.stringify(doc.nodes)).toBe(before)
   })
 

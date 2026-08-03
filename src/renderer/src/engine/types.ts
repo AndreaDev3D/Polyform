@@ -317,6 +317,14 @@ export interface RectangleNode extends BaseNode {
 
 export interface EllipseNode extends BaseNode {
   type: 'ELLIPSE'
+  // --- v5 arc fields (optional so v1..v4 documents stay loadable, and so
+  // an untouched ellipse serializes byte-identically to before) ---
+  /** Sweep start, in turns clockwise from 12 o'clock. Default 0. */
+  arcStart?: number
+  /** Sweep length in turns; 1 is a whole ellipse. Default 1. */
+  arcSweep?: number
+  /** Inner radius as a fraction of the outer, 0..0.999. Default 0. */
+  arcRatio?: number
 }
 
 /** A line runs from local (0,0) to (width,0); height is always 0. */
@@ -441,7 +449,7 @@ export function isContainer(node: SceneNode): node is ContainerNode {
 // ---------------------------------------------------------------------------
 
 /** v4 adds the MODEL3D node type (ADR-020). */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export interface Guide {
   axis: 'x' | 'y'

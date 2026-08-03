@@ -34,6 +34,12 @@ fn f64_of(obj: &Obj, key: &str) -> f64 {
     obj.get(key).and_then(Value::as_f64).unwrap_or(0.0)
 }
 
+/// Absent-vs-zero matters for the arc fields: a missing arcSweep means 1
+/// (a whole ellipse), not 0 (an empty one).
+fn opt_f64(obj: &Obj, key: &str) -> Option<f64> {
+    obj.get(key).and_then(Value::as_f64)
+}
+
 fn str_of<'a>(obj: &'a Obj, key: &str) -> &'a str {
     obj.get(key).and_then(Value::as_str).unwrap_or("")
 }
@@ -79,7 +85,19 @@ pub fn node_outline(node: &Obj) -> Vec<SubPath> {
             let r = corner_radius(node);
             vec![rounded_rect_path(w, h, r.tl, r.tr, r.br, r.bl)]
         }
-        "ELLIPSE" => vec![ellipse_path(w, h)],
+        "ELLIPSE" => {
+            // v5 arc fields; absent means a plain ellipse, and the plain
+            // path must be returned verbatim so existing documents keep
+            // byte-identical geometry.
+            let start = opt_f64(node, "arcStart").unwrap_or(0.0);
+            let sweep = opt_f64(node, "arcSweep").unwrap_or(1.0);
+            let ratio = opt_f64(node, "arcRatio").unwrap_or(0.0);
+            if crate::shapes::is_full_ellipse(sweep, ratio) {
+                vec![ellipse_path(w, h)]
+            } else {
+                vec![crate::shapes::arc_path(w, h, start, sweep, ratio)]
+            }
+        }
         "LINE" => vec![line_path(w)],
         "POLYGON" => vec![polygon_path(w, h, f64_of(node, "pointCount"))],
         "STAR" => vec![star_path(w, h, f64_of(node, "pointCount"), f64_of(node, "innerRatio"))],

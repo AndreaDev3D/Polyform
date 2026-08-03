@@ -54,6 +54,8 @@ export function aabbOfPoints(pts: Float64Array): Float64Array;
 
 export function applyMat(m: Float64Array, x: number, y: number): Float64Array;
 
+export function arcPath(w: number, h: number, start: number, sweep: number, ratio: number): Float64Array;
+
 /**
  * data: [childCount, (blobLen, <SubPath blob of blobLen f64s>)*]
  * op: 0 union, 1 subtract, 2 intersect, 3 exclude.
@@ -161,6 +163,7 @@ export interface InitOutput {
     readonly __wbg_tessmesh_free: (a: number, b: number) => void;
     readonly aabbOfPoints: (a: number, b: number) => [number, number];
     readonly applyMat: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly arcPath: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly colorHexToRgba: (a: number, b: number, c: number) => [number, number];
     readonly colorHsvToRgb: (a: number, b: number, c: number) => [number, number];

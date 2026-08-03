@@ -29,6 +29,7 @@ import {
   type Mat,
 } from './geometry'
 import {
+  arcPath,
   ellipsePath,
   flattenSubPath,
   linePath,
@@ -366,6 +367,24 @@ describe('shapes parity (TS <-> WASM)', () => {
         decodeSubPaths(w.starPath(wd, ht, points, inner)),
         [starPath(wd, ht, points, inner)],
         'starPath',
+        close,
+      )
+    }
+  })
+
+  it('arc/pie/ring outlines within transcendental tolerance', () => {
+    const w = wasmHandle()
+    for (let i = 0; i < N; i++) {
+      const [wd, ht] = [range(0, 400), range(0, 400)]
+      // Deliberately include out-of-range inputs — both sides must clamp
+      // identically, not just agree on the happy path.
+      const start = range(-1.5, 1.5)
+      const sweep = range(-1.4, 1.4)
+      const ratio = range(-0.3, 1.3)
+      samePaths(
+        decodeSubPaths(w.arcPath(wd, ht, start, sweep, ratio)),
+        [arcPath(wd, ht, start, sweep, ratio)],
+        'arcPath',
         close,
       )
     }

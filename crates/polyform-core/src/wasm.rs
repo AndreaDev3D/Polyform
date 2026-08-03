@@ -209,6 +209,11 @@ pub fn ellipse_path(w: f64, h: f64) -> Vec<f64> {
     encode_sub_paths(&[s::ellipse_path(w, h)])
 }
 
+#[wasm_bindgen(js_name = arcPath)]
+pub fn arc_path(w: f64, h: f64, start: f64, sweep: f64, ratio: f64) -> Vec<f64> {
+    encode_sub_paths(&[s::arc_path(w, h, start, sweep, ratio)])
+}
+
 #[wasm_bindgen(js_name = linePath)]
 pub fn line_path(w: f64) -> Vec<f64> {
     encode_sub_paths(&[s::line_path(w)])

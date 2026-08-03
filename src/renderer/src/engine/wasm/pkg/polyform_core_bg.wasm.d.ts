@@ -6,6 +6,7 @@ export const __wbg_spatialindex_free: (a: number, b: number) => void;
 export const __wbg_tessmesh_free: (a: number, b: number) => void;
 export const aabbOfPoints: (a: number, b: number) => [number, number];
 export const applyMat: (a: number, b: number, c: number, d: number) => [number, number];
+export const arcPath: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const booleanOp: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const colorHexToRgba: (a: number, b: number, c: number) => [number, number];
 export const colorHsvToRgb: (a: number, b: number, c: number) => [number, number];
