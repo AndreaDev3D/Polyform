@@ -11,3 +11,8 @@ Thumbs.db
 coverage/
 *.poly/
 !fixtures/**/*.poly/
+
+# ui-ux-pro-max design skill (8MB of vendored CSV tooling, reinstallable
+# from github.com/nextlevelbuilder/ui-ux-pro-max-skill). The design system
+# it GENERATES is committed; the tool itself is not.
+.claude/skills/
