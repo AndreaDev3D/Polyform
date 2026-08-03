@@ -1,7 +1,13 @@
 // Layers panel: tree view with selection, rename, hide/lock, and pointer-based
-// drag to reorder or reparent (drop line above/below, highlight to nest).
+// drag to reorder or reparent.
+//
+// A drag answers three questions and each gets its own signal: what am I
+// carrying (a chip on the cursor), where will it land (an insertion line
+// indented to the target level, or a ring around the container it nests into),
+// and where did it come from (the source rows fade). Refusals say why on the
+// chip instead of going quiet. The rules themselves live in engine/layer-drop.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NodeId, SceneNode } from '../engine/types'
 import { isContainer } from '../engine/types'
 import { documentStore, useDocVersion } from '../state/document'
@@ -30,8 +36,13 @@ import {
   InstanceIcon,
   PlusIcon,
 } from './icons'
-import { isInsideInstance } from '../engine/hit-test'
+import type { DropTarget } from '../engine/layer-drop'
+import { dropAtEnd, dropOnRow, instanceRefusal } from '../engine/layer-drop'
 import { AssetsPanel } from './AssetsPanel'
+
+/** Row indent, in px per level — shared by the rows and the drop line. */
+const INDENT = 14
+const INDENT_BASE = 6
 
 function PagesSection() {
   useDocVersion()
@@ -131,7 +142,13 @@ function typeIcon(node: SceneNode) {
 interface DragState {
   ids: NodeId[]
   /** Current drop target. */
-  target: { parentId: NodeId | null; index: number; nestInto: NodeId | null } | null
+  target: DropTarget | null
+  /** Where to draw the insertion line: an edge of one visible row. */
+  line: { rowId: NodeId; side: 'top' | 'bottom'; depth: number } | null
+  /** Why this position refuses the drop, shown on the cursor. */
+  refuse: string | null
+  /** Cursor position, so the dragged layers can ride along with it. */
+  pointer: { x: number; y: number }
   startedAt: { x: number; y: number }
   active: boolean
   /** Kept so capture can be taken later, when the gesture becomes a drag. */
@@ -177,18 +194,34 @@ export function LayersPanel() {
 
   // Flattened rows, topmost layer first (reverse z within each level).
   const rows: RowInfo[] = []
+  const depthOf = new Map<NodeId, number>()
   const pushRows = (ids: NodeId[], depth: number) => {
     for (let i = ids.length - 1; i >= 0; i--) {
       const id = ids[i]
       const node = scene.getNode(id)
       if (!node) continue
       rows.push({ id, depth })
+      depthOf.set(id, depth)
       if (isContainer(node) && !collapsed.has(id)) {
         pushRows(node.children, depth + 1)
       }
     }
   }
   pushRows(scene.rootIds(), 0)
+
+  // Escape abandons a drag, the same way it backs out of a canvas gesture.
+  // Capture phase, so the global shortcut handler doesn't also clear the
+  // selection on the way past.
+  useEffect(() => {
+    if (!drag?.active) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setDrag(null)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [drag?.active])
 
   const toggleCollapse = (id: NodeId) => {
     setCollapsed((prev) => {
@@ -224,7 +257,16 @@ export function LayersPanel() {
     // row, so a click on the caret never reached the caret (it selected the
     // row instead) and the second click became a rename. Capture starts in
     // dragMove, once the gesture is actually a drag.
-    setDrag({ ids, target: null, startedAt: { x: e.clientX, y: e.clientY }, active: false, pointerId: e.pointerId })
+    setDrag({
+      ids,
+      target: null,
+      line: null,
+      refuse: null,
+      pointer: { x: e.clientX, y: e.clientY },
+      startedAt: { x: e.clientX, y: e.clientY },
+      active: false,
+      pointerId: e.pointerId,
+    })
   }
 
   const dragMove = (e: React.PointerEvent) => {
@@ -245,42 +287,41 @@ export function LayersPanel() {
     const list = listRef.current
     if (!list) return
     const rowEls = Array.from(list.querySelectorAll<HTMLElement>('[data-layer-row]'))
-    let target: DragState['target'] = null
+    let placement = { target: null as DropTarget | null, side: null as 'top' | 'bottom' | null, refuse: null as string | null }
+    let overId: NodeId | null = null
     for (const el of rowEls) {
       const rect = el.getBoundingClientRect()
       if (e.clientY < rect.top || e.clientY > rect.bottom) continue
-      const overId = el.dataset.layerRow as NodeId
-      if (drag.ids.includes(overId)) break
-      const node = scene.getNode(overId)
-      if (!node) break
-      // Refuse dropping into own descendant.
-      if (drag.ids.some((d) => scene.isAncestorOf(d, overId) || d === overId)) break
-      const ratio = (e.clientY - rect.top) / rect.height
-      if (isContainer(node) && ratio > 0.3 && ratio < 0.7) {
-        target = { parentId: overId, index: node.children.length, nestInto: overId }
-      } else {
-        const parentId = scene.parentOf(overId)
-        const siblings = scene.childListOf(parentId)
-        const overIndex = siblings.indexOf(overId)
-        // Panel shows reverse z-order: "above" visually = higher z = after in list.
-        const index = ratio <= 0.5 ? overIndex + 1 : overIndex
-        target = { parentId, index, nestInto: null }
-      }
+      overId = el.dataset.layerRow as NodeId
+      placement = dropOnRow(scene, drag.ids, overId, (e.clientY - rect.top) / rect.height)
       break
     }
-    setDrag({ ...drag, active: true, target })
+    // Past the last row, in the empty space below the tree.
+    const lastRow = rowEls[rowEls.length - 1]
+    if (!overId && lastRow && e.clientY > lastRow.getBoundingClientRect().bottom) {
+      placement = dropAtEnd(scene, drag.ids)
+      overId = rows[rows.length - 1].id
+    }
+
+    const line =
+      placement.target && placement.side && overId
+        ? {
+            rowId: overId,
+            side: placement.side,
+            // At the end of the list the line marks root level, wherever the
+            // last row happens to sit in the tree.
+            depth: placement.target.parentId === scene.activePage.id ? 0 : (depthOf.get(overId) ?? 0),
+          }
+        : null
+    setDrag({ ...drag, active: true, target: placement.target, line, refuse: placement.refuse, pointer: { x: e.clientX, y: e.clientY } })
   }
 
   const endDrag = () => {
     if (drag?.active && drag.target) {
-      // Structural moves in/out of instances are locked.
-      const blocked =
-        drag.ids.some((id) => isInsideInstance(scene, id)) ||
-        (drag.target.parentId !== null &&
-          !scene.isPage(drag.target.parentId) &&
-          (scene.getNode(drag.target.parentId)?.type === 'INSTANCE' ||
-            isInsideInstance(scene, drag.target.parentId)))
-      if (blocked) {
+      // Structural moves in/out of instances are locked. Already reflected on
+      // the cursor while dragging; re-checked because the tree could have
+      // changed under a long drag.
+      if (instanceRefusal(scene, drag.ids, drag.target.parentId)) {
         setDrag(null)
         return
       }
@@ -338,7 +379,18 @@ export function LayersPanel() {
     <div className="w-64 shrink-0 flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]">
       <PagesSection />
       <LeftTabs />
-      <div ref={listRef} className="flex-1 overflow-y-auto py-1" onPointerUp={endDrag}>
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto py-1"
+        // Tracked here rather than per row: moves over the empty space below
+        // the tree have to count too, and a row-only handler made that depend
+        // on pointer capture having been granted.
+        onPointerMove={dragMove}
+        onPointerUp={endDrag}
+        // A pointer lost to the OS (window switch, touch cancel) would
+        // otherwise leave the drag — and now its cursor chip — stuck on screen.
+        onPointerCancel={() => setDrag(null)}
+      >
         {rows.length === 0 && (
           <div className="px-3 py-4 text-[11px] text-[var(--pf-text-dim)]">
             Draw something on the canvas to get started — R for rectangle, F for frame.
@@ -349,15 +401,21 @@ export function LayersPanel() {
           if (!node) return null
           const selected = selection.includes(id)
           const isDropInto = drag?.target?.nestInto === id
+          const isSource = drag?.active === true && drag.ids.includes(id)
+          const line = drag?.line?.rowId === id ? drag.line : null
           const container = isContainer(node)
           return (
             <div
               key={id}
               data-layer-row={id}
-              className={`group relative flex items-center gap-1 pr-2 h-7 cursor-default ${
-                selected ? 'bg-[rgba(79,158,255,0.22)]' : isDropInto ? 'bg-[rgba(79,158,255,0.12)]' : 'hover:bg-[var(--pf-bg-2)]'
+              className={`group relative flex items-center gap-1 pr-2 h-7 ${
+                drag?.active ? 'cursor-grabbing' : 'cursor-default'
+              } ${
+                isDropInto ? 'pf-drop-into' : selected ? 'bg-[rgba(79,158,255,0.22)]' : 'hover:bg-[var(--pf-bg-2)]'
               } ${node.visible ? '' : 'opacity-45'}`}
-              style={{ paddingLeft: 6 + depth * 14 }}
+              // The rows being carried fade, so the tree reads as "these are
+              // leaving". Inline, because it has to beat the utility above.
+              style={{ paddingLeft: INDENT_BASE + depth * INDENT, ...(isSource ? { opacity: 0.4 } : null) }}
               onClick={(e) => rowClick(e, id)}
               // Same menu as right-clicking the object on canvas: one command
               // set, reached from wherever the layer is in front of you.
@@ -370,8 +428,18 @@ export function LayersPanel() {
                 editor.set({ contextMenu: { x: e.clientX, y: e.clientY } })
               }}
               onPointerDown={(e) => beginDrag(e, id)}
-              onPointerMove={dragMove}
             >
+              {/* Insertion marker: indented to the level the layers will land
+                  at, so a drop that also changes nesting says so. */}
+              {line && (
+                <div
+                  className="pf-drop-line"
+                  style={{
+                    left: INDENT_BASE + line.depth * INDENT,
+                    ...(line.side === 'top' ? { top: -1 } : { bottom: -1 }),
+                  }}
+                />
+              )}
               <span
                 className="w-4 h-4 flex items-center justify-center text-[var(--pf-text-dim)]"
                 title={container ? (collapsed.has(id) ? 'Expand' : 'Collapse') : undefined}
@@ -429,7 +497,10 @@ export function LayersPanel() {
                   {node.name}
                 </span>
               )}
-              <span className="hidden group-hover:flex items-center gap-0.5">
+              {/* Hidden mid-drag: pointer capture keeps :hover on the row the
+                  gesture started from, so these lit up on the layer being
+                  carried — where they are not clickable anyway. */}
+              <span className={`${drag?.active ? 'hidden' : 'hidden group-hover:flex'} items-center gap-0.5`}>
                 <button
                   className="w-5 h-5 flex items-center justify-center text-[var(--pf-text-dim)] hover:text-white"
                   title={node.locked ? 'Unlock' : 'Lock'}
@@ -466,6 +537,45 @@ export function LayersPanel() {
           )
         })}
       </div>
+      {drag?.active && <DragChip drag={drag} />}
+    </div>
+  )
+}
+
+/**
+ * What you are dragging, riding the cursor — and, when the drop would nest or
+ * is refused, where it is going. Fixed-positioned so it escapes the list's
+ * scroll clipping, and pointer-transparent so it never becomes the drop target.
+ */
+function DragChip({ drag }: { drag: DragState }) {
+  const scene = documentStore.scene
+  const first = scene.getNode(drag.ids[0])
+  const nestName = drag.target?.nestInto ? scene.getNode(drag.target.nestInto)?.name : null
+  const label = drag.ids.length > 1 ? `${drag.ids.length} layers` : (first?.name ?? 'Layer')
+  const note = drag.refuse ?? (nestName ? `into ${nestName}` : null)
+
+  // Flips to the other side of the cursor near the right edge; the pointer is
+  // captured, so a drag can be taken anywhere on screen, chip and all.
+  const flip = drag.pointer.x > window.innerWidth - 280
+  const x = flip ? `calc(${drag.pointer.x - 12}px - 100%)` : `${drag.pointer.x + 12}px`
+
+  return (
+    <div className="pf-drag-chip" style={{ transform: `translate3d(${x}, ${drag.pointer.y + 8}px, 0)` }}>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="text-[var(--pf-text-dim)] shrink-0">{first && typeIcon(first)}</span>
+        <span className="truncate">{label}</span>
+      </div>
+      {/* Its own line: a layer name and a refusal both want the full width,
+          and on one line the sentence squeezed the name out of existence. */}
+      {note && (
+        <div
+          className={`pl-[18px] text-[10px] truncate ${
+            drag.refuse ? 'text-[var(--pf-danger)]' : 'text-[var(--pf-accent)]'
+          }`}
+        >
+          {note}
+        </div>
+      )}
     </div>
   )
 }

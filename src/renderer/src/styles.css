@@ -20,6 +20,9 @@
   --pf-accent: #4f9eff;
   --pf-accent-solid: #1f6fdb;
   --pf-accent-solid-hover: #2c7be5;
+  /* Refusals and errors as foreground text: 4.91:1 on bg-2, passes AA. Was
+   * only ever an inline fallback in the Inspector; now it has a home. */
+  --pf-danger: #ee6666;
 
   /* One elevation scale, so floating things agree on how high they are. */
   --pf-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -370,6 +373,54 @@ textarea {
 }
 .pf-project-card:hover .pf-thumb-fit {
   transform: scale(1.03);
+}
+
+/* --- Layers panel drag & drop feedback ---------------------------------- *
+ * Three separate signals, because a drag answers three questions: what am I
+ * carrying (the chip on the cursor), where will it land (the line, or the ring
+ * for a nest), and where did it come from (the faded source rows). */
+
+.pf-drop-line {
+  position: absolute;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--pf-accent);
+  pointer-events: none;
+  z-index: 1;
+}
+/* A knob at the head of the line: the eye finds a dot faster than a hairline,
+ * and its position doubles as the indent readout. */
+.pf-drop-line::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pf-accent);
+}
+
+/* Nesting has no insertion point to draw, so the container itself lights up. */
+.pf-drop-into {
+  background: rgba(79, 158, 255, 0.16);
+  box-shadow: inset 0 0 0 1px var(--pf-accent);
+}
+
+.pf-drag-chip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  pointer-events: none;
+  max-width: 16rem;
+  padding: 3px 8px 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--pf-text);
+  background: var(--pf-bg-2);
+  box-shadow: var(--pf-shadow-2), inset 0 0 0 1px var(--pf-border-soft);
 }
 
 .pf-section {
