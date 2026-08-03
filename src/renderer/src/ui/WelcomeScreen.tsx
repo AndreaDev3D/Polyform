@@ -24,7 +24,7 @@ export function WelcomeScreen() {
 
         <div className="flex gap-3 mb-10">
           <button
-            className="px-4 py-2.5 rounded-md bg-[var(--pf-accent)] text-white text-sm font-medium hover:opacity-90"
+            className="px-4 py-2.5 rounded-md bg-[var(--pf-accent-solid)] text-white text-sm font-medium hover:bg-[var(--pf-accent-solid-hover)]"
             onClick={() => void newProjectFlow()}
           >
             New Project…

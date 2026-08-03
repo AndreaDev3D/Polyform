@@ -61,7 +61,7 @@ export function TopBar() {
       </div>
 
       <button
-        className="pf-btn h-7 px-3 bg-[var(--pf-accent)] text-white font-medium hover:brightness-110"
+        className="pf-btn h-7 px-3 bg-[var(--pf-accent-solid)] text-white font-medium hover:bg-[var(--pf-accent-solid-hover)]"
         onClick={() => void saveFlow()}
         title="Save — Ctrl+S"
       >

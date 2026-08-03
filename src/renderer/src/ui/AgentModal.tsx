@@ -153,10 +153,10 @@ export function AgentModal() {
 
         <div className="flex-1 overflow-y-auto">
           <div className="px-4 py-3 text-[11px] text-[var(--pf-text-dim)] leading-relaxed border-b border-[var(--pf-border)]">
-            Lets an AI agent on <span className="text-[var(--pf-text)]">this machine</span> read the
-            document you have open, over a local connection that only this computer can reach.
-            Nothing is uploaded, and no agent can change your document — the write surface does not
-            exist yet. You can revoke any capability below while an agent is connected.
+            Lets an AI agent on <span className="text-[var(--pf-text)]">this machine</span> work on
+            the document you have open, over a local connection that only this computer can reach.
+            Nothing is uploaded. Reading is granted per capability below; changing the document is a
+            separate grant that starts off. You can revoke any of it while an agent is connected.
           </div>
 
           <div className="px-4 py-3 border-b border-[var(--pf-border)]">
@@ -295,7 +295,7 @@ export function AgentModal() {
             </button>
           ) : (
             <button
-              className="pf-btn bg-[var(--pf-accent)] text-white"
+              className="pf-btn bg-[var(--pf-accent-solid)] text-white"
               disabled={busy}
               onClick={() => run(() => startAgentServer())}
             >

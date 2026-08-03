@@ -11,8 +11,15 @@
   --pf-border-soft: rgba(255, 255, 255, 0.09);
   --pf-text: #e6e6e6;
   --pf-text-dim: #9a9a9a;
+  /* TWO accent tokens, because one cannot do both jobs on a dark UI:
+   * --pf-accent is the accent as FOREGROUND (text, borders, focus rings) —
+   *   6.55:1 on bg-0, passes AA.
+   * --pf-accent-solid is the accent as a SURFACE carrying white text —
+   *   white on it is 4.82:1, passes AA. White on #4f9eff is only 2.74:1,
+   *   which is what the Save button and every active tool used to be. */
   --pf-accent: #4f9eff;
-  --pf-accent-dim: #2f6dbf;
+  --pf-accent-solid: #1f6fdb;
+  --pf-accent-solid-hover: #2c7be5;
 
   /* One elevation scale, so floating things agree on how high they are. */
   --pf-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -126,8 +133,11 @@ textarea {
   background: var(--pf-bg-3);
 }
 .pf-tool-btn.active {
-  background: var(--pf-accent);
+  background: var(--pf-accent-solid);
   color: #fff;
+}
+.pf-tool-btn.active:hover {
+  background: var(--pf-accent-solid-hover);
 }
 .pf-tool-btn:disabled {
   opacity: 0.35;
@@ -215,7 +225,7 @@ textarea {
   color: var(--pf-text);
 }
 .pf-icon-btn.active {
-  background: var(--pf-accent);
+  background: var(--pf-accent-solid);
   color: #fff;
 }
 

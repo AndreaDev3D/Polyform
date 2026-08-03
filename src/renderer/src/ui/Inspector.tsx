@@ -1453,7 +1453,7 @@ function TextEditor({
         />
         <NumberInput value={common((n) => (n as TextNode).fontSize)} min={1} onCommit={(v) => commit(() => ({ fontSize: v }), 'Set Font Size')} />
         <button
-          className={`pf-btn italic ${node.italic ? 'bg-[var(--pf-accent)] text-white' : 'bg-[#2a2a2a]'}`}
+          className={`pf-btn italic ${node.italic ? 'bg-[var(--pf-accent-solid)] text-white' : 'bg-[#2a2a2a]'}`}
           onClick={() => commit((n) => ({ italic: !(n as TextNode).italic }), 'Toggle Italic')}
         >
           I

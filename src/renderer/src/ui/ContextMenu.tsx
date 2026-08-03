@@ -94,7 +94,7 @@ export function ContextMenu() {
       {items.map((item, i) => (
         <div key={i}>
           <button
-            className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-left hover:bg-[var(--pf-accent)] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
+            className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-left hover:bg-[var(--pf-accent-solid)] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent"
             disabled={item.disabled}
             onClick={() => {
               setContextMenu(null)
