@@ -559,6 +559,48 @@ try {
     console.log('MCP PASS: agent commit visible in the change feed')
   }
 
+  // --- svg import: markup in, editable VECTOR geometry out ----------------
+  // A ring: an outer square with an inner square subtracted via fill-rule.
+  // Proves three things at once — the path grammar parses, the hole is a real
+  // winding rule (not a shape painted in the background colour), and what
+  // lands is a VECTOR the user can edit, not a picture.
+  const RING_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+    '<path fill="#22E4D4" fill-rule="evenodd" d="M0 0 H100 V100 H0 Z M25 25 H75 V75 H25 Z"/>' +
+    '</svg>'
+  const svgRes = await client.callTool({
+    name: 'import_svg',
+    arguments: { svg: RING_SVG, x: 1100, y: 40, label: 'Ring' },
+  })
+  if (svgRes.isError) {
+    fail(`import_svg failed: ${svgRes.content.map((c) => c.text).join(' ')}`)
+  } else {
+    const info = JSON.parse(svgRes.content.find((c) => c.type === 'text').text)
+    const ringId = info.created?.[0]
+    const node = ringId ? await client.callTool({ name: 'get_node', arguments: { id: ringId } }) : null
+    const detail = node && !node.isError ? JSON.parse(node.content[0].text).node : null
+    if (!ringId || detail?.type !== 'VECTOR') {
+      fail(`import_svg did not create a VECTOR: ${JSON.stringify(info)} / ${JSON.stringify(detail?.type)}`)
+    } else if (info.committed !== 'Agent: Ring') {
+      fail(`import_svg attribution wrong: ${JSON.stringify(info.committed)}`)
+    } else {
+      console.log(`MCP PASS: import_svg created editable ${detail.type} geometry, attributed "${info.committed}"`)
+    }
+    if (ringId) {
+      const shot = await client.callTool({ name: 'get_node_image', arguments: { id: ringId } })
+      const png = decodePng(Buffer.from(shot.content.find((c) => c.type === 'image').data, 'base64'))
+      // The centre must NOT be the fill colour — that is the hole.
+      const mid = png.hex(Math.floor(png.width / 2), Math.floor(png.height / 2))
+      if (!png.colors.has('#22E4D4')) {
+        fail(`imported svg does not render its fill (saw ${[...png.colors].slice(0, 4).join(', ')})`)
+      } else if (mid === '#22E4D4') {
+        fail('fill-rule hole did not punch through — centre is filled')
+      } else {
+        console.log('MCP PASS: fill-rule="evenodd" hole renders as a real hole')
+      }
+    }
+  }
+
   // --- image import: bytes in, pixels on the canvas -----------------------
   // A 6x6 solid #FF4E00 PNG, generated once and inlined.
   const ORANGE_PNG =

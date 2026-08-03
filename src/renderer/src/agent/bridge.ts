@@ -323,6 +323,13 @@ const HANDLERS: Record<string, (params: Record<string, unknown>) => unknown | Pr
     return importImageAsset(params.base64, params.ext)
   },
 
+  'svg.import': async (params) => {
+    const { importSvgMarkup } = await import('./writes')
+    const result = importSvgMarkup(params.svg, params.parentId, params.x, params.y, params.label)
+    await persistIfCli()
+    return result
+  },
+
   'bg.remove': async (params) => {
     const { removeBackgroundForAgent } = await import('./writes')
     const result = await removeBackgroundForAgent(params.id, params.fillIndex)

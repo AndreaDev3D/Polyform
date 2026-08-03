@@ -364,6 +364,48 @@ function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
     ),
   })
 
+  // The escape hatch from edit_document's primitive vocabulary: anything
+  // genuinely vector — a faceted logo, an icon, a traced outline — is
+  // expressible as SVG and lands as editable VECTOR nodes.
+  tools.set('import_svg', {
+    cap: 'edit',
+    tool: server.registerTool(
+      'import_svg',
+      {
+        title: 'Import SVG markup',
+        description:
+          'Insert SVG markup you author as real editable Polyform nodes, through the same ' +
+          'importer as File → Import SVG. Use this whenever the shape cannot be built from ' +
+          "edit_document's primitives — arbitrary outlines, faceted or traced geometry, " +
+          'multi-subpath shapes with holes (fill-rule="evenodd"). Supports the full path ' +
+          'grammar, transforms, rect/circle/ellipse/line/polygon/polyline/path/text and ' +
+          'groups. NOT supported: gradient and pattern paint servers via url() — they land ' +
+          'grey, so set gradient fills afterwards with edit_document. One call is one undo ' +
+          'entry. Returns the created root ids and any importer warnings.',
+        inputSchema: {
+          svg: z.string().min(8).describe('A complete <svg>…</svg> document'),
+          parentId: z
+            .string()
+            .optional()
+            .describe('Container to insert into (a FRAME, GROUP or COMPONENT); omitted = page root'),
+          x: z.number().optional().describe("Where the viewBox origin lands, in the parent's coordinates (default 0)"),
+          y: z.number().optional(),
+          label: z.string().max(60).optional().describe('Undo-entry name; prefixed "Agent:"'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      guarded('edit', (args: { svg: string; parentId?: string; x?: number; y?: number; label?: string }) =>
+        query('svg.import', {
+          svg: args.svg,
+          parentId: args.parentId,
+          x: args.x,
+          y: args.y,
+          label: args.label,
+        }),
+      ),
+    ),
+  })
+
   tools.set('remove_background', {
     cap: 'edit',
     tool: server.registerTool(

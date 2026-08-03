@@ -15,8 +15,10 @@ import { OpRecorder } from '../state/actions'
 import { documentStore } from '../state/document'
 import { isInsideInstance } from '../engine/hit-test'
 import { hexToRgba, rgbaToHex } from '../engine/color'
+import { importSvgDocument } from '../engine/import/svg-import'
 import {
   createNode,
+  isContainer,
   uniformRadius,
   type GradientPaint,
   type NodeId,
@@ -416,6 +418,103 @@ export async function removeBackgroundForAgent(rawId: unknown, rawFillIndex: unk
     committed: 'Agent: Remove Background',
     cursor: documentStore.history.entriesApplied().length,
   }
+}
+
+/** Ceiling for one pasted SVG document (generous; these are text). */
+const MAX_SVG_CHARS = 512 * 1024
+
+/**
+ * Insert an SVG document the agent authored as real editable nodes.
+ *
+ * The write ops in `edit_document` can only make the primitives the toolbar
+ * makes — there is no way to express an arbitrary faceted outline through
+ * them, so anything genuinely vector had to be approximated with rectangles
+ * and ellipses. This routes agent-supplied markup through the SAME importer
+ * File → Import SVG uses (full path grammar, transforms, fill-rule holes),
+ * so what lands is ordinary VECTOR geometry the user can edit by hand.
+ *
+ * Like importImageAsset this takes content, never a path: the app does not
+ * read the agent's filesystem.
+ */
+export function importSvgMarkup(
+  rawSvg: unknown,
+  rawParentId: unknown,
+  rawX: unknown,
+  rawY: unknown,
+  rawLabel: unknown,
+): unknown {
+  const svg = String(rawSvg ?? '')
+  if (!svg.trim()) throw new Error('svg markup is required')
+  if (svg.length > MAX_SVG_CHARS) {
+    throw new Error(`svg too large (${svg.length} chars > ${MAX_SVG_CHARS})`)
+  }
+  const label = String(rawLabel ?? '').trim().slice(0, 60) || 'Import SVG'
+  const scene = documentStore.scene
+
+  let parentId: NodeId | null = null
+  if (rawParentId != null && String(rawParentId) !== '') {
+    parentId = String(rawParentId)
+    const parent = scene.getNode(parentId)
+    if (!parent) throw new Error(`no node with id ${JSON.stringify(parentId)}`)
+    if (!isContainer(parent)) {
+      throw new Error(`node ${JSON.stringify(parent.name)} is a ${parent.type}, which cannot hold children`)
+    }
+  }
+
+  const result = importSvgDocument(svg, 'agent.svg')
+  if (!result || result.bundle.rootIds.length === 0) {
+    throw new Error('nothing importable in that markup — no shapes were produced')
+  }
+
+  // Place the viewBox origin at (x, y) in the parent's own coordinates, so an
+  // agent that authored a 0..N viewBox gets exactly the layout it drew.
+  const x = Number.isFinite(Number(rawX)) ? Number(rawX) : 0
+  const y = Number.isFinite(Number(rawY)) ? Number(rawY) : 0
+  const dx = x - result.viewBox.x
+  const dy = y - result.viewBox.y
+
+  const rec = new OpRecorder()
+  const created: string[] = []
+  try {
+    for (const rid of result.bundle.rootIds) {
+      const node = result.bundle.nodes[rid]
+      if (!node) continue
+      node.x += dx
+      node.y += dy
+      addBundleSubtree(rec, result.bundle.nodes, node, parentId, scene.childListOf(parentId).length)
+      created.push(node.id)
+    }
+  } catch (err) {
+    rec.rollback()
+    throw err
+  }
+  rec.commit(`Agent: ${label}`)
+
+  return {
+    created,
+    nodes: created.length,
+    viewBox: result.viewBox,
+    warnings: result.warnings.slice(0, 12),
+    committed: `Agent: ${label}`,
+    cursor: documentStore.history.entriesApplied().length,
+  }
+}
+
+/** Depth-first insert of an imported bundle: parents before their children. */
+function addBundleSubtree(
+  rec: OpRecorder,
+  nodes: Record<string, SceneNode>,
+  node: SceneNode,
+  parentId: NodeId | null,
+  index: number,
+): void {
+  const childIds = isContainer(node) ? [...node.children] : []
+  if (isContainer(node)) node.children = []
+  rec.add(node, parentId, index)
+  childIds.forEach((cid, i) => {
+    const child = nodes[cid]
+    if (child) addBundleSubtree(rec, nodes, child, node.id, i)
+  })
 }
 
 // Re-export for the bridge's colour rendering of created nodes.

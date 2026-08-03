@@ -178,13 +178,14 @@ try {
     'get_selection',
     'get_view_image',
     'import_image',
+    'import_svg',
     'poll_changes',
     'remove_background',
   ]
   if (JSON.stringify(names) !== JSON.stringify(expected)) {
     fail(`serve tool list wrong: ${JSON.stringify(names)}`)
   } else {
-    pass('all 9 tools available over stdio — edit included without a grant dance')
+    pass('all 10 tools available over stdio — edit included without a grant dance')
   }
 
   const edited = await client.callTool({
