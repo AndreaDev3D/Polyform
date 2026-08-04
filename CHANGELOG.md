@@ -12,6 +12,7 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **The divider under the title bar stopped dead where the window buttons begin.** The OS paints its minimise/maximise/close overlay over the *whole* titlebar height it reports, not just the glyphs — and a CSS `border-b` lives inside that height, so the last 136 px of the line were behind the controls. The divider is now its own 1 px row below the bar, outside the overlay, and runs edge to edge. (Verified by capturing the real window off the desktop: a page screenshot can't see this, because the OS buttons aren't in it.)
 - **Hovering a handle usually didn't change the cursor at all** (F-23). The cursor was written inside the canvas's dirty-gated repaint, but the cursor depends on where the *pointer* is, which changes nothing in the document or the editor store — so moving onto a resize handle or a rotate zone produced no repaint and therefore no cursor change. You got feedback only when a repaint happened to be triggered by something else, which made it feel intermittent rather than broken; combined with rotate zones that draw nothing, it is most of why rotating felt like guesswork. Now written every frame, outside the gate, diffed so it is still one DOM write per real change. Covered by a new `npm run test:e2e` check, verified to fail without the fix.
 
 ## 0.6.0 — "Agent Connectivity" — 2026-08-04

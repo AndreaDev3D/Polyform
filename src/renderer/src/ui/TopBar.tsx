@@ -60,30 +60,40 @@ export function TopBar() {
   const isMac = window.polyform.platform === 'darwin'
 
   return (
-    <div
-      className="pf-drag flex items-center gap-2 bg-[var(--pf-bg-0)] border-b border-[var(--pf-border)] shrink-0"
-      // Height comes from the OS so the native buttons sit exactly inside this
-      // row. Left padding clears macOS traffic lights; right padding clears
-      // the Windows/Linux control buttons.
-      style={{ height, paddingLeft: isMac ? 78 : 8, paddingRight: inset + 8 }}
-    >
-      <PolyformMark size={16} className="pf-nodrag shrink-0" />
+    <>
+      <div
+        className="pf-drag flex items-center gap-2 bg-[var(--pf-bg-0)] shrink-0"
+        // Height comes from the OS so the native buttons sit exactly inside this
+        // row. Left padding clears macOS traffic lights; right padding clears
+        // the Windows/Linux control buttons.
+        style={{ height, paddingLeft: isMac ? 78 : 8, paddingRight: inset + 8 }}
+      >
+        <PolyformMark size={16} className="pf-nodrag shrink-0" />
 
-      {/* macOS puts the menu in the system bar, so drawing one here would be a
-          duplicate; every other platform gets ours. */}
-      {!isMac && <MenuBar />}
+        {/* macOS puts the menu in the system bar, so drawing one here would be a
+            duplicate; every other platform gets ours. */}
+        {!isMac && <MenuBar />}
 
-      {/* The document name centres the bar the way a title bar should read. */}
-      <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-2">
-        <span className="text-[11px] text-[var(--pf-text-dim)] truncate max-w-[24rem]">{title}</span>
-        <SaveState />
+        {/* The document name centres the bar the way a title bar should read. */}
+        <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-2">
+          <span className="text-[11px] text-[var(--pf-text-dim)] truncate max-w-[24rem]">{title}</span>
+          <SaveState />
+        </div>
+
+        {selection.length > 0 && (
+          <span className="pf-nodrag text-[11px] text-[var(--pf-text-dim)] tabular-nums shrink-0">
+            {selection.length} selected
+          </span>
+        )}
       </div>
-
-      {selection.length > 0 && (
-        <span className="pf-nodrag text-[11px] text-[var(--pf-text-dim)] tabular-nums shrink-0">
-          {selection.length} selected
-        </span>
-      )}
-    </div>
+      {/* The divider is its own row, not a border on the bar above. The OS paints
+          the window buttons over the whole titlebar area it reports — the full
+          height of it, not just the glyphs — and a bottom border lives *inside*
+          that height, so it was covered for the last 136px of the window and the
+          line stopped dead under the controls. One pixel below the bar is
+          outside the overlay, so it runs edge to edge. Still part of the drag
+          region, because that pixel used to be. */}
+      <div className="pf-drag h-px bg-[var(--pf-border)] shrink-0" />
+    </>
   )
 }
