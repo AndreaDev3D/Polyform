@@ -54,6 +54,12 @@ interface EditorState {
   cornerDrag: CornerKind | null
   /** Transient one-line message: why a command did nothing, mostly. */
   status: string | null
+  /**
+   * Autosave state, for the indicator that replaced the Save button. 'saved'
+   * is transient; 'error' persists until a save succeeds, because a document
+   * that is quietly not being written is the one thing you must be told about.
+   */
+  saveState: 'idle' | 'saving' | 'saved' | 'error'
   /** Version-history browser visibility. */
   showHistory: boolean
   /** Agent-connection consent panel visibility. */
@@ -112,6 +118,7 @@ export const useEditor = create<EditorState>((set) => ({
   arcDrag: null,
   cornerDrag: null,
   status: null,
+  saveState: 'idle' as const,
   showHistory: false,
   showAgent: false,
   leftTab: 'layers' as const,

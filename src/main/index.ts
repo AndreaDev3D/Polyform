@@ -109,12 +109,27 @@ function createWindow(hidden = false): void {
 
     // Last resort: a window must become visible even if nothing ever paints,
     // because an invisible failure is the one no one can debug.
+    //
+    // Firing is not by itself a failure — the window appears and works. It
+    // means first paint was slower than the deadline, which in development is
+    // usually Vite compiling the module graph on demand (three, spark,
+    // onnxruntime and the wasm engine are several MB of it). So the deadline is
+    // generous when there IS a dev server, tight when there isn't, and the
+    // message says how far the load actually got.
+    let finishedLoad = false
+    mainWindow.webContents.on('did-finish-load', () => {
+      finishedLoad = true
+    })
+    const paintDeadline = process.env['ELECTRON_RENDERER_URL'] ? 30_000 : 10_000
     const watchdog = setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-        console.error('[polyform] renderer never painted after 10s — showing the window anyway')
+        console.error(
+          `[polyform] no first paint after ${paintDeadline / 1000}s — showing the window anyway ` +
+            `(document ${finishedLoad ? 'finished loading, so this is a slow first frame' : 'is still loading'})`,
+        )
         mainWindow.show()
       }
-    }, 10_000)
+    }, paintDeadline)
     mainWindow.on('closed', () => clearTimeout(watchdog))
   }
 

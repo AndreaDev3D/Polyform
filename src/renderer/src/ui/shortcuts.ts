@@ -2,7 +2,7 @@
 // (accelerators); this handles single-key tools, nudging and Escape/Enter.
 
 import { editor, type Tool } from '../state/editor'
-import { deleteSelection, nudgeSelection, setSelection, zoomToFit } from '../state/actions'
+import { deleteSelection, nudgeSelection, setSelection, zoomToFit, zoomToSelection } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { documentStore } from '../state/document'
 
@@ -81,6 +81,12 @@ export function installShortcuts(): () => void {
       // Zoom to Fit (menu shows the hint; registered here so typing '!' in
       // text fields is never intercepted — the guards above already ran).
       zoomToFit()
+      return
+    }
+
+    if (e.shiftKey && e.code === 'Digit2') {
+      // Focus the selection — the same thing the bottom bar's focus button does.
+      zoomToSelection()
       return
     }
 

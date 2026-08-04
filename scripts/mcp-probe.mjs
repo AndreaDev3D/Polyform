@@ -833,10 +833,17 @@ try {
   if (!(live.calls > 0) || live.lastCall === null) fail(`reads not recorded: ${JSON.stringify(live)}`)
   else console.log(`MCP PASS: read activity recorded (${live.calls} calls, last "${live.lastCall}")`)
 
+  // The light lives on the bottom bar's agent button (it used to be its own
+  // status-bar item). What F-20 requires is that SOMETHING visible says an
+  // agent can reach the document, so match on that promise, not on a component.
   const indicator = await evaluate(`(() => {
     globalThis.__polyform.editor.set({ showAgent: false })
-    const b = document.querySelector('button[title^="Agent connection"]')
-    return b ? b.innerText : null
+    const b = [...document.querySelectorAll('button')].find(
+      (el) => /agent can reach this document/i.test(el.title || ''),
+    )
+    if (!b) return null
+    // ...and it must carry a live dot, not just the word "Agent".
+    return b.querySelector('span.rounded-full') ? b.innerText : null
   })()`)
   if (!indicator) fail('no "agent connected" indicator is visible in the running app')
   else console.log(`MCP PASS: indicator visible in the app UI ("${indicator.trim()}")`)
@@ -937,9 +944,14 @@ try {
   }
   client = null
 
+  // The button itself stays (it is how you let an agent in), but its live dot
+  // and its "can reach this document" wording must be gone.
   const goneFromUi = await evaluate(`(() => {
     globalThis.__polyform.editor.set({ showAgent: false })
-    return !document.querySelector('button[title^="Agent connection"]')
+    const b = [...document.querySelectorAll('button')].find(
+      (el) => /agent can reach this document/i.test(el.title || ''),
+    )
+    return !b && !document.querySelector('button span.rounded-full')
   })()`)
   if (!goneFromUi) fail('indicator still shown after the endpoint stopped')
   else console.log('MCP PASS: indicator disappears once the endpoint is off')

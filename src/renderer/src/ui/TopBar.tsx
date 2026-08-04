@@ -1,6 +1,11 @@
 // The custom title bar. The window is frameless (main sets titleBarStyle
 // 'hidden'), so this row IS the title bar: it carries the mark, the app's own
-// menu, the document name, zoom and Save — and it is the window's drag handle.
+// menu and the document name — and it is the window's drag handle.
+//
+// Zoom moved to the bottom bar, next to the canvas it acts on, and Save is
+// gone: saving is automatic (state/autosave.ts). What is left here is a save
+// STATE, because removing a button you used to press means the app owes you
+// the answer to "is my work written down".
 //
 // The OS still draws the minimise/maximise/close buttons as an overlay on the
 // right, so the bar reserves that width. Everything interactive opts out of
@@ -8,19 +13,49 @@
 
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
-import { saveFlow, zoomAt, zoomToFit } from '../state/actions'
-import { MinusIcon, PlusIcon, PolyformMark } from './icons'
+import { PolyformMark } from './icons'
 import { MenuBar } from './MenuBar'
 import { useTitlebarGeometry } from './titlebar'
 
-const ZOOM_PRESETS = [0.5, 1, 2]
+/** "Is my work safe?" — the whole reason a Save button can be taken away. */
+function SaveState() {
+  useDocVersion()
+  const saveState = useEditor((s) => s.saveState)
+  const dirty = documentStore.dirty
+
+  if (saveState === 'error') {
+    return (
+      <span
+        className="pf-nodrag text-[11px] text-[var(--pf-danger)] shrink-0"
+        title="The last save failed. Check that the project folder still exists and is writable, then File → Save As to write it elsewhere."
+      >
+        Not saved
+      </span>
+    )
+  }
+  if (saveState === 'saving') {
+    return <span className="text-[11px] text-[var(--pf-text-dim)] shrink-0">Saving…</span>
+  }
+  if (saveState === 'saved' && !dirty) {
+    return <span className="text-[11px] text-[var(--pf-text-dim)] shrink-0 pf-fade-in">Saved</span>
+  }
+  // Dirty between edits: a dot, not a word. It is about to be written, and a
+  // permanent "unsaved" label would be alarming for something 1.2s away.
+  if (dirty) {
+    return (
+      <span
+        className="w-1.5 h-1.5 rounded-full bg-[var(--pf-text-dim)] shrink-0"
+        title="Unsaved edits — saving automatically"
+      />
+    )
+  }
+  return null
+}
 
 export function TopBar() {
   useDocVersion()
   const selection = useEditor((s) => s.selection)
-  const zoom = useEditor((s) => s.camera.zoom)
   const title = documentStore.projectInfo?.manifest.title ?? 'Untitled'
-  const dirty = documentStore.dirty
   const { inset, height } = useTitlebarGeometry()
   const isMac = window.polyform.platform === 'darwin'
 
@@ -41,12 +76,7 @@ export function TopBar() {
       {/* The document name centres the bar the way a title bar should read. */}
       <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0 px-2">
         <span className="text-[11px] text-[var(--pf-text-dim)] truncate max-w-[24rem]">{title}</span>
-        {dirty && (
-          <span
-            className="w-1.5 h-1.5 rounded-full bg-[var(--pf-text-dim)] shrink-0"
-            title="Unsaved changes"
-          />
-        )}
+        <SaveState />
       </div>
 
       {selection.length > 0 && (
@@ -54,36 +84,6 @@ export function TopBar() {
           {selection.length} selected
         </span>
       )}
-
-      {/* Zoom: a stepper whose readout is also the fit button. */}
-      <div className="pf-nodrag flex items-center gap-0.5 rounded-md bg-[var(--pf-bg-2)] p-0.5 shrink-0">
-        <button className="pf-tool-btn h-6 w-6" title="Zoom out" aria-label="Zoom out" onClick={() => zoomAt(null, 0.8)}>
-          <MinusIcon />
-        </button>
-        <button
-          className="pf-btn h-6 px-2 text-[11px] tabular-nums min-w-[3.25rem]"
-          title="Zoom to fit — Shift+1 (right-click for presets)"
-          onClick={() => zoomToFit()}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            const next = ZOOM_PRESETS.find((z) => z > zoom + 0.01) ?? ZOOM_PRESETS[0]
-            zoomAt(null, next / zoom)
-          }}
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button className="pf-tool-btn h-6 w-6" title="Zoom in" aria-label="Zoom in" onClick={() => zoomAt(null, 1.25)}>
-          <PlusIcon />
-        </button>
-      </div>
-
-      <button
-        className="pf-nodrag pf-btn h-7 px-3 bg-[var(--pf-accent-solid)] text-white font-medium hover:bg-[var(--pf-accent-solid-hover)] shrink-0"
-        onClick={() => void saveFlow()}
-        title="Save — Ctrl+S"
-      >
-        Save
-      </button>
     </div>
   )
 }

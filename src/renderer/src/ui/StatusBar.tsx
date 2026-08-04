@@ -1,8 +1,9 @@
-// Bottom status bar: contextual hints, counts, zoom.
+// The thin line under the bottom bar: what the current tool does, and what the
+// document is. The agent light and the zoom readout moved up into the bottom
+// bar, where they are next to the controls they belong to.
 
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
-import { AgentIndicator } from './AgentIndicator'
 
 const TOOL_HINTS: Record<string, string> = {
   select: 'Click to select · drag to move · double-click to enter groups · Ctrl+click for deep select',
@@ -21,7 +22,6 @@ export function StatusBar() {
   useDocVersion()
   const tool = useEditor((s) => s.tool)
   const status = useEditor((s) => s.status)
-  const zoom = useEditor((s) => s.camera.zoom)
   const nodeCount = Object.keys(documentStore.scene.doc.nodes).length
   const canUndo = documentStore.history.canUndo
   const undoLabel = documentStore.history.peekUndoLabel()
@@ -35,10 +35,8 @@ export function StatusBar() {
         <span className="truncate">{TOOL_HINTS[tool]}</span>
       )}
       <span className="flex-1" />
-      <AgentIndicator />
       {canUndo && undoLabel && <span className="truncate max-w-48">Last: {undoLabel}</span>}
       <span>{nodeCount} layers</span>
-      <span>{Math.round(zoom * 100)}%</span>
     </div>
   )
 }

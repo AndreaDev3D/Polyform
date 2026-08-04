@@ -3,11 +3,12 @@
 import { useEffect } from 'react'
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
-import { dispatchMenuAction, saveFlow } from '../state/actions'
+import { dispatchMenuAction } from '../state/actions'
+import { flushSave, installAutosave } from '../state/autosave'
 import { listSystemFontFamilies } from '../engine/fonts'
 import { installShortcuts } from './shortcuts'
 import { TopBar } from './TopBar'
-import { FloatingToolbar } from './FloatingToolbar'
+import { BottomBar } from './BottomBar'
 import { LayersPanel } from './LayersPanel'
 import { Inspector } from './Inspector'
 import { CanvasView } from './CanvasView'
@@ -24,25 +25,19 @@ export function App() {
   useEffect(() => {
     const offMenu = window.polyform.onMenuAction((id) => dispatchMenuAction(id))
     const offClose = window.polyform.onRequestClose(() => {
-      // Skip the thumbnail render on quit — the close fail-safe must not
-      // fire while a slow full-scene render is still running.
-      void saveFlow(false).finally(() => window.polyform.confirmClose())
+      void flushSave().finally(() => window.polyform.confirmClose())
     })
     const offShortcuts = installShortcuts()
 
     void listSystemFontFamilies().then((fonts) => useEditor.getState().setFonts(fonts))
 
-    const autosave = window.setInterval(() => {
-      if (documentStore.projectInfo && documentStore.dirty && !useEditor.getState().editingTextId) {
-        void saveFlow()
-      }
-    }, 30_000)
+    const offAutosave = installAutosave()
 
     return () => {
       offMenu()
       offClose()
       offShortcuts()
-      window.clearInterval(autosave)
+      offAutosave()
     }
   }, [])
 
@@ -55,14 +50,15 @@ export function App() {
       <TopBar />
       <div className="flex flex-1 min-h-0">
         <LayersPanel />
-        {/* The canvas owns this box; the tool pill floats inside it so it
-         * stays centred on the drawing area, not on the whole window. */}
         <div className="flex-1 min-w-0 relative">
           <CanvasView />
-          <FloatingToolbar />
         </div>
         <Inspector />
       </div>
+      {/* Tools, the agent and the zoom controls live on their own row now, so
+       * nothing floats over the canvas and the zoom sits next to what it
+       * zooms. The status line stays the thinnest thing on screen. */}
+      <BottomBar />
       <StatusBar />
       <ContextMenu />
       <HistoryModal />

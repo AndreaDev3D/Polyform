@@ -361,6 +361,24 @@ export const TextBottomIcon = (p: P) => (
     <path d="M4 7.5h8M4 10.5h5" />
   </I>
 )
+/** Focus the view on something: brackets closing in on a target. */
+export const FocusIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2 5.5V3a1 1 0 011-1h2.5M10.5 2H13a1 1 0 011 1v2.5M14 10.5V13a1 1 0 01-1 1h-2.5M5.5 14H3a1 1 0 01-1-1v-2.5" />
+    <rect x="6" y="6" width="4" height="4" rx="0.5" />
+  </I>
+)
+/** The agent: a four-point spark, the usual mark for "AI does this". */
+export const SparkIcon = (p: P) => (
+  <I {...p}>
+    <path
+      d="M8 1.5l1.35 3.65L13 6.5 9.35 7.85 8 11.5 6.65 7.85 3 6.5l3.65-1.35L8 1.5z"
+      fill="currentColor"
+      stroke="none"
+    />
+    <path d="M12.2 10.3l.55 1.45 1.45.55-1.45.55-.55 1.45-.55-1.45-1.45-.55 1.45-.55.55-1.45z" fill="currentColor" stroke="none" />
+  </I>
+)
 export const ExportIcon = (p: P) => (
   <I {...p}>
     <path d="M8 10.5V2.5M4.75 5.5L8 2.25l3.25 3.25" />

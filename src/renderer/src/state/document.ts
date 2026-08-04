@@ -94,6 +94,11 @@ class DocumentStore {
   private scrubOps: PatchOp[] | null = null
   private scrubLabel = 'Edit'
 
+  /** True while a drag/scrub gesture is accumulating — autosave waits it out. */
+  get scrubbing(): boolean {
+    return this.scrubOps !== null
+  }
+
   beginScrub(): void {
     this.scrubOps = []
   }

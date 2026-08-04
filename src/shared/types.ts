@@ -140,6 +140,7 @@ export type MenuActionId =
   | 'view.zoomIn'
   | 'view.zoomOut'
   | 'view.zoomFit'
+  | 'view.zoomSelection'
   | 'view.zoomActual'
   | 'view.toggleGrid'
   | 'view.toggleRulers'

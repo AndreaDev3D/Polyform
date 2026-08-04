@@ -912,14 +912,13 @@ export function zoomActual(): void {
   editor.set({ camera: { zoom: 1, x: cx - viewportSize.w / 2, y: cy - viewportSize.h / 2 } })
 }
 
-export function zoomToFit(): void {
+/** Centre a world box in the viewport with room to breathe around it. */
+function zoomToBox(box: AABB, margin = 60): void {
   const { viewportSize } = editor.get()
-  const box = documentStore.scene.documentAABB()
   if (aabbIsEmpty(box)) {
     editor.set({ camera: { x: -viewportSize.w / 2, y: -viewportSize.h / 2, zoom: 1 } })
     return
   }
-  const margin = 60
   const w = box.maxX - box.minX
   const h = box.maxY - box.minY
   const zoom = Math.max(0.02, Math.min(4, Math.min((viewportSize.w - margin * 2) / w, (viewportSize.h - margin * 2) / h)))
@@ -930,6 +929,33 @@ export function zoomToFit(): void {
       y: box.minY - (viewportSize.h / zoom - h) / 2,
     },
   })
+}
+
+export function zoomToFit(): void {
+  zoomToBox(documentStore.scene.documentAABB())
+}
+
+/**
+ * Frame the selection. With nothing selected this fits the whole page, so the
+ * one button in the bottom bar always does the obvious thing.
+ */
+export function zoomToSelection(): void {
+  const scene = documentStore.scene
+  const ids = editor.get().selection.filter((id) => scene.hasNode(id))
+  if (ids.length === 0) {
+    zoomToFit()
+    return
+  }
+  let box: AABB | null = null
+  for (const id of ids) {
+    const b = scene.worldAABB(id)
+    if (aabbIsEmpty(b)) continue
+    box = box
+      ? { minX: Math.min(box.minX, b.minX), minY: Math.min(box.minY, b.minY), maxX: Math.max(box.maxX, b.maxX), maxY: Math.max(box.maxY, b.maxY) }
+      : b
+  }
+  // A tighter margin than fit-all: you asked for this thing, not its context.
+  zoomToBox(box ?? documentStore.scene.documentAABB(), 40)
 }
 
 // ---------------------------------------------------------------------------
@@ -978,8 +1004,54 @@ function currentViewportState() {
   return { zoom: camera.zoom, pan_x: camera.x, pan_y: camera.y }
 }
 
+/** How long "Saved" stays on screen before the indicator goes quiet again. */
+const SAVED_BADGE_MS = 1800
+let badgeTimer: number | null = null
+
+function flashSaved(): void {
+  if (badgeTimer !== null) window.clearTimeout(badgeTimer)
+  editor.set({ saveState: 'saved' })
+  badgeTimer = window.setTimeout(() => {
+    badgeTimer = null
+    editor.set({ saveState: 'idle' })
+  }, SAVED_BADGE_MS)
+}
+
+/**
+ * Write the project. Owns the save-state indicator, because whoever performs
+ * the save is the only thing that knows how it went — automatic saves and
+ * Ctrl+S then report identically (state/autosave.ts decides *when*).
+ */
 export async function saveFlow(includeThumbnail = true): Promise<boolean> {
-  return documentStore.save(currentViewportState(), includeThumbnail)
+  if (!documentStore.projectInfo) return false
+  if (badgeTimer !== null) {
+    window.clearTimeout(badgeTimer)
+    badgeTimer = null
+  }
+  editor.set({ saveState: 'saving' })
+  let ok = false
+  try {
+    ok = await documentStore.save(currentViewportState(), includeThumbnail)
+  } catch {
+    ok = false
+  }
+  if (ok) flashSaved()
+  else editor.set({ saveState: 'error' })
+  return ok
+}
+
+/**
+ * An explicit save. Kept even though saving is automatic, because pressing
+ * Ctrl+S is a reflex and appearing to do nothing is worse than a redundant
+ * write. With nothing to write it just confirms — the answer the reflex wanted.
+ */
+export async function saveNow(): Promise<void> {
+  if (!documentStore.projectInfo) return
+  if (!documentStore.dirty) {
+    flashSaved()
+    return
+  }
+  await saveFlow()
 }
 
 export async function saveAsFlow(): Promise<boolean> {
@@ -1501,7 +1573,7 @@ export function dispatchMenuAction(id: string): void {
       void openProjectFlow()
       break
     case 'file.save':
-      void saveFlow()
+      void saveNow()
       break
     case 'file.saveAs':
       void saveAsFlow()
@@ -1550,6 +1622,9 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'view.zoomFit':
       zoomToFit()
+      break
+    case 'view.zoomSelection':
+      zoomToSelection()
       break
     case 'view.zoomActual':
       zoomActual()

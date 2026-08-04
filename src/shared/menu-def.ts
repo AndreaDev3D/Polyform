@@ -84,6 +84,7 @@ export const MENU: MenuDef[] = [
       { id: 'view.zoomIn', label: 'Zoom In', accelerator: 'CmdOrCtrl+=', action: 'view.zoomIn' },
       { id: 'view.zoomOut', label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', action: 'view.zoomOut' },
       { id: 'view.zoomFit', label: 'Zoom to Fit', accelerator: 'Shift+1', displayOnlyAccelerator: true, action: 'view.zoomFit' },
+      { id: 'view.zoomSelection', label: 'Focus on Selection', accelerator: 'Shift+2', displayOnlyAccelerator: true, action: 'view.zoomSelection' },
       { id: 'view.zoomActual', label: 'Zoom to 100%', accelerator: 'CmdOrCtrl+0', action: 'view.zoomActual' },
       sep,
       { id: 'view.toggleGrid', label: 'Toggle Grid', accelerator: "CmdOrCtrl+'", action: 'view.toggleGrid' },
