@@ -12,7 +12,7 @@
 // hovering over the drawing.
 
 import { useEditor, type Tool, type VectorMode } from '../state/editor'
-import { booleanSelection, topSelection, zoomAt, zoomToFit, zoomToSelection } from '../state/actions'
+import { booleanSelection, carveSelection, topSelection, zoomAt, zoomToFit, zoomToSelection } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { READING_WINDOW_MS, isReading, useMcpStatus } from '../agent/status'
 import { useEffect, useState } from 'react'
@@ -22,6 +22,7 @@ import {
   BoolIntersectIcon,
   BoolSubtractIcon,
   BoolUnionIcon,
+  CarveIcon,
   CircleIcon,
   CloseIcon,
   CursorIcon,
@@ -238,6 +239,17 @@ export function BottomBar() {
                 {b.icon}
               </button>
             ))}
+            {/* Carve sits with the booleans because it answers the same
+                question — combine these shapes — but bakes one editable path
+                with holes instead of a live operation. */}
+            <button
+              title="Carve holes — the shapes on top cut through the one underneath, as one editable path (Ctrl+Shift+H)"
+              aria-label="Carve holes"
+              className="pf-tool-btn"
+              onClick={() => carveSelection()}
+            >
+              <CarveIcon />
+            </button>
           </div>
         )}
       </div>

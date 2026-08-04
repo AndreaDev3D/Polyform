@@ -6,6 +6,7 @@ import { createNode } from './types'
 import { nodeOutline, flattenSubPath } from './shapes'
 import {
   anchorNetworkAtOrigin,
+  carveWinding,
   networkBounds,
   normalizeWinding,
   reverseSubPath,
@@ -170,5 +171,94 @@ describe('ringsToSubPaths', () => {
     expect(paths).toHaveLength(1)
     expect(paths[0].closed).toBe(true)
     expect(paths[0].anchors.every((a) => a.cpIn === null && a.cpOut === null)).toBe(true)
+  })
+})
+
+describe('carveWinding', () => {
+  /** A closed square, wound counter-clockwise in screen coords. */
+  const square = (x: number, y: number, s: number): SubPath => ({
+    closed: true,
+    anchors: [
+      { p: { x, y }, cpIn: null, cpOut: null },
+      { p: { x: x + s, y }, cpIn: null, cpOut: null },
+      { p: { x: x + s, y: y + s }, cpIn: null, cpOut: null },
+      { p: { x, y: y + s }, cpIn: null, cpOut: null },
+    ],
+  })
+
+  it('reverses a contour that sits inside another, so it reads as a hole', () => {
+    const outer = square(0, 0, 100)
+    const inner = square(30, 30, 40)
+    const [o, i] = carveWinding([outer, inner])
+    const ao = signedArea(o.anchors.map((a) => a.p))
+    const ai = signedArea(i.anchors.map((a) => a.p))
+    expect(Math.sign(ao)).not.toBe(Math.sign(ai))
+  })
+
+  it('leaves two contours that merely sit side by side alone', () => {
+    const a = square(0, 0, 50)
+    const b = square(200, 0, 50)
+    const [ra, rb] = carveWinding([a, b])
+    const sa = signedArea(ra.anchors.map((x) => x.p))
+    const sb = signedArea(rb.anchors.map((x) => x.p))
+    expect(Math.sign(sa)).toBe(Math.sign(sb))
+  })
+
+  it('carves several holes out of one body', () => {
+    const body = square(0, 0, 200)
+    const h1 = square(20, 20, 30)
+    const h2 = square(120, 120, 30)
+    const out = carveWinding([body, h1, h2])
+    const s = out.map((sp) => Math.sign(signedArea(sp.anchors.map((a) => a.p))))
+    expect(s[1]).toBe(-s[0])
+    expect(s[2]).toBe(-s[0])
+  })
+
+  it('fills again inside a hole — an island in a lake', () => {
+    const out = carveWinding([square(0, 0, 300), square(50, 50, 200), square(100, 100, 60)])
+    const s = out.map((sp) => Math.sign(signedArea(sp.anchors.map((a) => a.p))))
+    expect(s[1]).toBe(-s[0])
+    expect(s[2]).toBe(s[0]) // depth 2: solid again
+  })
+
+  it('places a hole correctly inside a CONCAVE body, where a centroid escapes', () => {
+    // An L: its centroid lies outside the shape, so the probe point cannot be
+    // the centroid of the contour being tested.
+    const L: SubPath = {
+      closed: true,
+      anchors: [
+        { p: { x: 0, y: 0 }, cpIn: null, cpOut: null },
+        { p: { x: 40, y: 0 }, cpIn: null, cpOut: null },
+        { p: { x: 40, y: 160 }, cpIn: null, cpOut: null },
+        { p: { x: 200, y: 160 }, cpIn: null, cpOut: null },
+        { p: { x: 200, y: 200 }, cpIn: null, cpOut: null },
+        { p: { x: 0, y: 200 }, cpIn: null, cpOut: null },
+      ],
+    }
+    const hole = square(80, 170, 20)
+    const [body, h] = carveWinding([L, hole])
+    expect(Math.sign(signedArea(h.anchors.map((a) => a.p)))).toBe(
+      -Math.sign(signedArea(body.anchors.map((a) => a.p))),
+    )
+  })
+
+  it('ignores open contours, which have no inside', () => {
+    const open: SubPath = {
+      closed: false,
+      anchors: [
+        { p: { x: 10, y: 10 }, cpIn: null, cpOut: null },
+        { p: { x: 90, y: 90 }, cpIn: null, cpOut: null },
+      ],
+    }
+    const out = carveWinding([square(0, 0, 100), open])
+    expect(out[1]).toBe(open)
+  })
+
+  it('keeps curves intact when it reverses a hole', () => {
+    const [ring] = ellipse(80, 80)
+    const shifted = transformSubPath(ring, { a: 1, b: 0, c: 0, d: 1, e: 60, f: 60 })
+    const out = carveWinding([square(0, 0, 200), shifted])
+    const hole = out[1]
+    expect(hole.anchors.every((a) => a.cpIn && a.cpOut)).toBe(true)
   })
 })

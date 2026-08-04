@@ -115,6 +115,7 @@ export const MENU: MenuDef[] = [
       { id: 'object.detachInstance', label: 'Detach Instance', accelerator: 'CmdOrCtrl+Alt+B', action: 'object.detachInstance' },
       sep,
       { id: 'object.flatten', label: 'Flatten', accelerator: 'CmdOrCtrl+E', action: 'object.flatten' },
+      { id: 'object.carve', label: 'Carve Holes', accelerator: 'CmdOrCtrl+Shift+H', action: 'object.carve' },
       sep,
       { id: 'object.union', label: 'Boolean Union', action: 'object.union' },
       { id: 'object.subtract', label: 'Boolean Subtract', action: 'object.subtract' },

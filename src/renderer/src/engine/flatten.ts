@@ -6,15 +6,17 @@
 // only way to start editing a primitive's curve by hand.
 //
 // Contours are concatenated as subpaths rather than CSG-merged, so curves
-// survive. Winding is normalised to one direction first, which is what makes
-// nonzero filling render the union of overlapping contours instead of punching
-// holes where they cross. A BOOLEAN source contributes its already-computed
-// rings, so its operation is preserved (as straight segments — that is what
-// exact CSG produces).
+// survive. Winding decides what the result looks like, and there are two rules
+// here: normalizeWinding gives every contour the same direction, so nonzero
+// filling renders the UNION of overlapping contours; carveWinding winds by
+// nesting depth, so enclosed contours become HOLES. A BOOLEAN source
+// contributes its already-computed rings, so its operation is preserved (as
+// straight segments — that is what exact CSG produces).
 
 import type { Mat } from './geometry'
-import { applyMat } from './geometry'
+import { applyMat, pointInPolygonRings } from './geometry'
 import type { SubPath } from './shapes'
+import { flattenSubPath } from './shapes'
 import type { VectorEdge, VectorNetwork, VectorVertex, Vec2 } from './types'
 
 /** Twice the signed area of a closed polyline; positive = one orientation. */
@@ -72,6 +74,54 @@ export function normalizeWinding(paths: SubPath[]): SubPath[] {
   return paths.map((sp) => {
     if (!sp.closed || sp.anchors.length < 3) return sp
     return signedArea(sp.anchors.map((a) => a.p)) < 0 ? reverseSubPath(sp) : sp
+  })
+}
+
+/**
+ * Wind contours by how deeply they nest, so enclosed ones become holes.
+ *
+ * This is the rule a font glyph uses: a contour at even depth is solid, one at
+ * odd depth is wound the other way and cancels the fill under it — an "o" is an
+ * outer ring plus a reversed inner one. Nesting is counted rather than assumed,
+ * so a shape inside a hole fills again, which is what you would draw if you
+ * wanted an island in a lake.
+ *
+ * Containment is tested on flattened outlines, from a point that is definitely
+ * inside the contour being placed (its centroid when that lands inside, an
+ * anchor otherwise, for the concave shapes where a centroid escapes). A
+ * container must also be LARGER: without that, the big square's centroid sits
+ * inside the little square too, and both come out nested in each other.
+ */
+export function carveWinding(paths: SubPath[]): SubPath[] {
+  const closed = paths.map((sp, i) => ({ sp, i })).filter((e) => e.sp.closed && e.sp.anchors.length >= 3)
+  const poly = new Map<number, Vec2[]>()
+  const probe = new Map<number, Vec2>()
+  const area = new Map<number, number>()
+  for (const { sp, i } of closed) {
+    const flat = flattenSubPath(sp, 0.5)
+    poly.set(i, flat)
+    area.set(i, Math.abs(signedArea(flat)))
+    const c = flat.reduce((acc, p) => ({ x: acc.x + p.x / flat.length, y: acc.y + p.y / flat.length }), { x: 0, y: 0 })
+    probe.set(i, pointInPolygonRings(c, [flat]) ? c : sp.anchors[0].p)
+  }
+
+  const depth = new Map<number, number>()
+  for (const { i } of closed) {
+    let d = 0
+    const p = probe.get(i)!
+    for (const { i: j } of closed) {
+      if (i === j) continue
+      if (area.get(j)! <= area.get(i)!) continue
+      if (pointInPolygonRings(p, [poly.get(j)!])) d++
+    }
+    depth.set(i, d)
+  }
+
+  return paths.map((sp, i) => {
+    if (!depth.has(i)) return sp
+    const wantPositive = depth.get(i)! % 2 === 0
+    const positive = signedArea(sp.anchors.map((a) => a.p)) >= 0
+    return positive === wantPositive ? sp : reverseSubPath(sp)
   })
 }
 

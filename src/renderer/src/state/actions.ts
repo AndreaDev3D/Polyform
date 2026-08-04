@@ -34,6 +34,7 @@ import { booleanRings } from '../engine/booleans'
 import {
   anchorNetworkAtOrigin,
   networkBounds,
+  carveWinding,
   normalizeWinding,
   ringsToSubPaths,
   subPathsToNetwork,
@@ -349,7 +350,12 @@ export function booleanSelection(op: BooleanOp): void {
  * Winding is normalised first (see engine/flatten) so nonzero filling shows
  * the union of overlapping contours instead of cancelling them into holes.
  */
-export function flattenSelection(): void {
+/**
+ * Bake shapes into one VECTOR. Flatten and Carve differ only in how contours
+ * are wound: same direction unions them, nesting-parity turns the enclosed ones
+ * into holes.
+ */
+function bakeToVector(mode: 'flatten' | 'carve'): void {
   const scene = documentStore.scene
   const ids = byZ(topSelection()).filter((id) => {
     const n = scene.getNode(id)
@@ -362,10 +368,14 @@ export function flattenSelection(): void {
   // rectangle, so it is refused rather than mangled.
   const text = ids.filter((id) => scene.getNode(id)?.type === 'TEXT')
   if (text.length > 0) {
-    setStatus('Flatten cannot outline text yet — deselect the text layer first.')
+    setStatus(`${mode === 'carve' ? 'Carve' : 'Flatten'} cannot outline text yet — deselect the text layer first.`)
     return
   }
-  if (ids.length === 1 && scene.getNode(ids[0])?.type === 'VECTOR') {
+  if (mode === 'carve' && ids.length < 2) {
+    setStatus('Carve needs at least two layers: the one being carved, and the shapes carving it.')
+    return
+  }
+  if (mode === 'flatten' && ids.length === 1 && scene.getNode(ids[0])?.type === 'VECTOR') {
     setStatus('That layer is already a vector.')
     return
   }
@@ -386,15 +396,19 @@ export function flattenSelection(): void {
     const m = toParent ? matMultiply(toParent, world) : world
     for (const sp of own) paths.push(transformSubPath(sp, m))
   }
-  const network = subPathsToNetwork(normalizeWinding(paths))
+  const wound = mode === 'carve' ? carveWinding(paths) : normalizeWinding(paths)
+  const network = subPathsToNetwork(wound)
   if (network.vertices.length < 2) return
 
   const { network: local, dx, dy } = anchorNetworkAtOrigin(network)
   const bounds = networkBounds(network)
 
   // Paint comes from the bottom-most source, matching how a boolean adopts it.
+  // For a carve that is also the shape being carved, which is the one you were
+  // looking at.
   const source = scene.requireNode(ids[0])
-  const vector = createNode('VECTOR', ids.length === 1 ? source.name : 'Flattened')
+  const name = ids.length === 1 ? source.name : mode === 'carve' ? source.name : 'Flattened'
+  const vector = createNode('VECTOR', name)
   if (vector.type !== 'VECTOR') return
   vector.network = local
   vector.x = dx
@@ -414,12 +428,25 @@ export function flattenSelection(): void {
   const rec = new OpRecorder()
   rec.add(vector, targetParent, insertIndex)
   for (const id of ids) rec.removeSubtree(id)
-  rec.commit('Flatten')
+  rec.commit(mode === 'carve' ? 'Carve' : 'Flatten')
   setSelection([vector.id])
   // One shape in means "show me its points", so open the editor on it.
-  if (ids.length === 1) editor.set({ vectorEditId: vector.id, vectorSelection: [] })
+  if (mode === 'flatten' && ids.length === 1) editor.set({ vectorEditId: vector.id, vectorSelection: [] })
 }
 
+export function flattenSelection(): void {
+  bakeToVector('flatten')
+}
+
+/**
+ * Carve: one vector whose enclosed contours are holes. The shapes you put
+ * inside cut through the one underneath, and the result is a single editable
+ * path rather than a live boolean — the difference being that you can then drag
+ * the hole's points.
+ */
+export function carveSelection(): void {
+  bakeToVector('carve')
+}
 export function ungroupSelection(): void {
   const scene = documentStore.scene
   const ids = topSelection().filter((id) => {
@@ -1682,6 +1709,9 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'object.flatten':
       flattenSelection()
+      break
+    case 'object.carve':
+      carveSelection()
       break
     case 'object.union':
       booleanSelection('UNION')

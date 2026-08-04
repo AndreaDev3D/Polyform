@@ -419,6 +419,18 @@ export const MirrorFullIcon = (p: P) => (
   </I>
 )
 
+/** Carve: a solid shape with a hole punched out of it. */
+export const CarveIcon = (p: P) => (
+  <I {...p}>
+    <path
+      d="M2.5 3.5h11v9h-11z M6 6.5h4v3h-4z"
+      fill="currentColor"
+      stroke="none"
+      fillRule="evenodd"
+    />
+  </I>
+)
+
 /** Focus the view on something: brackets closing in on a target. */
 export const FocusIcon = (p: P) => (
   <I {...p}>
