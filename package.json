@@ -1,6 +1,6 @@
 {
   "name": "polyform",
-  "version": "0.4.1",
+  "version": "0.6.0",
   "description": "Polyform — a local-first, self-contained, open-source vector design tool for the desktop.",
   "main": "./out/main/index.js",
   "type": "module",
@@ -71,18 +71,21 @@
       "**/node_modules/sql.js/dist/sql-wasm.wasm"
     ],
     "win": {
+      "icon": "resources/icon.png",
       "target": [
         "nsis",
         "portable"
       ]
     },
     "mac": {
+      "icon": "resources/icon.png",
       "target": [
         "dmg"
       ],
       "category": "public.app-category.graphics-design"
     },
     "linux": {
+      "icon": "resources/icon.png",
       "target": [
         "AppImage",
         "deb"

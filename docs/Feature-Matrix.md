@@ -19,7 +19,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | [Canvas & Viewport](#canvas--viewport) | 16 | 1 | 1 | 0 | 18 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 10 | 3 | 3 | 0 | 16 |
+| [Vector Editing](#vector-editing) | 11 | 3 | 3 | 0 | 17 |
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
@@ -33,7 +33,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **137** | **23** | **54** | **23** | **237** |
+| **Total** | **138** | **23** | **54** | **23** | **238** |
 
 ---
 
@@ -98,6 +98,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Boolean intersect | Non-destructive intersection | ✅ | Exact bezier CSG (Rust core) |
 | Boolean exclude | Non-destructive XOR of shapes | ✅ | Exact bezier CSG (Rust core) |
 | Non-destructive boolean groups | Children stay editable inside the boolean | ✅ | Boolean result recomputes as children change |
+| Carve holes | Enclosed shapes cut through the one beneath | ✅ | Ctrl+Shift+H; contours wound by nesting depth (font-glyph rule) so a shape inside a hole fills again; result is one editable path, not a live boolean; refuses text |
 | Flatten selection | Bake selection into a single vector layer | ✅ | Ctrl+E; concatenates contours as subpaths so curves survive; opens the vector editor when one shape went in |
 | Outline stroke | Convert a stroke into filled geometry | 📋 | |
 | Masks | Layer masks clip sibling content | 🟡 | Vector/shape clipping of siblings above (Ctrl+Alt+M); no luminance masks |

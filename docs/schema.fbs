@@ -128,10 +128,16 @@ table Effect {
   blur: float;    // shadow blur, or LayerBlur/BackgroundBlur radius
 }
 
+/// How a vertex pairs the control points of the edges meeting at it while one
+/// is dragged. Absent/None = a corner, which is what every path drawn before
+/// v0.6 has; the field is optional, so old bundles load unchanged.
+enum MirrorMode : byte { None = 0, Angle = 1, AngleAndLength = 2 }
+
 table VectorVertex {
   id: uint32;
   x: float;
   y: float;
+  mirror: MirrorMode = None;
 }
 
 table VectorEdge {
@@ -321,7 +327,7 @@ table AttachedLibrary {
 }
 
 table SceneGraph {
-  schema_version: uint32;   // 4 as of v0.5 (v1: single-page; v2: +pages/styles/constraints/effects; v3: +components/libraries; v4: +MODEL3D nodes)
+  schema_version: uint32;   // 5 as of v0.6 (v1: single-page; v2: +pages/styles/constraints/effects; v3: +components/libraries; v4: +MODEL3D nodes; v5: +ellipse arc fields, +per-vertex mirror mode — both additive, so v4 bundles load as-is)
   nodes: [Node];
   pages: [Page];
   active_page_id: string;

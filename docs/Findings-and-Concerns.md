@@ -494,6 +494,34 @@ Both remaining debts are paid: the `edit` capability **defaults off** (reads def
 
 ---
 
+## F-21. Writing a node's fields directly leaves the derived caches stale
+
+**Severity: medium (visual, silent) — one instance found and fixed; the class is structural.**
+
+`SceneGraph` caches world matrices and world AABBs, and `bump()` clears them. Every mutation *through* the scene (`addNode`, `moveNode`, `updateNode`, `removeNode`) bumps; a mutation that assigns to `node.x` and then commits with `applied: true` does not. The gap is invisible until something reads a cached value on both sides of the change.
+
+It bit exactly once, and visibly: leaving vector edit re-anchors the path to its own bounding box and moves the node to compensate. Because it wrote `node.x/y/width/height` directly, the **selection overlay kept drawing at the pre-edit position with the post-edit size** — 144 world units out, in the measured repro. It looked like a redraw bug, and clicking away and back "fixed" it because that eventually caused some other mutation to bump the scene.
+
+Fixed by routing the mutation through `updateNode`, so invalidation is part of the operation rather than something to remember. The rest of the direct writes were audited: they are all on nodes *under construction*, before `addNode` (pen finish, paste, SVG import), or inside drag loops that bump explicitly — so this was the only escape.
+
+**Why no test caught it.** The document was correct; only a cache was wrong. Unit tests read the scene, and the scene was right. Pixel-parity tests render from a fresh bake. The overlay is the only reader that keeps a cached matrix across a mutation, so seeing it needs a live overlay **and** a live cache — which is now a check in `npm run test:e2e`.
+
+**Standing obligation.** Prefer the scene's mutators. Where a gesture must write fields directly for performance (the drag loops do, every frame), it owes an explicit `bump()` in the same function — and the reason to look for one is any commit that passes `applied: true`.
+
+---
+
+## F-22. A regression test that has never failed is a guess
+
+**Severity: process, not product — but it invalidated a check before it was ever trusted.**
+
+The first version of the F-21 gate **passed against the unfixed build**. It did the whole sequence — create a path, edit it, exit, read the overlay's box — inside one synchronous `Runtime.evaluate`. Nothing had read the world matrix before the exit, so nothing had *cached* it, so there was no stale value to find. The check was green for the wrong reason, and would have stayed green through a reintroduction of the bug.
+
+What made it real was letting frames render with the path still open, so the pre-exit matrix actually entered the cache. What made it *trustworthy* was then reverting the fix and watching it fail with the same numbers the user reported (`drawn at 300,300, shape at 210,240`).
+
+**Standing obligation.** A new regression check is not finished when it passes. It is finished when it has been shown to fail without the fix — `git stash push` on the fix, rebuild, run, restore. This applies with particular force to bugs about *state that is only wrong for a while*: caches, debounces, animation, anything where the test's own timing decides whether the defect is reachable.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -503,3 +531,4 @@ Three themes run through every entry:
 3. **Deferred features have present-tense obligations.** F-10 (auto-update) doesn't exist yet, but pinned CI actions and published checksums are obligations *now*; F-09's missing-font notice is cheap now and much cheaper than support tickets later.
 4. **Anything that lets outside code in gets its defences before its features.** F-15 (plugins) and F-20 (the agent endpoint) are the same shape: capability first draws a threat model, then ships the gate, then ships the capability. F-20's 401/403 checks were written in the same commit as the server, not after it.
 5. **Input-layer bugs are invisible to unit and pixel tests.** F-18 and F-19 both survived multiple releases with a green suite, and both were found only by driving the built app with synthetic OS-level input. That is why `npm run test:e2e` exists and why it keeps growing.
+6. **A correct document is not a correct app.** F-21 was a stale cache over right data, and F-22 is the reason it now has a check that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.

@@ -23,7 +23,7 @@ Estimates assume the current small-team cadence and include tests and docs. Depe
 
 ---
 
-## v0.1 — NOW (shipping today)
+## v0.1 — shipped
 
 Everything below is **implemented and shipping** in v0.1. The engine is TypeScript behind clean interfaces (`IRenderer`, `SceneGraph`, the Command/PatchOp system), rendering to HTML5 Canvas (GPU-composited Canvas2D). Shapes are never DOM or SVG nodes.
 
@@ -203,8 +203,9 @@ Goal: let AI agents (Claude and others) connect to a **running** Polyform, watch
 > controls; `Stop` hung while an agent was attached; and the endpoint
 > accepted exactly **one connection ever** (single shared transport) —
 > found the first time a real client connected twice. All fixed, all
-> gated. **The exit criteria below are met and 7.4 shipped — v0.6 is
-> feature-complete pending release.**
+> gated. **Released as 0.6.0 on 2026-08-04**, together with the editor
+> UX and vector-depth work listed after the exit criteria (ADR-024,
+> ADR-025).
 
 | # | Item | Effort | Depends on | Notes |
 | :-- | :--- | :---: | :--- | :--- |
@@ -214,6 +215,22 @@ Goal: let AI agents (Claude and others) connect to a **running** Polyform, watch
 | 7.4 | **Headless CLI** | **M** | 7.1 | ✅ **Shipped (2026-08-02, ADR-023)** — `polyform new | query | export | mcp serve`: the same binary boots headless (hidden window, same renderer → pixel-identical exports) and drives the same bridge as the MCP server. **`mcp serve <bundle>` = stdio MCP over a file at rest with ALL capabilities on** — spawning a process over your own file is the consent; no port, no token, no restart ceremony. CLI-mode writes save the bundle before the call returns. Gate `npm run test:cli`: new → stdio edit → fresh-process query proves disk persistence → export @2x decodes with the written fills. |
 
 **Exit criteria:** an AI session connects with explicit consent, describes the open document, watches a human edit land live, and performs one edit that shows up attributed in the history browser and undoes cleanly. **Met (2026-08-02)** — every clause is a standing `npm run test:mcp` gate (42 checks).
+
+### Shipped alongside 7.x — editor UX and vector depth (2026-08-04)
+
+Not roadmap items: work that came out of using the app while building the agent surface, released in the same version.
+
+| Area | What shipped | Notes |
+| :--- | :--- | :--- |
+| **Window & chrome** | Frameless window with the app's own title bar and menu; one **bottom bar** — agent (left), tools (centre), focus + zoom (right) — replacing the floating tool pill | ADR-024. The native `Menu` stays installed (it owns every accelerator and OS role); `shared/menu-def.ts` is the single definition both it and the custom bar are built from |
+| **Saving** | **Autosave**, no Save button: 1.2 s quiet debounce, 15 s bound, 30 s backstop, gestures and text edits waited out; the title bar carries the state, incl. a persistent red *Not saved* | ADR-024. Honest because a `.poly` project exists on disk before the document does |
+| **Inspector** | Every field group named; the glyph moved inside the field it names; units against their number; per-corner radius toggle; **export as a list of targets** (several sizes/formats in one go, one folder dialog) | The panel used to depend on decoding `⌒`, `◐`, `B`, `R` |
+| **Vector editing** | **Move / Bend / Delete** modes; **per-point handle mirroring** (none / angle / angle+length, Alt to break for one drag); round anchor handles; **Carve** — enclosed shapes become holes in one editable path | ADR-025. Rules live in `engine/vector-edit.ts` as pure functions over a network |
+| **Effects** | An effect on a **group** now applies to its composite in both renderers (one shadow around the union silhouette, no seam) — it used to be silently dropped | New `group-effects` pixel-parity fixture; `worldAABB` also stopped cropping a group's shadow out of exports |
+| **Layers panel** | Drag feedback (what you are carrying, where it will land, why a drop is refused), auto-scroll near either end, right-click parity with the canvas, caret/rename fix | |
+| **Gates** | `npm run test:e2e` grew to 5 checks; render parity to 12 fixtures; 150 vitest, 44 Rust | F-21/F-22 in the findings register are the two lessons this phase produced |
+
+
 
 ---
 

@@ -486,6 +486,45 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 
 ---
 
+## ADR-024: The window is the app's own — one bottom bar owns the constant controls, and saving is not a button (v0.6)
+
+**Context.** The chrome had accumulated in the wrong places. Tools floated in a pill centred over the canvas, which meant nothing else could share that line, so zoom ended up in the title bar — a long way from the thing it zooms. The agent light lived in the status bar and only existed while the endpoint was already on, so "let an agent in" was a menu item you had to know about. And there was a Save button on a local-first app whose projects are already directories on disk.
+
+**Decision.** **A frameless window with the app's own title bar, and one bottom bar with three fixed zones.** The title bar carries the mark, the menu, the document name and the save state; the bottom bar carries the agent (left), the tools (centre), and framing the view (right: focus-the-selection, then zoom). Each zone is a fixed home a hand can learn — which is why the contextual boolean group hangs off the end of the tool group *absolutely*, instead of pushing the icons sideways whenever a second layer is selected.
+
+The native `Menu` stays installed even though its bar is hidden, because the native Menu is what registers every accelerator and implements the OS roles. `shared/menu-def.ts` is the single definition: main builds the real Menu from it with stable ids, the renderer draws the same tree, and clicking a custom item asks main to click the real item by id. There is exactly one implementation of every command and the two cannot drift.
+
+**Saving is automatic, and the button is gone.** This is only honest because a `.poly` project exists on disk *before* the document does — creating one picks its location — so there is no state where the app holds edits it has nowhere to put. Three timers, each covering a different failure of the others: 1.2 s of quiet so a save follows a burst of edits rather than each one; a 15 s bound so continuous work still lands; a 30 s backstop for anything that dirties the document without going through the journal. Gestures and open text editors are waited out rather than interrupted, and the max-wait window restarts **even on failure**, or a save that keeps failing is permanently overdue and retries on every keystroke.
+
+Removing a button the user used to press transfers an obligation: the app now owes the answer to *is my work written down*. The title bar answers it — a dot while there are edits, `Saving…`, `Saved` for a moment, and a persistent red `Not saved` if a write ever fails. `saveFlow` owns those transitions because whoever performs the save is the only thing that knows how it went; the autosave module only decides *when*. `Ctrl+S` still works, and with nothing to write it simply confirms, because pressing it is a reflex and appearing to do nothing is worse than a redundant write.
+
+**Consequences.** The canvas gets its full height back and nothing hovers over the drawing. Zoom sits beside the canvas it acts on. The agent button is always present, which is also what keeps F-20's promise legible: the light is on a control you can see whether or not anything is attached. Costs: the OS still paints the window controls over the web content, so the bar must read its reserved width *and height* from `getTitlebarAreaRect()` — a hardcoded height was wrong by 10 px because a 12 px root font makes every Tailwind rem 0.75×. And an autosaving app has no "unsaved changes?" moment to hang a decision on, so *undo* has to carry that weight instead; the journal already does, per ADR-008.
+
+**Revisit when.** A document grows large enough that a 1.2 s debounce writes too often (the thumbnail is already rate-limited to once a minute for this reason), or the status line's remaining content (tool hint, last action, layer count) moves into the bar and the extra row goes away.
+
+---
+
+## ADR-025: Vector edit is a mode set over one network; carve is a bake, not a live operation (v0.6)
+
+**Context.** A path is a graph of vertices and edges (ADR-002 / Technical-Specification §2.1), and until v0.6 the editor exposed one behaviour over it: drag things. Everything else a vector tool offers — bending a segment, smoothing a point, cutting a hole — has a different answer to *what does a drag mean here*, and there was nowhere for those answers to live.
+
+**Decision.** **Three modes over one network — Move, Bend, Delete — presented where the tools already are** (the bottom bar's centre swaps to them while a path is open; you cannot draw a rectangle mid-path anyway). The modes change what a drag does, not what the data is:
+
+- **Bend** moves both control points of a segment, split by their Bernstein influence at the parameter grabbed. That is the least-squares distribution, so the curve lands *exactly* under the pointer rather than approximately, and a straight segment gets handles at the thirds first so bending a line is the same gesture as bending a curve.
+- **Delete** heals the path through the point it removes — two segments meeting there become one straight run — because a closed outline should stay closed; deleting a *segment* opens the path instead, and takes any point it orphans with it.
+
+**Handle pairing is per vertex, not per tool.** Control points live on edges (an edge is what needs them to be a curve), so the only thing that knows two handles meet is the vertex between them: `mirror: NONE | ANGLE | ANGLE_LENGTH`, optional, so every path drawn before this loads as a corner and no schema break is needed. Choosing a mode **applies it immediately** — picking "mirrored" and seeing nothing happen would misrepresent the setting — and manufactures the missing arm along the tangent between the neighbours when the corner had no handles at all. `Alt` breaks the pairing for one drag without changing the mode.
+
+**The rules live in the engine, not the controller.** `engine/vector-edit.ts` holds mirroring, bending and removal as pure functions over a network, because they are decisions about the graph, identical whether the gesture came from a mouse, a keyboard, an agent or a test. The pointer controller supplies coordinates and history framing; nothing about the geometry is reachable only through a drag.
+
+**Carve bakes; booleans stay live.** A carve winds contours by **nesting depth** — the rule a font glyph uses — so an enclosed contour reverses and cancels the fill under it, and a shape inside a hole fills again. Nesting is *counted*, not assumed, with an area guard: a container must be larger, or the outer shape's own probe point (which lands inside the inner shape too) makes both come out nested in each other. The result is one VECTOR whose hole you can then drag the points of. That is the whole reason it is not a boolean: `SUBTRACT` keeps its operands and recomputes, which is right when you want to keep editing the operands and wrong when you want to edit the *hole*. Both exist; they answer different questions.
+
+**Consequences.** Anchors are round now, because a square handle on a path reads as "resize this box" — which is exactly what the transform handles mean. Nesting depth is computed on flattened outlines, so a hole is placed by geometry rather than by z-order or selection order, and it is O(n²) in contour count — fine for the handful of shapes a carve involves, and worth revisiting if it is ever applied to hundreds. A carve cannot outline text (`nodeOutline` returns the layout box, not glyphs), and says so rather than silently producing a rectangle.
+
+**Revisit when.** Per-anchor corner radius lands — that one changes `nodeOutline` and therefore needs its Rust twin and a parity fixture, which is why it is still 📋 in the matrix; or branching edges get an editing UI, which is the part of the network model the editor still does not exploit.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -513,5 +552,7 @@ React state is reserved for pure UI concerns (panel open/closed, active tool, in
 | 021 | Agents: in-app loopback MCP server; realtime = journal cursor, not subscriptions | Partially | Channels/`ws` push when generally available; MCP 2026-07-28 becomes the negotiated default |
 | 022 | Agent access = individually revocable capabilities (writes default OFF); endpoint controls claimed once, unreachable from plugin-realm code | Yes | Plugin worker isolation (F-15); write patterns outgrowing one-batch commits |
 | 023 | CLI = same binary headless (one renderer, pixel-identical exports); `mcp serve` = loopback endpoint + RUN_AS_NODE stdio relay (Windows GUI stdin is dead), all-on grants (spawning IS consent), save-on-edit, no dialogs headless | Yes | Packaged `bin` story (v1.0); cross-directory query; Electron fixing Windows main stdin |
+| 024 | Frameless window + one bottom bar (agent / tools / view) + autosave with a visible save state | No (stable) | Debounce too eager on huge documents; status line folded into the bar |
+| 025 | Vector edit = modes over one network; per-vertex mirroring; carve bakes by nesting depth | Partially | Per-anchor corner radius (needs the Rust twin); branching-edge editing |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.
