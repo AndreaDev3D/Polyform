@@ -520,6 +520,18 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(async () => {
+  // Windows shell identity. This is NOT what makes Task Manager say "Polyform"
+  // — that name is the *executable's* version info, so from source it reads
+  // "Electron" (the binary is node_modules/electron/dist/electron.exe) and no
+  // runtime call can rename it; the packaged Polyform.exe carries our own.
+  // What this fixes is identity: without it the window has no AppUserModelID,
+  // so the shell falls back to the exe — every unpackaged Electron app shares
+  // one taskbar identity, notification toasts are attributed to "Electron",
+  // and a pinned shortcut does not recognise the running window as itself. The
+  // id has to be the installer's appId, which is why it is a build-time define
+  // from the same package.json rather than a string typed twice.
+  if (process.platform === 'win32') app.setAppUserModelId(__APP_ID__)
+
   if (cliCommand) {
     // `new` needs no renderer at all; everything else boots one, hidden.
     if (cliCommand.verb === 'new') {

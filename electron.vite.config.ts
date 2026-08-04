@@ -7,12 +7,19 @@ import tailwindcss from '@tailwindcss/vite'
 // trusted here: run from source, Electron finds no package.json beside
 // out/main and reports its OWN version instead (the welcome screen showed
 // "v38.8.6"). package.json is the one source of truth either way.
-const { version } = createRequire(import.meta.url)('./package.json') as { version: string }
+// The build's appId comes from the same file the installer reads, so the
+// running app's Windows shell identity cannot drift from the shortcut's.
+const pkg = createRequire(import.meta.url)('./package.json') as {
+  version: string
+  build: { appId: string }
+}
+const { version } = pkg
+const appId = pkg.build.appId
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    define: { __APP_VERSION__: JSON.stringify(version) },
+    define: { __APP_VERSION__: JSON.stringify(version), __APP_ID__: JSON.stringify(appId) },
     build: {
       rollupOptions: {
         input: {
