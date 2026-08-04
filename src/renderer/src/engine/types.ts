@@ -130,6 +130,14 @@ export interface VectorVertex {
   y: number
   /** Absent means NONE — every path drawn before this existed has corners. */
   mirror?: MirrorMode
+  /**
+   * Fillet radius at this point, in node-local units. Absent or 0 is a sharp
+   * corner, which is what every path drawn before this existed has. The radius
+   * is a *request*: the outline clamps it to half of the shorter neighbouring
+   * segment, and a point whose neighbours are curved stays sharp (see
+   * roundSubPathCorners).
+   */
+  cornerRadius?: number
 }
 
 export interface VectorEdge {

@@ -892,9 +892,19 @@ function VectorPointSection({ node }: { node: VectorNode }) {
   const modes = new Set(chosen.map((v) => v.mirror ?? 'NONE'))
   const current = modes.size === 1 ? [...modes][0] : null
 
-  const apply = (mode: MirrorMode) => {
+  const radii = new Set(chosen.map((v) => round(v.cornerRadius ?? 0)))
+  const radius = radii.size === 1 ? [...radii][0] : null
+
+  /** Points whose fillet the outline will actually draw (see roundSubPathCorners). */
+  const roundable = chosen.filter((v) => {
+    const touching = node.network.edges.filter((e) => e.v0 === v.id || e.v1 === v.id)
+    return touching.length >= 2 && touching.every((e) => e.cp0 === null && e.cp1 === null)
+  })
+
+  /** Mutate the network in place, then commit it as one entry. */
+  const commitNetwork = (mutate: () => void, label: string) => {
     const before = structuredClone(node.network)
-    for (const v of chosen) setVertexMirror(node.network, v.id, mode)
+    mutate()
     documentStore.scene.bump()
     documentStore.commit(
       [
@@ -905,9 +915,29 @@ function VectorPointSection({ node }: { node: VectorNode }) {
           after: { network: structuredClone(node.network) },
         },
       ],
-      'Set Point Mirroring',
+      label,
       true,
     )
+  }
+
+  const apply = (mode: MirrorMode) => {
+    commitNetwork(() => {
+      for (const v of chosen) setVertexMirror(node.network, v.id, mode)
+    }, 'Set Point Mirroring')
+  }
+
+  const applyRadius = (value: number) => {
+    const r = Math.max(0, value)
+    commitNetwork(() => {
+      for (const v of chosen) {
+        const target = node.network.vertices.find((x) => x.id === v.id)
+        if (!target) continue
+        // Drop the field rather than storing a 0: absent is the same thing, and
+        // it keeps a document that never rounds anything free of the noise.
+        if (r === 0) delete target.cornerRadius
+        else target.cornerRadius = r
+      }
+    }, 'Set Point Radius')
   }
 
   return (
@@ -923,8 +953,25 @@ function VectorPointSection({ node }: { node: VectorNode }) {
           onChange={apply}
         />
       </Field>
+      <Field
+        label="Corner radius"
+        hint="Rounds the corner at this point, cutting back along both segments"
+        className="mt-2"
+      >
+        <NumberInput
+          label={<CornerRadiusIcon />}
+          title="Corner radius at this point"
+          value={radius}
+          min={0}
+          onCommit={applyRadius}
+        />
+      </Field>
       <div className="text-[10px] text-[var(--pf-text-dim)] mt-2 leading-relaxed">
-        Hold Alt while dragging a handle to break the pairing just for that drag.
+        {roundable.length === 0
+          ? 'A point between curved segments stays sharp — the radius is kept, and applies if you straighten them.'
+          : roundable.length < chosen.length
+            ? `${chosen.length - roundable.length} of these sit next to a curve and stay sharp.`
+            : 'The radius is capped at half the shorter segment. Hold Alt while dragging a handle to break the pairing just for that drag.'}
       </div>
     </Section>
   )

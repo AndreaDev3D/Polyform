@@ -70,6 +70,13 @@ export function NumberInput({ label, title, value, onCommit, step = 1, min = -In
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(false)
   const dragRef = useRef<{ startX: number; startVal: number; active: boolean } | null>(null)
+  /**
+   * Enter and Escape both blur the input, and blur used to commit — so one
+   * Enter landed the value TWICE (two identical history entries, two undos to
+   * get back), and Escape committed the text it was supposed to discard. Both
+   * keys now say "this blur is already handled".
+   */
+  const skipBlurCommit = useRef(false)
 
   const display = value === null ? '' : String(round(value, precision))
   // The unit rides with the number instead of sitting at the far right of the
@@ -148,17 +155,28 @@ export function NumberInput({ label, title, value, onCommit, step = 1, min = -In
         onFocus={(e) => {
           setEditing(true)
           setText(display)
+          skipBlurCommit.current = false
           e.target.select()
         }}
         onChange={(e) => setText(e.target.value)}
-        onBlur={() => commitText(text)}
+        onBlur={() => {
+          if (skipBlurCommit.current) {
+            skipBlurCommit.current = false
+            setEditing(false)
+            return
+          }
+          commitText(text)
+        }}
         onKeyDown={(e) => {
           e.stopPropagation()
           if (e.key === 'Enter') {
             commitText((e.target as HTMLInputElement).value)
+            skipBlurCommit.current = true
             ;(e.target as HTMLInputElement).blur()
           } else if (e.key === 'Escape') {
+            // Discard: the text goes back to the value on the next render.
             setEditing(false)
+            skipBlurCommit.current = true
             ;(e.target as HTMLInputElement).blur()
           } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault()

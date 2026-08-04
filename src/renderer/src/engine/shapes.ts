@@ -174,6 +174,100 @@ export function starPath(w: number, h: number, points: number, innerRatio: numbe
 // Vector networks -> subpaths (walks edge chains)
 // ---------------------------------------------------------------------------
 
+/**
+ * Replace sharp corners with circular fillets — one anchor becomes two, joined
+ * by the arc. `radii[i]` is the request for `sp.anchors[i]`; 0 leaves it alone.
+ *
+ * Rules, all of them visible in the tests:
+ *  - Only a corner between two STRAIGHT segments rounds. A point whose
+ *    neighbour is already a curve stays sharp: trimming a curve back means
+ *    splitting it, and a fillet tangent to two curves is not determined by a
+ *    radius alone. The stored radius survives, so straightening the segment
+ *    later rounds the point without the user re-entering anything.
+ *  - The trim distance is capped at HALF the shorter neighbour, so two rounded
+ *    corners in a row can never eat into each other.
+ *  - The endpoints of an open path have only one neighbour, so they never round.
+ *
+ * No trigonometry, on purpose. This has a bit-exact Rust twin, and `acos`/`tan`
+ * are libm calls whose last ULP is not specified — two engines can legitimately
+ * disagree. Everything here is arithmetic and `sqrt`, which IEEE-754 pins:
+ * with `c = cos θ` and `s = sin θ` straight from the dot and cross products,
+ * tan(θ/2) = s/(1+c), and the quarter angle needed for the arc's control points
+ * comes from tan(x/2) = (√(1+T²) − 1)/T.
+ */
+export function roundSubPathCorners(sp: SubPath, radii: number[]): SubPath {
+  let wanted = false
+  for (const r of radii) {
+    if (r > 0) {
+      wanted = true
+      break
+    }
+  }
+  // The common case: nothing to do, and no allocation for saying so.
+  if (!wanted) return sp
+  const n = sp.anchors.length
+  if (n < 3) return sp
+
+  const out: Anchor[] = []
+  for (let i = 0; i < n; i++) {
+    const a = sp.anchors[i]
+    const r = radii[i] ?? 0
+    const prev = sp.anchors[i === 0 ? n - 1 : i - 1]
+    const next = sp.anchors[i === n - 1 ? 0 : i + 1]
+    const isOpenEnd = !sp.closed && (i === 0 || i === n - 1)
+    // A segment is straight only when NEITHER of its controls is set.
+    const straightIn = a.cpIn === null && prev.cpOut === null
+    const straightOut = a.cpOut === null && next.cpIn === null
+    // `!(r > 0)`, not `r <= 0`: a NaN radius (a corrupt file, a bad agent
+    // write) must take the same branch in both engines, and NaN fails both
+    // comparisons. This way it stays a sharp corner instead of turning the
+    // whole path into NaN coordinates.
+    if (!(r > 0) || isOpenEnd || !straightIn || !straightOut) {
+      out.push(a)
+      continue
+    }
+
+    const ux = prev.p.x - a.p.x
+    const uy = prev.p.y - a.p.y
+    const vx = next.p.x - a.p.x
+    const vy = next.p.y - a.p.y
+    const lu = Math.sqrt(ux * ux + uy * uy)
+    const lv = Math.sqrt(vx * vx + vy * vy)
+    if (lu < 1e-9 || lv < 1e-9) {
+      out.push(a)
+      continue
+    }
+    const unx = ux / lu
+    const uny = uy / lu
+    const vnx = vx / lv
+    const vny = vy / lv
+    const c = unx * vnx + uny * vny
+    const s = Math.abs(unx * vny - uny * vnx)
+    // s ~ 0 is collinear (nothing to round) or a fold back on itself; 1+c ~ 0
+    // is the straight-through case, where the tangent length would blow up.
+    if (s < 1e-9 || 1 + c < 1e-9) {
+      out.push(a)
+      continue
+    }
+    const tanHalf = s / (1 + c)
+    const t = Math.min(r / tanHalf, 0.5 * lu, 0.5 * lv)
+    const radius = t * tanHalf
+    // Turn angle φ = π − θ, so tan(φ/2) = 1/tan(θ/2); the arc's control arm is
+    // (4/3)·tan(φ/4)·radius, which is κ·radius at a right angle.
+    const tHalfTurn = 1 / tanHalf
+    const tQuarterTurn = (Math.sqrt(1 + tHalfTurn * tHalfTurn) - 1) / tHalfTurn
+    const k = (4 / 3) * tQuarterTurn * radius
+
+    // Travel runs prev -> a -> next, so the direction into the corner is -un
+    // and out of it is vn. The arc starts t back along each neighbour.
+    const p0 = pt(a.p.x + unx * t, a.p.y + uny * t)
+    const p3 = pt(a.p.x + vnx * t, a.p.y + vny * t)
+    out.push({ p: p0, cpIn: null, cpOut: pt(p0.x - unx * k, p0.y - uny * k) })
+    out.push({ p: p3, cpIn: pt(p3.x - vnx * k, p3.y - vny * k), cpOut: null })
+  }
+  return { closed: sp.closed, anchors: out }
+}
+
 export function networkToSubPaths(network: VectorNetwork): SubPath[] {
   const { vertices, edges } = network
   if (edges.length === 0) return []
@@ -225,9 +319,14 @@ export function networkToSubPaths(network: VectorNetwork): SubPath[] {
 
     const closed = head === tail && chain.length > 1
     const anchors: Anchor[] = []
+    // Radius requests ride alongside, one per anchor, for the rounding pass at
+    // the end: SubPath has no room for them and the outline is where they stop
+    // being a property of a point and become geometry.
+    const radii: number[] = []
     const pushVertex = (vid: number) => {
       const v = vmap.get(vid)
       anchors.push(anchor(pt(v?.x ?? 0, v?.y ?? 0)))
+      radii.push(v?.cornerRadius ?? 0)
     }
     pushVertex(head)
     let cursor = head
@@ -248,10 +347,11 @@ export function networkToSubPaths(network: VectorNetwork): SubPath[] {
       } else {
         const v = vmap.get(to)
         anchors.push(anchor(pt(v?.x ?? 0, v?.y ?? 0), cpB ? { ...cpB } : null))
+        radii.push(v?.cornerRadius ?? 0)
       }
       cursor = to
     }
-    paths.push({ closed, anchors })
+    paths.push(roundSubPathCorners({ closed, anchors }, radii))
   }
 
   for (let i = 0; i < edges.length; i++) {

@@ -12,6 +12,9 @@
 //   5. hovering a handle changes the cursor, and dragging the rotate knob
 //      turns the shape - the cursor was written only on repaint, so hovering
 //      a handle often changed nothing at all (F-23).
+//   6. typing a value into the inspector is ONE undo step, and Escape
+//      discards it - Enter committed, then the blur it caused committed the
+//      same value again.
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -321,34 +324,46 @@ try {
     return 'built'
   })()`)
   await sleep(450)
-  const canvasOrigin = JSON.parse(await evaluate(`(() => {
+  // Ask the app where its own handles are rather than deriving them here: a
+  // gate that recomputes geometry can disagree with the app about the camera,
+  // the selection or the canvas offset, and then fails for its own reasons.
+  const handles = JSON.parse(await evaluate(`(() => {
+    const P = globalThis.__polyform
+    const st = P.editor.get()
+    const box = P.overlays.selectionScreenBox(P.documentStore.scene, st.selection, st.camera)
+    if (!box) return 'null'
     const r = document.querySelector('canvas').getBoundingClientRect()
-    return JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) })
+    const hs = P.overlays.boxHandles(box, P.overlays.canRotate(P.documentStore.scene, st.selection))
+    const out = {}
+    for (const h of hs) out[h.kind] = { x: Math.round(r.left + h.x), y: Math.round(r.top + h.y) }
+    const c = { x: (box[0].x + box[2].x) / 2, y: (box[0].y + box[2].y) / 2 }
+    out.centre = { x: Math.round(r.left + c.x), y: Math.round(r.top + c.y) }
+    out.empty = { x: Math.round(r.left + box[2].x + 220), y: Math.round(r.top + box[2].y + 160) }
+    return JSON.stringify(out)
   })()`))
-  // Camera at the origin with zoom 1, so world == canvas-local. The knob sits
-  // ROTATE_STEM px out from the top edge midpoint of a 200x100 box at (100,100).
-  const at = (wx, wy) => ({ x: canvasOrigin.left + wx, y: canvasOrigin.top + wy })
+  if (!handles || !handles.rotate) throw new Error('no rotate knob in the selection handles')
   const readCursor = async (p) => {
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y })
     await sleep(220)
     return await evaluate(`(document.querySelector('canvas').parentElement.style.cursor || '')`)
   }
-  const overNothing = await readCursor(at(700, 500))
-  const overKnob = await readCursor(at(200, 100 - 18))
-  const overEdge = await readCursor(at(200, 100))
+  const overNothing = await readCursor(handles.empty)
+  const overKnob = await readCursor(handles.rotate)
+  const overEdge = await readCursor(handles.n)
   if (!/svg/.test(overKnob)) {
-    fail(`hovering the rotate knob gave no rotation cursor (was "${overNothing}" over empty space, "${overKnob}" on the knob)`)
+    fail(`hovering the rotate knob at ${JSON.stringify(handles.rotate)} gave no rotation cursor (was "${overNothing}" over empty space, "${overKnob}" on the knob)`)
   } else if (overEdge !== 'ns-resize') {
     fail(`hovering the top edge should still resize, got "${overEdge}"`)
   } else {
     console.log('E2E PASS: the rotate knob and resize handles change the cursor on hover')
   }
 
-  // ...and dragging that knob turns the shape, in one undo step.
-  const knob = at(200, 100 - 18)
+  // ...and dragging that knob turns the shape, in one undo step. The knob starts
+  // straight above the centre, so dropping it due east is a quarter turn.
+  const knob = handles.rotate
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: knob.x, y: knob.y, button: 'left', clickCount: 1 })
   await sleep(80)
-  const quarter = at(200 + 70, 150) // a quarter turn about the centre (200,150)
+  const quarter = { x: handles.centre.x + 70, y: handles.centre.y }
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: quarter.x, y: quarter.y, button: 'left', buttons: 1 })
   await sleep(160)
   const rotatingNow = await evaluate(`globalThis.__polyform.editor.get().rotating`)
@@ -365,6 +380,72 @@ try {
     fail(`the rotating flag should be on mid-drag and off after (mid=${rotatingNow}, after=${rot.rotating})`)
   } else {
     console.log('E2E PASS: dragging the rotate knob turns the shape in one undo step')
+  }
+
+  // ---------------------------------------------------------------------
+  // 6. Typing a value into the inspector is ONE undo step, and Escape
+  //    discards it.
+  //
+  //    Enter committed and then blurred the input, and blur committed too, so
+  //    every typed value landed twice: two identical history entries, and two
+  //    Ctrl+Z to get back one edit. Escape had the mirror problem — it blurred,
+  //    so it committed the text it was meant to throw away. Neither is visible
+  //    to a unit test: it takes a real focus/keypress/blur sequence.
+  // ---------------------------------------------------------------------
+  await evaluate(`globalThis.__polyform.editor.set({ selection: ['e2e-rot'], vectorEditId: null })`)
+  await sleep(350)
+  const xField = JSON.parse(await evaluate(`(() => {
+    const glyph = [...document.querySelectorAll('[data-scrub]')].find(e => e.textContent === 'X')
+    const input = glyph ? glyph.parentElement.querySelector('input') : null
+    if (!input) return 'null'
+    const r = input.getBoundingClientRect()
+    return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+  })()`))
+  if (!xField) {
+    fail('inspector X input not found')
+  } else {
+    const typeInto = async (text, key) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: xField.x, y: xField.y, button: 'left', clickCount: 1 })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: xField.x, y: xField.y, button: 'left', clickCount: 1 })
+      await sleep(180)
+      await send('Input.insertText', { text })
+      await sleep(120)
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: key === 'Enter' ? 13 : 27 })
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: key === 'Enter' ? 13 : 27 })
+      await sleep(450)
+    }
+    const state = async () => JSON.parse(await evaluate(`JSON.stringify({
+      x: Math.round(globalThis.__polyform.documentStore.scene.getNode('e2e-rot').x),
+      entries: globalThis.__polyform.documentStore.history.undoStack.length,
+    })`))
+
+    const start = await state()
+    await typeInto('321', 'Enter')
+    const typed = await state()
+    if (typed.x !== 321) {
+      fail(`typing into the inspector did not apply: x=${typed.x}`)
+    } else if (typed.entries - start.entries !== 1) {
+      fail(`typing a value made ${typed.entries - start.entries} history entries, expected 1`)
+    } else {
+      await evaluate(`globalThis.__polyform.documentStore.undo()`)
+      await sleep(300)
+      const undone = await state()
+      if (undone.x !== start.x) {
+        fail(`one undo should restore x=${start.x}, got ${undone.x}`)
+      } else {
+        console.log('E2E PASS: typing a value is one edit and one undo')
+      }
+    }
+
+    const beforeEsc = await state()
+    await typeInto('999', 'Escape')
+    const afterEsc = await state()
+    if (afterEsc.x !== beforeEsc.x || afterEsc.entries !== beforeEsc.entries) {
+      fail(`Escape should discard, but x=${afterEsc.x} (was ${beforeEsc.x}) and entries ${beforeEsc.entries}->${afterEsc.entries}`)
+    } else {
+      console.log('E2E PASS: Escape discards a typed value')
+    }
   }
 
 } catch (err) {

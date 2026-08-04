@@ -115,6 +115,9 @@ pub fn node_outline(node: &Obj) -> Vec<SubPath> {
                             id: f64_of(v, "id"),
                             x: f64_of(v, "x"),
                             y: f64_of(v, "y"),
+                            // Clicks land on the rounded outline, not the corner
+                            // the fillet cut away.
+                            corner_radius: f64_of(v, "cornerRadius"),
                         })
                         .collect()
                 })

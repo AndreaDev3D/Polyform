@@ -138,6 +138,19 @@ table VectorVertex {
   x: float;
   y: float;
   mirror: MirrorMode = None;
+  /// Fillet radius at this point, in node-local units. 0 is a sharp corner.
+  /// A request, not a result: the outline caps it at half the shorter
+  /// neighbouring segment, and a point between curved segments stays sharp
+  /// while keeping the value.
+  ///
+  /// Added WITHOUT bumping schema_version, on purpose. The decoder rejects any
+  /// version newer than the build (`decodeScene`), so bumping would stop v0.6.0
+  /// opening files it can read perfectly well — the field is optional with a 0
+  /// default, an older build simply draws the corner sharp, and because the
+  /// document round-trips as a whole the value survives being saved by one.
+  /// A version bump is for a change that an older build would get WRONG, not
+  /// for one it would merely not use.
+  corner_radius: float = 0;
 }
 
 table VectorEdge {

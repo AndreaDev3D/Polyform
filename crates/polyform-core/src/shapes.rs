@@ -201,6 +201,8 @@ pub struct NetVertex {
     pub id: f64,
     pub x: f64,
     pub y: f64,
+    /// Fillet radius requested at this point; 0 is a sharp corner.
+    pub corner_radius: f64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -217,13 +219,106 @@ fn vkey(id: f64) -> u64 {
     (if id == 0.0 { 0.0f64 } else { id }).to_bits()
 }
 
+/// Replace sharp corners with circular fillets — twin of `roundSubPathCorners`
+/// in shapes.ts. `radii[i]` is the request for `sp.anchors[i]`; 0 leaves it be.
+///
+/// Only a corner between two straight segments rounds, the trim is capped at
+/// half the shorter neighbour, and the endpoints of an open path never round.
+///
+/// No trigonometry, on purpose: `acos`/`tan` are libm calls whose last ULP is
+/// unspecified, so V8 and Rust may legitimately disagree and the parity fuzz
+/// compares these outputs EXACTLY. Everything here is arithmetic and `sqrt`.
+pub fn round_sub_path_corners(sp: &SubPath, radii: &[f64]) -> SubPath {
+    let mut wanted = false;
+    for r in radii {
+        if *r > 0.0 {
+            wanted = true;
+            break;
+        }
+    }
+    if !wanted {
+        return sp.clone();
+    }
+    let n = sp.anchors.len();
+    if n < 3 {
+        return sp.clone();
+    }
+
+    let mut out: Vec<Anchor> = Vec::new();
+    for i in 0..n {
+        let a = &sp.anchors[i];
+        let r = radii.get(i).copied().unwrap_or(0.0);
+        let prev = &sp.anchors[if i == 0 { n - 1 } else { i - 1 }];
+        let next = &sp.anchors[if i == n - 1 { 0 } else { i + 1 }];
+        let is_open_end = !sp.closed && (i == 0 || i == n - 1);
+        let straight_in = a.cp_in.is_none() && prev.cp_out.is_none();
+        let straight_out = a.cp_out.is_none() && next.cp_in.is_none();
+        if !(r > 0.0) || is_open_end || !straight_in || !straight_out {
+            out.push(a.clone());
+            continue;
+        }
+
+        let ux = prev.p.x - a.p.x;
+        let uy = prev.p.y - a.p.y;
+        let vx = next.p.x - a.p.x;
+        let vy = next.p.y - a.p.y;
+        let lu = (ux * ux + uy * uy).sqrt();
+        let lv = (vx * vx + vy * vy).sqrt();
+        if lu < 1e-9 || lv < 1e-9 {
+            out.push(a.clone());
+            continue;
+        }
+        let unx = ux / lu;
+        let uny = uy / lu;
+        let vnx = vx / lv;
+        let vny = vy / lv;
+        let c = unx * vnx + uny * vny;
+        let s = (unx * vny - uny * vnx).abs();
+        if s < 1e-9 || 1.0 + c < 1e-9 {
+            out.push(a.clone());
+            continue;
+        }
+        let tan_half = s / (1.0 + c);
+        let t = js_min3(r / tan_half, 0.5 * lu, 0.5 * lv);
+        let radius = t * tan_half;
+        let t_half_turn = 1.0 / tan_half;
+        let t_quarter_turn = ((1.0 + t_half_turn * t_half_turn).sqrt() - 1.0) / t_half_turn;
+        let k = (4.0 / 3.0) * t_quarter_turn * radius;
+
+        let p0 = vec2(a.p.x + unx * t, a.p.y + uny * t);
+        let p3 = vec2(a.p.x + vnx * t, a.p.y + vny * t);
+        out.push(anchor(p0, None, Some(vec2(p0.x - unx * k, p0.y - uny * k))));
+        out.push(anchor(p3, Some(vec2(p3.x - vnx * k, p3.y - vny * k)), None));
+    }
+    SubPath { closed: sp.closed, anchors: out }
+}
+
+/// `Math.min(a, b, c)`: NaN-propagating, unlike Rust's `f64::min`, which
+/// returns the non-NaN operand. A NaN radius must reach the same place in both
+/// engines or the fuzz would find it.
+fn js_min3(a: f64, b: f64, c: f64) -> f64 {
+    if a.is_nan() || b.is_nan() || c.is_nan() {
+        return f64::NAN;
+    }
+    let mut m = a;
+    if b < m {
+        m = b;
+    }
+    if c < m {
+        m = c;
+    }
+    m
+}
+
 pub fn network_to_sub_paths(vertices: &[NetVertex], edges: &[NetEdge]) -> Vec<SubPath> {
     if edges.is_empty() {
         return Vec::new();
     }
-    let mut vmap: HashMap<u64, Vec2> = HashMap::new();
+    // Position plus the fillet request, which the rounding pass consumes.
+    let mut vmap: HashMap<u64, (Vec2, f64)> = HashMap::new();
     for v in vertices {
-        vmap.insert(vkey(v.id), vec2(v.x, v.y)); // later duplicates overwrite, like JS Map
+        // Later duplicates overwrite, like JS Map.
+        vmap.insert(vkey(v.id), (vec2(v.x, v.y), v.corner_radius));
     }
     // vertex key -> edge indices, in edge-array order (mirrors JS Map of arrays).
     let mut adjacency: HashMap<u64, Vec<usize>> = HashMap::new();
@@ -250,7 +345,7 @@ fn first_unused(adjacency: &HashMap<u64, Vec<usize>>, v: u64, used: &HashSet<usi
 fn take_chain(
     start: usize,
     edges: &[NetEdge],
-    vmap: &HashMap<u64, Vec2>,
+    vmap: &HashMap<u64, (Vec2, f64)>,
     adjacency: &HashMap<u64, Vec<usize>>,
     used: &mut HashSet<usize>,
     paths: &mut Vec<SubPath>,
@@ -290,8 +385,13 @@ fn take_chain(
 
     let closed = head == tail && chain.len() > 1;
     let mut anchors: Vec<Anchor> = Vec::new();
-    let lookup = |vid: u64| vmap.get(&vid).copied().unwrap_or(vec2(0.0, 0.0));
-    anchors.push(anchor(lookup(head), None, None));
+    // Radius requests ride alongside, one per anchor, for the rounding pass at
+    // the end; SubPath has no room for them.
+    let mut radii: Vec<f64> = Vec::new();
+    let lookup = |vid: u64| vmap.get(&vid).copied().unwrap_or((vec2(0.0, 0.0), 0.0));
+    let (head_p, head_r) = lookup(head);
+    anchors.push(anchor(head_p, None, None));
+    radii.push(head_r);
     let mut cursor = head;
     let last_edge_idx = chain.last().map(|c| c.0);
     for &(edge_idx, forward) in &chain {
@@ -300,7 +400,9 @@ fn take_chain(
         let to = if forward { vkey(edge.v1) } else { vkey(edge.v0) };
         if from != cursor {
             // Disconnected guard; shouldn't happen in well-formed chains.
-            anchors.push(anchor(lookup(from), None, None));
+            let (from_p, from_r) = lookup(from);
+            anchors.push(anchor(from_p, None, None));
+            radii.push(from_r);
         }
         let cp_a = if forward { edge.cp0 } else { edge.cp1 };
         let cp_b = if forward { edge.cp1 } else { edge.cp0 };
@@ -308,11 +410,13 @@ fn take_chain(
         if closed && to == head && last_edge_idx == Some(edge_idx) {
             anchors[0].cp_in = cp_b;
         } else {
-            anchors.push(anchor(lookup(to), cp_b, None));
+            let (to_p, to_r) = lookup(to);
+            anchors.push(anchor(to_p, cp_b, None));
+            radii.push(to_r);
         }
         cursor = to;
     }
-    paths.push(SubPath { closed, anchors });
+    paths.push(round_sub_path_corners(&SubPath { closed, anchors }, &radii));
 }
 
 // ---------------------------------------------------------------------------
@@ -425,9 +529,9 @@ mod tests {
     #[test]
     fn triangle_network_closes() {
         let vertices = [
-            NetVertex { id: 0.0, x: 0.0, y: 0.0 },
-            NetVertex { id: 1.0, x: 10.0, y: 0.0 },
-            NetVertex { id: 2.0, x: 5.0, y: 8.0 },
+            NetVertex { id: 0.0, x: 0.0, y: 0.0, corner_radius: 0.0 },
+            NetVertex { id: 1.0, x: 10.0, y: 0.0, corner_radius: 0.0 },
+            NetVertex { id: 2.0, x: 5.0, y: 8.0, corner_radius: 0.0 },
         ];
         let edges = [
             NetEdge { v0: 0.0, v1: 1.0, cp0: None, cp1: None },
@@ -443,9 +547,9 @@ mod tests {
     #[test]
     fn open_chain_stays_open() {
         let vertices = [
-            NetVertex { id: 0.0, x: 0.0, y: 0.0 },
-            NetVertex { id: 1.0, x: 10.0, y: 0.0 },
-            NetVertex { id: 2.0, x: 20.0, y: 5.0 },
+            NetVertex { id: 0.0, x: 0.0, y: 0.0, corner_radius: 0.0 },
+            NetVertex { id: 1.0, x: 10.0, y: 0.0, corner_radius: 0.0 },
+            NetVertex { id: 2.0, x: 20.0, y: 5.0, corner_radius: 0.0 },
         ];
         let edges = [
             NetEdge { v0: 0.0, v1: 1.0, cp0: None, cp1: None },

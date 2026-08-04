@@ -19,7 +19,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | [Canvas & Viewport](#canvas--viewport) | 16 | 1 | 1 | 0 | 18 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 11 | 3 | 3 | 0 | 17 |
+| [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
@@ -33,7 +33,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **138** | **23** | **54** | **23** | **238** |
+| **Total** | **138** | **24** | **53** | **23** | **238** |
 
 ---
 
@@ -102,7 +102,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Flatten selection | Bake selection into a single vector layer | ✅ | Ctrl+E; concatenates contours as subpaths so curves survive; opens the vector editor when one shape went in |
 | Outline stroke | Convert a stroke into filled geometry | 📋 | |
 | Masks | Layer masks clip sibling content | 🟡 | Vector/shape clipping of siblings above (Ctrl+Alt+M); no luminance masks |
-| Rounded corners on vector paths | Corner radius applies to arbitrary vertices | 📋 | Radius applies to rectangles and frames; on a vector anchor it needs nodeOutline plus its Rust twin and a parity fixture, so it is its own change |
+| Rounded corners on vector paths | Corner radius applies to arbitrary vertices | 🟡 | Per-point radius on any selection of points, capped at half the shorter segment; generated in `nodeOutline` so render, hit-test, SVG export, booleans and the GPU tessellator all agree (Rust twin, `vector-corner-radius` parity fixture). A point whose neighbour is a **curve** stays sharp — filleting into a curve means splitting it, which is its own change |
 
 ## Selection & Transform
 

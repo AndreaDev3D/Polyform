@@ -231,9 +231,10 @@ pub fn star_path(w: f64, h: f64, points: f64, inner_ratio: f64) -> Vec<f64> {
 
 #[wasm_bindgen(js_name = networkToSubPaths)]
 pub fn network_to_sub_paths(vertices: &[f64], edges: &[f64]) -> Vec<f64> {
+    // 4 per vertex: id, x, y, cornerRadius (see encodeNetwork in wasm/codec.ts).
     let verts: Vec<s::NetVertex> = vertices
-        .chunks_exact(3)
-        .map(|c| s::NetVertex { id: c[0], x: c[1], y: c[2] })
+        .chunks_exact(4)
+        .map(|c| s::NetVertex { id: c[0], x: c[1], y: c[2], corner_radius: c[3] })
         .collect();
     let es: Vec<s::NetEdge> = edges
         .chunks_exact(6)

@@ -176,6 +176,10 @@ function randomNode(): SceneNode {
         id: i,
         x: range(-50, 150),
         y: range(-50, 150),
+        // Rounded points cut the corner off, which changes the outline the
+        // world AABB is measured from — so both engines must round identically
+        // before they can agree on the box.
+        ...(rand() < 0.34 ? { cornerRadius: range(0, 120) } : {}),
       })),
       edges: Array.from({ length: verts }, (_, i) => ({
         id: i,

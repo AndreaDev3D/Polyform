@@ -213,6 +213,63 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Per-point corner radius: the fillet is generated in the outline, so both
+    // rasterizers see the same path — and the tessellator has to walk the arcs
+    // the same way Canvas2D does.
+    name: 'vector-corner-radius',
+    // Measured 0.30% on Ampere; the limit leaves room for another rasterizer's
+    // anti-aliasing without leaving room for a wrong fillet.
+    badLimit: 0.02,
+    build: (s) => {
+      const arrow = (radius: number): { id: number; x: number; y: number; cornerRadius?: number }[] => [
+        { id: 0, x: 0, y: 60, cornerRadius: radius },
+        { id: 1, x: 60, y: 0, cornerRadius: radius },
+        { id: 2, x: 120, y: 60, cornerRadius: radius },
+        { id: 3, x: 90, y: 60, cornerRadius: radius },
+        { id: 4, x: 90, y: 140, cornerRadius: radius },
+        { id: 5, x: 30, y: 140, cornerRadius: radius },
+        { id: 6, x: 30, y: 60, cornerRadius: radius },
+      ]
+      const ring = (n: number) =>
+        Array.from({ length: n }, (_, i) => ({ id: i, v0: i, v1: (i + 1) % n, cp0: null, cp1: null }))
+      // Sharp, gently rounded, and asking for far more than the short edges can
+      // give (which the clamp turns into the roundest this outline can be).
+      for (const [i, r] of [0, 10, 400].entries()) {
+        make(s, 'VECTOR', null, {
+          x: 30 + i * 200,
+          y: 30,
+          width: 120,
+          height: 140,
+          fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.35, g: 0.7, b: 0.95, a: 1 } }],
+          strokes: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+          strokeWeight: 2,
+          network: { vertices: arrow(r), edges: ring(7) },
+        })
+      }
+      // One rounded point next to a curved segment: it must stay sharp, in both
+      // renderers, or they disagree about where the outline goes.
+      make(s, 'VECTOR', null, {
+        x: 60,
+        y: 230,
+        width: 200,
+        height: 200,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.95, g: 0.75, b: 0.3, a: 1 } }],
+        network: {
+          vertices: [
+            { id: 0, x: 0, y: 0, cornerRadius: 40 },
+            { id: 1, x: 200, y: 20, cornerRadius: 40 },
+            { id: 2, x: 120, y: 200, cornerRadius: 40 },
+          ],
+          edges: [
+            { id: 0, v0: 0, v1: 1, cp0: { x: 60, y: -60 }, cp1: null },
+            { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+            { id: 2, v0: 2, v1: 0, cp0: null, cp1: null },
+          ],
+        },
+      })
+    },
+  },
+  {
     name: 'effects-shadows',
     badLimit: 0.04,
     build: (s) => {

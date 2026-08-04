@@ -316,6 +316,10 @@ function randomNetwork(): VectorNetwork {
     id: i,
     x: range(-200, 200),
     y: range(-200, 200),
+    // A third of the points ask to be rounded, over a range that runs from
+    // "barely visible" to "far more than the neighbouring segment can give",
+    // so the clamp and the degenerate branches both get exercised.
+    ...(rand() < 0.34 ? { cornerRadius: range(0, 300) } : {}),
   }))
   const nEdges = 1 + Math.floor(rand() * 14)
   const edges = Array.from({ length: nEdges }, (_, i) => {

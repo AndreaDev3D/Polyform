@@ -61,11 +61,14 @@ export function encodeNetwork(network: VectorNetwork): {
   vertices: Float64Array
   edges: Float64Array
 } {
-  const vertices = new Float64Array(network.vertices.length * 3)
+  const vertices = new Float64Array(network.vertices.length * 4)
   network.vertices.forEach((v, i) => {
-    vertices[i * 3] = v.id
-    vertices[i * 3 + 1] = v.x
-    vertices[i * 3 + 2] = v.y
+    vertices[i * 4] = v.id
+    vertices[i * 4 + 1] = v.x
+    vertices[i * 4 + 2] = v.y
+    // Absent means sharp. Mirroring is not sent: it is an editing rule, not
+    // geometry, so it never reaches the outline.
+    vertices[i * 4 + 3] = v.cornerRadius ?? 0
   })
   const edges = new Float64Array(network.edges.length * 6)
   network.edges.forEach((e, i) => {

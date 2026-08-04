@@ -390,7 +390,14 @@ impl SceneGraph {
             .map(|a| {
                 a.iter()
                     .filter_map(Value::as_object)
-                    .map(|v| NetVertex { id: f64_of(v, "id"), x: f64_of(v, "x"), y: f64_of(v, "y") })
+                    .map(|v| NetVertex {
+                        id: f64_of(v, "id"),
+                        x: f64_of(v, "x"),
+                        y: f64_of(v, "y"),
+                        // Absent is 0: a sharp corner, which is what every path
+                        // written before this field existed has.
+                        corner_radius: f64_of(v, "cornerRadius"),
+                    })
                     .collect()
             })
             .unwrap_or_default();
