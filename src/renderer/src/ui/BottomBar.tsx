@@ -11,16 +11,19 @@
 // way from the canvas it acts on. A real bar can hold all three zones and stops
 // hovering over the drawing.
 
-import { useEditor, type Tool } from '../state/editor'
+import { useEditor, type Tool, type VectorMode } from '../state/editor'
 import { booleanSelection, topSelection, zoomAt, zoomToFit, zoomToSelection } from '../state/actions'
+import { interactionController } from '../interactions/controller'
 import { READING_WINDOW_MS, isReading, useMcpStatus } from '../agent/status'
 import { useEffect, useState } from 'react'
 import {
+  BendIcon,
   BoolExcludeIcon,
   BoolIntersectIcon,
   BoolSubtractIcon,
   BoolUnionIcon,
   CircleIcon,
+  CloseIcon,
   CursorIcon,
   FocusIcon,
   FrameIcon,
@@ -29,6 +32,8 @@ import {
   MinusIcon,
   PenIcon,
   PlusIcon,
+  PointDeleteIcon,
+  PointMoveIcon,
   PolygonIcon,
   SparkIcon,
   SquareIcon,
@@ -127,11 +132,58 @@ function AgentButton() {
   )
 }
 
+const VECTOR_MODES: { mode: VectorMode; title: string; hint: string; icon: React.ReactNode }[] = [
+  { mode: 'move', title: 'Move', hint: 'Drag points and handles · click a segment to add a point', icon: <PointMoveIcon /> },
+  { mode: 'bend', title: 'Bend', hint: 'Drag a segment and the curve follows the pointer', icon: <BendIcon /> },
+  { mode: 'delete', title: 'Delete', hint: 'Click a point to remove it · click a segment to open the path', icon: <PointDeleteIcon /> },
+]
+
+/**
+ * While a vector is open for editing, the centre of the bar becomes its own
+ * tools. Swapping rather than stacking, because you cannot draw a rectangle
+ * mid-path anyway, and one row keeps the modes where the tools already were.
+ */
+function VectorModes() {
+  const mode = useEditor((s) => s.vectorMode)
+  const setMode = useEditor((s) => s.setVectorMode)
+  const points = useEditor((s) => s.vectorSelection)
+
+  return (
+    <div className="flex items-center gap-0.5 shrink-0">
+      {VECTOR_MODES.map((m) => (
+        <button
+          key={m.mode}
+          className={`pf-btn h-7 px-2 gap-1.5 ${mode === m.mode ? 'bg-[var(--pf-accent-solid)] text-white' : ''}`}
+          title={`${m.title} — ${m.hint}`}
+          aria-pressed={mode === m.mode}
+          onClick={() => setMode(m.mode)}
+        >
+          {m.icon}
+          <span className="text-[11px]">{m.title}</span>
+        </button>
+      ))}
+      <span className="w-px h-5 bg-[var(--pf-border)] mx-1" />
+      <span className="text-[11px] text-[var(--pf-text-dim)] tabular-nums px-1">
+        {points.length > 0 ? `${points.length} point${points.length > 1 ? 's' : ''}` : 'no point selected'}
+      </span>
+      <button
+        className="pf-tool-btn"
+        title="Finish editing this path — Esc"
+        aria-label="Finish editing"
+        onClick={() => interactionController.exitVectorEdit(true)}
+      >
+        <CloseIcon />
+      </button>
+    </div>
+  )
+}
+
 export function BottomBar() {
   const tool = useEditor((s) => s.tool)
   const setTool = useEditor((s) => s.setTool)
   const selection = useEditor((s) => s.selection)
   const zoom = useEditor((s) => s.camera.zoom)
+  const vectorEditId = useEditor((s) => s.vectorEditId)
   const canBool = selection.length >= 2 && topSelection().length >= 2
 
   return (
@@ -144,9 +196,13 @@ export function BottomBar() {
         <AgentButton />
       </div>
 
-      {/* Centre: tools. `relative` so the contextual booleans can hang off the
-          end without shifting the tools — their positions are muscle memory,
-          and they used to jump left the moment you selected a second layer. */}
+      {/* Centre: tools, or the vector modes while a path is open. `relative` so
+          the contextual booleans can hang off the end without shifting the
+          tools — their positions are muscle memory, and they used to jump left
+          the moment you selected a second layer. */}
+      {vectorEditId ? (
+        <VectorModes />
+      ) : (
       <div className="relative flex items-center gap-0.5 shrink-0">
         {GROUPS.map((group, gi) => (
           <div key={gi} className="flex items-center gap-0.5">
@@ -185,6 +241,7 @@ export function BottomBar() {
           </div>
         )}
       </div>
+      )}
 
       {/* Right: framing the view — next to the canvas it acts on, not up in
           the title bar. */}

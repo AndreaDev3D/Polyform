@@ -16,6 +16,7 @@ import type {
   ImagePaint,
   InstanceNode,
   LightingPreset,
+  MirrorMode,
   Model3dNode,
   ModelPose,
   NodeId,
@@ -23,9 +24,11 @@ import type {
   RGBA,
   SceneNode,
   TextNode,
+  VectorNode,
 } from '../engine/types'
 import { defaultPose, solid } from '../engine/types'
 import { isFullEllipse } from '../engine/shapes'
+import { setVertexMirror } from '../engine/vector-edit'
 import { isSplatFormat } from '../render3d/island'
 import { documentStore, useDocVersion } from '../state/document'
 import { useEditor } from '../state/editor'
@@ -76,6 +79,9 @@ import {
   EyeIcon,
   EyeOffIcon,
   MinusIcon,
+  MirrorAngleIcon,
+  MirrorFullIcon,
+  MirrorNoneIcon,
   OpacityIcon,
   PlusIcon,
   RotationIcon,
@@ -122,6 +128,7 @@ export function Inspector() {
   useDocVersion()
   const selection = useEditor((s) => s.selection)
   const fonts = useEditor((s) => s.fonts)
+  const vectorEditId = useEditor((s) => s.vectorEditId)
   const [picker, setPicker] = useState<PickerState | null>(null)
   /** null = follow the shape (expand when its corners differ); set = the user decided. */
   const [cornersExpanded, setCornersExpanded] = useState<boolean | null>(null)
@@ -451,6 +458,9 @@ export function Inspector() {
           </Field>
         )}
       </Section>
+
+      {/* Vector points — only while a path is open for editing. */}
+      {vectorEditId && first.type === 'VECTOR' && <VectorPointSection node={first} />}
 
       {/* 3D model (v0.5, ADR-020) */}
       {isModel3d && first.type === 'MODEL3D' && (
@@ -857,6 +867,68 @@ export function Inspector() {
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * The selected point(s) of an open path: how each ties its two handles
+ * together. Per point, because that is where the choice belongs — one corner in
+ * an otherwise smooth curve is the normal case, not the exception.
+ */
+function VectorPointSection({ node }: { node: VectorNode }) {
+  const points = useEditor((s) => s.vectorSelection)
+  const chosen = points
+    .map((id) => node.network.vertices.find((v) => v.id === id))
+    .filter((v): v is VectorNode['network']['vertices'][number] => !!v)
+
+  if (chosen.length === 0) {
+    return (
+      <Section title="Point">
+        <div className="text-[11px] text-[var(--pf-text-dim)] leading-relaxed">
+          Click a point on the path to edit it. Drag a segment in Bend mode to curve it.
+        </div>
+      </Section>
+    )
+  }
+
+  const modes = new Set(chosen.map((v) => v.mirror ?? 'NONE'))
+  const current = modes.size === 1 ? [...modes][0] : null
+
+  const apply = (mode: MirrorMode) => {
+    const before = structuredClone(node.network)
+    for (const v of chosen) setVertexMirror(node.network, v.id, mode)
+    documentStore.scene.bump()
+    documentStore.commit(
+      [
+        {
+          kind: 'update',
+          id: node.id,
+          before: { network: before },
+          after: { network: structuredClone(node.network) },
+        },
+      ],
+      'Set Point Mirroring',
+      true,
+    )
+  }
+
+  return (
+    <Section title={chosen.length === 1 ? 'Point' : `${chosen.length} points`}>
+      <Field label="Mirroring" hint="What the opposite handle does when you drag one">
+        <Segmented<MirrorMode>
+          value={current}
+          options={[
+            { value: 'NONE', label: <MirrorNoneIcon width={13} height={13} />, title: 'No mirroring — each handle is independent' },
+            { value: 'ANGLE', label: <MirrorAngleIcon width={13} height={13} />, title: 'Mirror the angle — the other handle keeps its own length' },
+            { value: 'ANGLE_LENGTH', label: <MirrorFullIcon width={13} height={13} />, title: 'Mirror angle and length — both arms stay equal' },
+          ]}
+          onChange={apply}
+        />
+      </Field>
+      <div className="text-[10px] text-[var(--pf-text-dim)] mt-2 leading-relaxed">
+        Hold Alt while dragging a handle to break the pairing just for that drag.
+      </div>
+    </Section>
+  )
+}
 
 const SCALES = [0.5, 1, 2, 3, 4]
 

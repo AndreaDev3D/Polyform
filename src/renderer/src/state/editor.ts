@@ -19,6 +19,15 @@ export type Tool =
   | 'text'
   | 'hand'
 
+/**
+ * What a drag means inside vector edit. Figma splits this into a second row of
+ * tools; the same idea, kept to the three that change what a drag DOES:
+ *   move    drag points and handles; click a segment to add a point
+ *   bend    drag a segment and the curve follows the pointer
+ *   delete  click points to remove them, segments to open the path
+ */
+export type VectorMode = 'move' | 'bend' | 'delete'
+
 export interface ContextMenuState {
   x: number
   y: number
@@ -48,6 +57,8 @@ interface EditorState {
   orbitingId: NodeId | null
   /** Selected vertex ids within vector edit mode. */
   vectorSelection: number[]
+  /** What a drag does while editing a vector: move points, bend segments, delete. */
+  vectorMode: VectorMode
   /** Arc handle under an active drag, so the overlay can show its readout. */
   arcDrag: ArcHandleKind | null
   /** Corner-radius handle under an active drag. */
@@ -87,6 +98,7 @@ interface EditorState {
   setShowRulers: (v: boolean) => void
   setVectorEditId: (id: NodeId | null) => void
   setVectorSelection: (ids: number[]) => void
+  setVectorMode: (mode: VectorMode) => void
   setArcDrag: (k: ArcHandleKind | null) => void
   setCornerDrag: (k: CornerKind | null) => void
   setStatus: (text: string | null) => void
@@ -115,6 +127,7 @@ export const useEditor = create<EditorState>((set) => ({
   vectorEditId: null,
   orbitingId: null,
   vectorSelection: [],
+  vectorMode: 'move' as const,
   arcDrag: null,
   cornerDrag: null,
   status: null,
@@ -141,8 +154,11 @@ export const useEditor = create<EditorState>((set) => ({
   setHasProject: (hasProject) => set({ hasProject }),
   setViewportSize: (viewportSize) => set({ viewportSize }),
   setShowRulers: (showRulers) => set({ showRulers }),
-  setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [] }),
+  // Leaving vector edit resets the mode: 'delete' is not something you want
+  // to still be in next time you double-click a shape.
+  setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [], vectorMode: 'move' }),
   setVectorSelection: (vectorSelection) => set({ vectorSelection }),
+  setVectorMode: (vectorMode) => set({ vectorMode }),
   setArcDrag: (arcDrag) => set({ arcDrag }),
   setCornerDrag: (cornerDrag) => set({ cornerDrag }),
   setStatus: (status) => set({ status }),

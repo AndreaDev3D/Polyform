@@ -115,10 +115,21 @@ export type Effect = DropShadowEffect | InnerShadowEffect | LayerBlurEffect | Ba
 // Vector networks (per Technical-Specification §2.1)
 // ---------------------------------------------------------------------------
 
+/**
+ * How a vertex ties its two handles together while you drag one of them.
+ *
+ * The handles themselves live on the EDGES (cp0/cp1), because an edge is what
+ * needs control points to be a curve. Pairing them is a property of the vertex
+ * between them, which is the only thing that knows they meet.
+ */
+export type MirrorMode = 'NONE' | 'ANGLE' | 'ANGLE_LENGTH'
+
 export interface VectorVertex {
   id: number
   x: number
   y: number
+  /** Absent means NONE — every path drawn before this existed has corners. */
+  mirror?: MirrorMode
 }
 
 export interface VectorEdge {

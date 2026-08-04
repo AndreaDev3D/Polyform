@@ -10,6 +10,8 @@ import { nearestInstanceAncestor } from '../hit-test'
 import type { Camera } from './canvas2d'
 
 export const HANDLE_SIZE = 8
+/** Vector anchor radius, in screen px. Its hit radius lives in the controller. */
+export const VERTEX_R = 4
 export const ROTATE_ZONE = 14
 export const RULER_SIZE = 20
 const ACCENT = '#4f9eff'
@@ -776,13 +778,17 @@ function drawVectorEdit(ctx: CanvasRenderingContext2D, scene: SceneGraph, state:
     }
   }
 
-  // Vertices.
+  // Vertices. Round, like every other vector editor: a square handle on a path
+  // reads as "resize this box", which is what the transform box handles mean.
   for (const v of node.network.vertices) {
     const s = toScreen({ x: v.x, y: v.y })
-    ctx.fillStyle = selected.has(v.id) ? ACCENT : '#ffffff'
-    ctx.strokeStyle = ACCENT
+    const on = selected.has(v.id)
+    ctx.fillStyle = on ? ACCENT : '#ffffff'
+    ctx.strokeStyle = on ? '#ffffff' : ACCENT
     ctx.lineWidth = 1
-    ctx.fillRect(s.x - 3.5, s.y - 3.5, 7, 7)
-    ctx.strokeRect(s.x - 3.5, s.y - 3.5, 7, 7)
+    ctx.beginPath()
+    ctx.arc(s.x, s.y, VERTEX_R, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
   }
 }

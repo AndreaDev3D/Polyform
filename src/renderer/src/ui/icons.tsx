@@ -361,6 +361,64 @@ export const TextBottomIcon = (p: P) => (
     <path d="M4 7.5h8M4 10.5h5" />
   </I>
 )
+export const CloseIcon = (p: P) => (
+  <I {...p}>
+    <path d="M4 4l8 8M12 4l-8 8" />
+  </I>
+)
+
+// --- Vector editing ------------------------------------------------------
+
+/** Move points: an anchor with arrows away from it. */
+export const PointMoveIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none" />
+    <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3" />
+  </I>
+)
+/** Bend a segment: a curve pulled away from the straight run. */
+export const BendIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2 12.5C2 6 6 3.5 14 3.5" />
+    <circle cx="2" cy="12.5" r="1.6" />
+    <circle cx="14" cy="3.5" r="1.6" />
+  </I>
+)
+/** Delete points: an anchor with a cross. */
+export const PointDeleteIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="6" cy="10" r="2.2" fill="currentColor" stroke="none" />
+    <path d="M10 3l4 4M14 3l-4 4" />
+  </I>
+)
+/** Mirroring off: two independent arms. */
+export const MirrorNoneIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8" cy="10" r="1.8" fill="currentColor" stroke="none" />
+    <path d="M8 10L2.5 6.5M8 10l4-5.5" />
+    <circle cx="2.5" cy="6.5" r="1.2" />
+    <circle cx="12" cy="4.5" r="1.2" />
+  </I>
+)
+/** Mirroring by angle: arms in line, different lengths. */
+export const MirrorAngleIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none" />
+    <path d="M8 8L2 5M8 8l5.5 2.75" />
+    <circle cx="2" cy="5" r="1.2" />
+    <circle cx="13.5" cy="10.75" r="1.2" />
+  </I>
+)
+/** Mirroring by angle and length: arms in line, equal lengths. */
+export const MirrorFullIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none" />
+    <path d="M8 8L2.5 5.25M8 8l5.5 2.75" />
+    <circle cx="2.5" cy="5.25" r="1.2" />
+    <circle cx="13.5" cy="10.75" r="1.2" />
+  </I>
+)
+
 /** Focus the view on something: brackets closing in on a target. */
 export const FocusIcon = (p: P) => (
   <I {...p}>

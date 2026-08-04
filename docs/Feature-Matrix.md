@@ -17,12 +17,12 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Section | ✅ Implemented | 🟡 Partial | 📋 Planned | ❌ Out of scope | Rows |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| [Canvas & Viewport](#canvas--viewport) | 15 | 1 | 2 | 0 | 18 |
+| [Canvas & Viewport](#canvas--viewport) | 16 | 1 | 1 | 0 | 18 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 7 | 3 | 5 | 0 | 15 |
+| [Vector Editing](#vector-editing) | 10 | 3 | 3 | 0 | 16 |
 | [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 5 | 4 | 1 | 24 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
@@ -33,7 +33,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **134** | **22** | **57** | **23** | **236** |
+| **Total** | **137** | **23** | **54** | **23** | **237** |
 
 ---
 
@@ -48,7 +48,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Zoom to cursor | Ctrl/Cmd + wheel zooms toward the pointer | ✅ | |
 | Zoom to fit | Shift+1 frames all content in view | ✅ | |
 | Zoom to 100% | Shift+0 / Ctrl+0 resets to actual size | ✅ | |
-| Zoom to selection | Shift+2 frames the current selection | 📋 | Fit and 100% zoom shipped |
+| Zoom to selection | Shift+2 frames the current selection | ✅ | Shift+2, View → Focus on Selection, and the focus button on the bottom bar; falls back to fitting the page |
 | Pixel grid at high zoom | Pixel lattice appears when zoomed far in | ✅ | |
 | Pixel grid toggle | Show/hide pixel grid preference | ✅ | |
 | Layout grids | Column/row/grid overlays on frames | 📋 | |
@@ -86,21 +86,22 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
-| Vector networks (data model) | Paths are graphs, not linear command lists | 🟡 | Spec-shaped vertex/edge network model is in place; UI does not yet exploit it |
+| Vector networks (data model) | Paths are graphs, not linear command lists | 🟡 | Spec-shaped vertex/edge network; the editor now uses per-vertex state (handle mirroring) and heals the graph when a point is deleted, but branching is still not editable |
 | Bezier path drawing | Pen tool places lines and cubic curves | ✅ | |
-| Dedicated vector edit mode | Enter/exit object to edit vertices and handles | ✅ | Double-click or Enter; move vertices/handles, click edge to insert, Del removes |
+| Dedicated vector edit mode | Enter/exit object to edit vertices and handles | ✅ | Double-click or Enter; the bottom bar becomes Move / Bend / Delete modes with a selected-point count; round anchor handles |
 | Branching edges per vertex | One vertex can join N edges | 🟡 | Data model supports it; no branching-edge editing UI |
-| Bend tool | Toggle a point between corner and curve | 📋 | Depends on vector edit mode |
+| Bend tool | Drag a segment and the curve follows | ✅ | Both handles move, split by bernstein influence at the grabbed t, so the curve lands on the pointer; a straight segment gets handles at the thirds first |
+| Per-point handle mirroring | None / angle / angle+length, per vertex | ✅ | Inspector control on the selected point(s); applying it smooths the corner immediately; Alt breaks the pairing for one drag |
 | Paint bucket region fill | Fill enclosed regions of a vector network | 📋 | Depends on vector edit mode |
 | Boolean union | Non-destructive merge of shapes | ✅ | Exact bezier CSG in the Rust core (WASM, default); TS polygon-flattening fallback |
 | Boolean subtract | Non-destructive subtraction | ✅ | Exact bezier CSG (Rust core) |
 | Boolean intersect | Non-destructive intersection | ✅ | Exact bezier CSG (Rust core) |
 | Boolean exclude | Non-destructive XOR of shapes | ✅ | Exact bezier CSG (Rust core) |
 | Non-destructive boolean groups | Children stay editable inside the boolean | ✅ | Boolean result recomputes as children change |
-| Flatten selection | Bake selection into a single vector layer | 📋 | |
+| Flatten selection | Bake selection into a single vector layer | ✅ | Ctrl+E; concatenates contours as subpaths so curves survive; opens the vector editor when one shape went in |
 | Outline stroke | Convert a stroke into filled geometry | 📋 | |
 | Masks | Layer masks clip sibling content | 🟡 | Vector/shape clipping of siblings above (Ctrl+Alt+M); no luminance masks |
-| Rounded corners on vector paths | Corner radius applies to arbitrary vertices | 📋 | Radius currently applies to rectangles |
+| Rounded corners on vector paths | Corner radius applies to arbitrary vertices | 📋 | Radius applies to rectangles and frames; on a vector anchor it needs nodeOutline plus its Rust twin and a parity fixture, so it is its own change |
 
 ## Selection & Transform
 

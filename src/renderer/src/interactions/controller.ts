@@ -43,7 +43,14 @@ import {
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
+import { applyMirror, bendEdge, removeEdge, removeVertex } from '../engine/vector-edit'
 import { snapBox } from './snapping'
+
+/** Vector-edit hit radii in screen px — generous enough to grab at any zoom. */
+const VERTEX_HIT_PX = 7
+const EDGE_HIT_PX = 5
+/** Bend grabs a wider band: you are aiming at a line, not at a dot. */
+const BEND_HIT_PX = 9
 
 interface PointerMods {
   shift: boolean
@@ -120,6 +127,8 @@ type Mode =
       startCps: Map<string, Vec2>
     }
   | { kind: 'vector-cp'; edgeIndex: number; key: 'cp0' | 'cp1' }
+  /** Bend: the segment and the point along it that follows the pointer. */
+  | { kind: 'vector-bend'; edgeIndex: number; t: number }
   | { kind: 'orbit'; nodeId: NodeId; lastScreen: Vec2; before: ModelPose; dolly: boolean }
 
 interface PenAnchor {
@@ -827,9 +836,22 @@ export class InteractionController {
         const edge = node.network.edges[this.mode.edgeIndex]
         if (edge) {
           edge[this.mode.key] = { x: local.x, y: local.y }
+          // Alt breaks the pairing for this drag without changing the point's
+          // mode — the standard escape hatch for "just this once".
+          if (!mods.alt) applyMirror(node.network, this.mode.edgeIndex, this.mode.key)
           this.scene.bump()
           documentStore.transient()
         }
+        return
+      }
+      case 'vector-bend': {
+        const id = editor.get().vectorEditId
+        const node = id ? this.scene.getNode(id) : null
+        if (!node || node.type !== 'VECTOR') return
+        const local = applyMat(matInvert(this.scene.worldMatrix(node.id)), world)
+        bendEdge(node.network, this.mode.edgeIndex, this.mode.t, local)
+        this.scene.bump()
+        documentStore.transient()
         return
       }
       case 'idle': {
@@ -1164,6 +1186,7 @@ export class InteractionController {
       }
       case 'vector-vertex':
       case 'vector-cp':
+      case 'vector-bend':
         this.commitVectorGesture()
         break
       case 'orbit': {
@@ -1321,7 +1344,11 @@ export class InteractionController {
   /** Exit edit mode; when committing, normalize the node's bbox. */
   exitVectorEdit(commit: boolean): void {
     const id = editor.get().vectorEditId
-    editor.set({ vectorEditId: null, vectorSelection: [] })
+    // vectorMode resets here too: leaving a path in Delete mode and coming back
+    // to it later, still armed to delete, is a trap. (This sets the state
+    // directly rather than going through setVectorEditId, so the reset has to
+    // be spelled out — the store's setter does the same thing.)
+    editor.set({ vectorEditId: null, vectorSelection: [], vectorMode: 'move' })
     this.gestureNetwork = null
     if (!id || !commit) return
     const node = this.scene.getNode(id)
@@ -1400,10 +1427,47 @@ export class InteractionController {
     const net = node.network
     const selected = new Set(state.vectorSelection)
 
+    // Delete mode: a click removes what it lands on, points before segments.
+    if (state.vectorMode === 'delete') {
+      for (const v of net.vertices) {
+        const s = toScreen({ x: v.x, y: v.y })
+        if (Math.hypot(s.x - screen.x, s.y - screen.y) <= VERTEX_HIT_PX) {
+          const before = structuredClone(net)
+          removeVertex(net, v.id)
+          this.commitVectorChange(node, before, 'Delete Point')
+          editor.set({ vectorSelection: state.vectorSelection.filter((x) => x !== v.id) })
+          return
+        }
+      }
+      const onEdge = this.nearestEdgePoint(node, screen, state.camera.zoom)
+      if (onEdge && onEdge.distPx <= EDGE_HIT_PX) {
+        const before = structuredClone(net)
+        removeEdge(net, onEdge.edgeIndex)
+        this.commitVectorChange(node, before, 'Delete Segment')
+      }
+      return
+    }
+
+    // Bend mode: dragging a segment pulls the curve to the pointer. Points and
+    // handles still drag, so you are not forced back to Move to nudge one.
+    if (state.vectorMode === 'bend') {
+      const onVertexOrHandle = this.vectorHandleAt(node, screen, selected)
+      if (!onVertexOrHandle) {
+        const hit = this.nearestEdgePoint(node, screen, state.camera.zoom)
+        if (hit && hit.distPx <= BEND_HIT_PX) {
+          this.gestureNetwork = structuredClone(net)
+          this.mode = { kind: 'vector-bend', edgeIndex: hit.edgeIndex, t: hit.t }
+          return
+        }
+        editor.set({ vectorSelection: [] })
+        return
+      }
+    }
+
     // 1. Vertices.
     for (const v of net.vertices) {
       const s = toScreen({ x: v.x, y: v.y })
-      if (Math.hypot(s.x - screen.x, s.y - screen.y) <= 6) {
+      if (Math.hypot(s.x - screen.x, s.y - screen.y) <= VERTEX_HIT_PX) {
         let sel: number[]
         if (mods.shift) {
           sel = selected.has(v.id) ? state.vectorSelection.filter((x) => x !== v.id) : [...state.vectorSelection, v.id]
@@ -1439,7 +1503,7 @@ export class InteractionController {
 
     // 3. Edges: click to insert a vertex at the nearest curve point.
     const hit = this.nearestEdgePoint(node, screen, state.camera.zoom)
-    if (hit && hit.distPx <= 5) {
+    if (hit && hit.distPx <= EDGE_HIT_PX) {
       this.gestureNetwork = structuredClone(net)
       const vid = this.splitEdge(node, hit.edgeIndex, hit.t)
       editor.set({ vectorSelection: [vid] })
@@ -1455,6 +1519,38 @@ export class InteractionController {
     } else {
       editor.set({ vectorSelection: [] })
     }
+  }
+
+  /** True when the pointer is on a vertex or on a visible control handle. */
+  private vectorHandleAt(node: VectorNode, screen: Vec2, selected: Set<number>): boolean {
+    const state = editor.get()
+    const m = this.scene.worldMatrix(node.id)
+    const toScreen = (p: Vec2) => worldToScreen(state.camera, applyMat(m, p))
+    for (const v of node.network.vertices) {
+      const s = toScreen({ x: v.x, y: v.y })
+      if (Math.hypot(s.x - screen.x, s.y - screen.y) <= VERTEX_HIT_PX) return true
+    }
+    for (const e of node.network.edges) {
+      if (e.cp0 && selected.has(e.v0)) {
+        const s = toScreen(e.cp0)
+        if (Math.hypot(s.x - screen.x, s.y - screen.y) <= VERTEX_HIT_PX) return true
+      }
+      if (e.cp1 && selected.has(e.v1)) {
+        const s = toScreen(e.cp1)
+        if (Math.hypot(s.x - screen.x, s.y - screen.y) <= VERTEX_HIT_PX) return true
+      }
+    }
+    return false
+  }
+
+  /** Land a whole-network change as one history entry. */
+  private commitVectorChange(node: VectorNode, before: VectorNetwork, label: string): void {
+    this.scene.bump()
+    documentStore.commit(
+      [{ kind: 'update', id: node.id, before: { network: before }, after: { network: structuredClone(node.network) } }],
+      label,
+      true,
+    )
   }
 
   private beginVectorVertexDrag(node: VectorNode, vids: number[], world: Vec2, presetGesture?: VectorNetwork): void {
@@ -1613,7 +1709,11 @@ export class InteractionController {
       documentStore.transient()
       editor.set({ arcDrag: null, cornerDrag: null })
     }
-    if (this.mode.kind === 'vector-vertex' || this.mode.kind === 'vector-cp') {
+    if (
+      this.mode.kind === 'vector-vertex' ||
+      this.mode.kind === 'vector-cp' ||
+      this.mode.kind === 'vector-bend'
+    ) {
       const id = editor.get().vectorEditId
       const node = id ? this.scene.getNode(id) : null
       if (node && node.type === 'VECTOR' && this.gestureNetwork) {
