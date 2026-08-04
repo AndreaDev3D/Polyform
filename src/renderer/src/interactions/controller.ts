@@ -1382,31 +1382,34 @@ export class InteractionController {
     if (Math.abs(minX) < 1e-6 && Math.abs(minY) < 1e-6 && Math.abs(node.width - (maxX - minX)) < 1e-6 && Math.abs(node.height - (maxY - minY)) < 1e-6) {
       return
     }
-    for (const v of node.network.vertices) {
+    // Shift a COPY and land it through updateNode, which invalidates the
+    // world-matrix and AABB caches by contract. Writing node.x directly (which
+    // this did) left the selection box drawing at the pre-edit position with
+    // the post-edit size, until something else happened to bump the scene.
+    const shifted = structuredClone(node.network)
+    for (const v of shifted.vertices) {
       v.x -= minX
       v.y -= minY
     }
-    for (const e of node.network.edges) {
+    for (const e of shifted.edges) {
       if (e.cp0) e.cp0 = { x: e.cp0.x - minX, y: e.cp0.y - minY }
       if (e.cp1) e.cp1 = { x: e.cp1.x - minX, y: e.cp1.y - minY }
     }
-    node.x += minX
-    node.y += minY
-    node.width = Math.max(1, maxX - minX)
-    node.height = Math.max(1, maxY - minY)
+    const after = {
+      network: shifted,
+      x: node.x + minX,
+      y: node.y + minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    }
+    this.scene.updateNode(id, after as unknown as Partial<SceneNode>)
     documentStore.commit(
       [
         {
           kind: 'update',
           id,
           before: before as unknown as Record<string, unknown>,
-          after: structuredClone({
-            network: node.network,
-            x: node.x,
-            y: node.y,
-            width: node.width,
-            height: node.height,
-          }) as unknown as Record<string, unknown>,
+          after: structuredClone(after) as unknown as Record<string, unknown>,
         },
       ],
       'Edit Vector',

@@ -231,6 +231,68 @@ try {
     if (process.exitCode !== 1) console.log('E2E PASS: inspector scrub is live and undoes in one step')
   }
 
+  // ---------------------------------------------------------------------
+  // 4. Leaving vector edit must leave the transform box ON the shape.
+  //
+  // Exiting re-anchors the path to its own bounding box and moves the node to
+  // compensate. Writing node.x directly skipped the scene's cache
+  // invalidation, so the box kept drawing at the pre-edit position with the
+  // post-edit size until something else happened to bump the scene. No unit
+  // test can see this: it needs a live overlay reading a live cache.
+  // ---------------------------------------------------------------------
+  await evaluate(`(() => {
+    const P = globalThis.__polyform
+    const s = P.documentStore.scene
+    const base = { visible: true, locked: false, opacity: 1, blendMode: 'NORMAL', rotation: 0,
+      strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE', strokeDash: [], effects: [] }
+    s.addNode({ ...base, id: 'e2e-vec', type: 'VECTOR', name: 'E2E Path', x: 300, y: 300,
+      width: 200, height: 200, windingRule: 'NONZERO',
+      fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.8, g: 0.8, b: 0.8, a: 1 } }],
+      network: { vertices: [{ id: 1, x: 0, y: 0 }, { id: 2, x: 200, y: 0 }, { id: 3, x: 200, y: 200 }],
+        edges: [{ id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+                { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+                { id: 3, v0: 3, v1: 1, cp0: null, cp1: null }] } }, null, 0)
+    P.documentStore.transient()
+    // Drag a point out past the node's origin, so exiting has to re-anchor.
+    P.interactionController.enterVectorEdit('e2e-vec')
+    const n = s.getNode('e2e-vec')
+    const before = structuredClone(n.network)
+    const v = n.network.vertices.find((x) => x.id === 1)
+    v.x -= 90
+    v.y -= 60
+    s.bump()
+    P.documentStore.commit([{ kind: 'update', id: 'e2e-vec', before: { network: before },
+      after: { network: structuredClone(n.network) } }], 'Edit Vector', true)
+    P.editor.set({ selection: ['e2e-vec'] })
+    return 'edited'
+  })()`)
+  // Let frames render with the path still open. This is the part that matters:
+  // the stale value only exists if something CACHED the world matrix before the
+  // exit re-anchored the node. Doing the whole thing in one synchronous call
+  // populates the cache after the fact and passes either way.
+  await sleep(400)
+  const boxCheck = JSON.parse(await evaluate(`(() => {
+    const P = globalThis.__polyform
+    const s = P.documentStore.scene
+    P.interactionController.exitVectorEdit(true)
+    // Where the overlay would draw the box, against where the node now is.
+    const cam = P.editor.get().camera
+    const corners = P.overlays.selectionScreenBox(s, ['e2e-vec'], cam)
+    const node = s.getNode('e2e-vec')
+    const toWorld = (p) => ({ x: cam.x + p.x / cam.zoom, y: cam.y + p.y / cam.zoom })
+    const tl = toWorld(corners[0])
+    return JSON.stringify({
+      offBy: Math.round(Math.hypot(tl.x - node.x, tl.y - node.y)),
+      drawn: [Math.round(tl.x), Math.round(tl.y)],
+      real: [Math.round(node.x), Math.round(node.y)],
+    })
+  })()`))
+  if (boxCheck.offBy > 1) {
+    fail(`transform box is stale after leaving vector edit: drawn at ${boxCheck.drawn}, shape at ${boxCheck.real} (off by ${boxCheck.offBy})`)
+  } else {
+    console.log('E2E PASS: the transform box follows the shape out of vector edit')
+  }
+
 } catch (err) {
   fail(String(err))
 } finally {
