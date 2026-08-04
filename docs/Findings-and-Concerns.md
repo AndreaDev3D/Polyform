@@ -538,6 +538,22 @@ Fixed by writing the cursor every frame, outside the gate, diffed against the la
 
 ---
 
+## F-24. A React portal into `document.body` does not stop the app's own key handlers
+
+**Severity: medium (interaction, self-inflicted) — found while replacing the native `<select>`, fixed, now gated.**
+
+The new dropdown renders its menu with `createPortal(…, document.body)`, so the inspector's scroll container cannot clip it. Its keydown handler was an ordinary React `onKeyDown` calling `e.stopPropagation()`, which is what every other field in the app does and what works everywhere inside the React root.
+
+It did not hold. Escape closed the menu **and** reached `window`'s keydown listener, where the global shortcut cleared the selection — which emptied the inspector, which unmounted the dropdown mid-gesture. The next click had nothing to open, so the control appeared to work once and then die. React attaches its listeners to the root container; a portal into `document.body` is not inside it, and whatever delegation React does for the portal container did not stop the native event before it bubbled past.
+
+This was **measured, not reasoned about**: a probe registered its own capture- and bubble-phase keydown listeners on `window` and logged the target of each. Before the fix, both fired with `DIV[listbox]` as the target. After it, only the capture-phase probe (registered first) sees the key.
+
+Fixed by giving the open menu a *native* `keydown` listener on `window` in the capture phase for as long as it is open — an open menu owns the keyboard, and says so ahead of every other listener rather than hoping to out-bubble them.
+
+**Standing obligation.** Any floating surface portalled outside `#root` — menu, popover, picker, dialog — must claim the keyboard natively while it is open, not through a synthetic handler. And the check for it must assert on the *side effect* (the selection survived), not just that the surface closed: closing was never the part that broke.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -548,3 +564,4 @@ Three themes run through every entry:
 4. **Anything that lets outside code in gets its defences before its features.** F-15 (plugins) and F-20 (the agent endpoint) are the same shape: capability first draws a threat model, then ships the gate, then ships the capability. F-20's 401/403 checks were written in the same commit as the server, not after it.
 5. **Input-layer bugs are invisible to unit and pixel tests.** F-18 and F-19 both survived multiple releases with a green suite, and both were found only by driving the built app with synthetic OS-level input. That is why `npm run test:e2e` exists and why it keeps growing.
 6. **A correct document is not a correct app.** F-21 was a stale cache over right data, F-23 was the right answer computed and then not applied, and F-22 is the reason both now have checks that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.
+7. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

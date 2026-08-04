@@ -45,7 +45,7 @@ Then: **New Project…**, pick where to save the `.poly` folder, and draw. Press
 | `npm test`          | Engine unit tests + TS↔WASM parity fuzz (vitest)|
 | `npm run typecheck` | Strict TypeScript across main/preload/renderer  |
 | `npm run test:rust` | Rust engine-core unit tests (cargo)             |
-| `npm run test:e2e`  | Drives the built app with synthetic OS input: 9 checks no unit test can reach (F-18/F-19/F-21/F-23) |
+| `npm run test:e2e`  | Drives the built app with synthetic OS input: 14 checks no unit test can reach (F-18/F-19/F-21/F-23/F-24) |
 | `npm run test:mcp`  | Agent-connectivity probe: 53 checks — a real MCP client vs the built app, driving the consent panel |
 | `npm run test:cli`  | Headless CLI gate: new → stdio-MCP edit → persistence → pixel-checked export |
 | `npm run build:wasm`| Rebuild the WASM engine pkg from `crates/`      |

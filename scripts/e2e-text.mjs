@@ -15,6 +15,10 @@
 //   6. typing a value into the inspector is ONE undo step, and Escape
 //      discards it - Enter committed, then the blur it caused committed the
 //      same value again.
+//   7. the dropdown carries a caret and opens OUR menu, keys typed into it do
+//      not leak to the global shortcuts, and picking applies exactly once -
+//      Chromium's native popup is unstyleable and does not appear in the
+//      screenshots this gate takes.
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -445,6 +449,167 @@ try {
       fail(`Escape should discard, but x=${afterEsc.x} (was ${beforeEsc.x}) and entries ${beforeEsc.entries}->${afterEsc.entries}`)
     } else {
       console.log('E2E PASS: Escape discards a typed value')
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 7. The dropdown: a caret you can see, a menu that is ours, and keys that
+  //    do not leak.
+  //
+  //    The menu used to be Chromium's own popup — unstyleable, and absent from
+  //    the screenshots this gate takes, so nothing here could see it at all.
+  //    Now it is DOM. The leak matters as much as the menu: a native <select>
+  //    counted as a typing target for the global shortcuts, so a focused
+  //    dropdown swallowed single keys; a button does not, and "r" would
+  //    otherwise switch to the rectangle tool while a menu is open.
+  // ---------------------------------------------------------------------
+  await evaluate(`globalThis.__polyform.editor.set({ selection: ['e2e-rot'], vectorEditId: null, tool: 'select' })`)
+  await sleep(350)
+  const blend = JSON.parse(await evaluate(`(() => {
+    const b = [...document.querySelectorAll('button[role="combobox"]')]
+      .find(e => (e.querySelector('.pf-select-value')?.textContent || '') === 'Normal')
+    if (!b) return 'null'
+    const r = b.getBoundingClientRect()
+    const caret = b.querySelector('svg')
+    const cr = caret ? caret.getBoundingClientRect() : null
+    return JSON.stringify({
+      x: Math.round(r.left + 8), y: Math.round(r.top + r.height / 2),
+      // The caret sits inside the box, at its right edge.
+      caret: cr ? { w: Math.round(cr.width), rightGap: Math.round(r.right - cr.right) } : null,
+      openMenus: document.querySelectorAll('[role="listbox"]').length,
+    })
+  })()`))
+  if (!blend) {
+    fail('no Blend mode dropdown found in the inspector')
+  } else if (!blend.caret || blend.caret.w < 6 || blend.caret.rightGap < 0 || blend.caret.rightGap > 10) {
+    fail(`the dropdown should carry a caret inside its right edge, got ${JSON.stringify(blend.caret)}`)
+  } else {
+    const clickAt = async (x, y) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+      await sleep(60)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+      await sleep(260)
+    }
+    const menu = async () => JSON.parse(await evaluate(`(() => {
+      const m = document.querySelector('[role="listbox"]')
+      if (!m) return JSON.stringify({ open: false })
+      const rows = [...m.querySelectorAll('[role="option"]')]
+      const checked = rows.filter(r => r.getAttribute('aria-selected') === 'true')
+      const r = m.getBoundingClientRect()
+      return JSON.stringify({
+        open: true, rows: rows.length,
+        checked: checked.map(c => c.textContent),
+        // A check glyph, not just an attribute: this is the thing the native
+        // popup could not draw.
+        checkGlyphs: checked.filter(c => c.querySelector('svg')).length,
+        // In the body, not the panel: the inspector scrolls and clips.
+        inBody: m.parentElement === document.body,
+        // Second row's centre, for picking with the mouse.
+        pick: rows[1] ? { x: Math.round(rows[1].getBoundingClientRect().left + 30),
+                          y: Math.round(rows[1].getBoundingClientRect().top + 8),
+                          label: rows[1].textContent } : null,
+        top: Math.round(r.top), height: Math.round(r.height),
+        onScreen: r.top >= 0 && r.bottom <= innerHeight + 1 && r.left >= 0 && r.right <= innerWidth + 1,
+      })
+    })()`))
+
+    await clickAt(blend.x, blend.y)
+    const opened = await menu()
+    if (!opened.open) {
+      fail('clicking the dropdown did not open a menu')
+    } else if (opened.rows < 10 || opened.checked.length !== 1 || opened.checkGlyphs !== 1) {
+      fail(`the menu should list every blend mode and check the current one, got ${JSON.stringify(opened)}`)
+    } else if (!opened.inBody || !opened.onScreen) {
+      fail(`the menu must be a body portal kept on screen, got inBody=${opened.inBody} onScreen=${opened.onScreen}`)
+    } else {
+      // The whole menu is in our own compositor frame — so unlike the native
+      // popup, a screenshot of the page contains it.
+      const shot = await send('Page.captureScreenshot', { format: 'png' })
+      if (!shot.result?.data) fail('could not screenshot the page with the menu open')
+      console.log(`E2E PASS: the dropdown has a caret and opens our own menu (${opened.rows} rows, checked ${JSON.stringify(opened.checked)})`)
+    }
+
+    // Typing while the menu is open must not reach the global shortcuts.
+    if (opened.open) {
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'r', code: 'KeyR', text: 'r' })
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'r', code: 'KeyR' })
+      await sleep(200)
+      const tool = await evaluate(`globalThis.__polyform.editor.get().tool`)
+      if (tool !== 'select') fail(`a keystroke leaked from the open menu to the global shortcuts (tool is now "${tool}")`)
+      else console.log('E2E PASS: keys typed into the dropdown do not reach the global shortcuts')
+    }
+
+    // Pick the second row with the mouse: it applies, once.
+    const before = JSON.parse(await evaluate(`JSON.stringify({
+      mode: globalThis.__polyform.documentStore.scene.getNode('e2e-rot').blendMode,
+      entries: globalThis.__polyform.documentStore.history.undoStack.length })`))
+    if (opened.pick) {
+      await clickAt(opened.pick.x, opened.pick.y)
+      const after = JSON.parse(await evaluate(`JSON.stringify({
+        mode: globalThis.__polyform.documentStore.scene.getNode('e2e-rot').blendMode,
+        entries: globalThis.__polyform.documentStore.history.undoStack.length,
+        stillOpen: !!document.querySelector('[role="listbox"]') })`))
+      if (after.mode === before.mode || after.entries - before.entries !== 1 || after.stillOpen) {
+        fail(`picking "${opened.pick.label}" should apply once and close, got ${JSON.stringify(after)} from ${JSON.stringify(before)}`)
+      } else {
+        // ...and picking the SAME value again spends no history entry: the
+        // native select fired no change event for it, and re-picking should not
+        // cost an undo.
+        await clickAt(blend.x, blend.y)
+        const again = await menu()
+        const same = again.open
+          ? await (async () => {
+              const row = JSON.parse(await evaluate(`(() => {
+                const r = [...document.querySelectorAll('[role="option"]')]
+                  .find(e => e.getAttribute('aria-selected') === 'true')
+                if (!r) return 'null'
+                const b = r.getBoundingClientRect()
+                return JSON.stringify({ x: Math.round(b.left + 30), y: Math.round(b.top + 8) })
+              })()`))
+              if (!row) return null
+              await clickAt(row.x, row.y)
+              return JSON.parse(await evaluate(`JSON.stringify({
+                entries: globalThis.__polyform.documentStore.history.undoStack.length })`))
+            })()
+          : null
+        if (!same) fail('re-opening the dropdown on the current value did not find its checked row')
+        else if (same.entries !== after.entries) fail(`re-picking the current option spent a history entry (${after.entries} -> ${same.entries})`)
+        else console.log(`E2E PASS: picking applies once (${before.mode} -> ${after.mode}), re-picking the same value is free`)
+      }
+    }
+
+    // A dropdown near the bottom of the window must not open off the bottom of
+    // it. A tall window never gets close enough for that to be a real test, so
+    // shrink the viewport until the gap below the dropdown is smaller than the
+    // menu, which is the case the placement has to flip for.
+    await send('Emulation.setDeviceMetricsOverride', { width: w, height: 420, deviceScaleFactor: 0, mobile: false })
+    await sleep(500)
+    const low = JSON.parse(await evaluate(`(() => {
+      const boxes = [...document.querySelectorAll('button[role="combobox"]')]
+      if (!boxes.length) return 'null'
+      const b = boxes[boxes.length - 1]
+      b.scrollIntoView({ block: 'end' })
+      const r = b.getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + 10), y: Math.round(r.top + r.height / 2),
+        top: Math.round(r.top), bottomGap: Math.round(innerHeight - r.bottom), viewport: innerHeight })
+    })()`))
+    if (!low) {
+      fail('no dropdown to test downward overflow with')
+    } else {
+      await clickAt(low.x, low.y)
+      const placed = await menu()
+      if (!placed.open) fail(`the low dropdown at y=${low.y} did not open`)
+      else if (!placed.onScreen) fail(`a dropdown ${low.bottomGap}px from the window bottom opened off screen: ${JSON.stringify(placed)}`)
+      else if (placed.height > low.bottomGap && placed.top >= low.top)
+        fail(`a ${placed.height}px menu with only ${low.bottomGap}px below it should have opened upwards, but its top is ${placed.top} and the box's is ${low.top}`)
+      else console.log(`E2E PASS: a ${placed.height}px menu with ${low.bottomGap}px below it in a ${low.viewport}px window stays on screen (top ${placed.top} vs box ${low.top})`)
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+      await sleep(250)
+      const kept = await evaluate(`JSON.stringify(globalThis.__polyform.editor.get().selection)`)
+      if (kept !== '["e2e-rot"]') fail(`Escape closed the menu but also reached the canvas: selection is ${kept}`)
+      else console.log('E2E PASS: Escape closes the menu without clearing the selection')
+      await send('Emulation.clearDeviceMetricsOverride')
     }
   }
 

@@ -529,6 +529,28 @@ The fillet is computed **without trigonometry**: `tan(θ/2) = s/(1+c)` from the 
 
 ---
 
+## ADR-026: Menus are ours, in our own DOM — no OS-drawn surfaces inside the editor (v0.6)
+
+**Context.** Every dropdown in the inspector was a native `<select>` with `appearance-none`. That is a bargain with only bad halves: the native arrow comes with the native box, so removing the box removed the arrow, and the control ended up with no caret at all — nothing said it was a dropdown. Chromium then draws the open popup itself, in its own surface, and takes no styling from us: no checkmark on the current option, no way to mark the current value the way the rest of the panel marks state.
+
+**Decision.** **The dropdown is our own DOM** — a trigger styled as a `.pf-input` with a caret, and a menu portalled into `document.body` (`Select` in `ui/components.tsx`). It carries a check glyph on the current option, hover and keyboard highlight in one `is-active` state, arrow/Home/End/Enter/Escape keys and first-letter typeahead. The public shape of the component did not change, so every call site kept working.
+
+**Testability is a first-class reason, not a bonus.** Everything else in this UI is verified by driving the built app and reading pixels. A native popup is an OS-level surface that **does not appear in a CDP screenshot** — the only way to time or photograph one is a desktop capture from outside the app, which is how it had to be measured before this change. A DOM menu is inside our own compositor frame: the e2e gate can screenshot it, count its rows, read which one is checked, and assert where it was placed.
+
+**Owning the surface means owning its rules.** Three follow directly, each with a check in `npm run test:e2e`:
+
+- **Placement is clamped and flipped.** Below the trigger by default; upwards when the room below is smaller than the menu and there is more above; clamped to the viewport in both axes. Gated with the viewport shrunk on purpose, because a full-height window never gets close enough for the case to be real.
+- **Re-picking the current option is not an edit.** A native `<select>` fired no change event for it; committing one here would spend a history entry on nothing. Pickers that sit at `''` (Apply style…) still fire every time, because `''` never equals an option.
+- **An open menu owns the keyboard, natively.** See [F-24](Findings-and-Concerns.md#f-24-a-react-portal-into-documentbody-does-not-stop-the-apps-own-key-handlers): a React `stopPropagation` from a body portal did not stop the app's `window` listener, so Escape closed the menu *and* cleared the selection, unmounting the control mid-gesture.
+
+**What this is not.** It is not a claim that the native popup was slow. Measured on the built app with a desktop capture — the only instrument that can see it — Chromium's popup showed its content 35–86 ms after the click with a 3 000-shape document open, and ~50 ms with an empty one. Our menu opens in 20–32 ms, about one frame. The reasons to own it are the caret, the checkmark, and being able to test it; speed is not among the measured ones.
+
+**Consequences.** A native `<select>` counted as a typing target for the global shortcuts (`isTypingTarget`), so a focused dropdown used to swallow single keys for free; a `<button>` does not, and every key that reaches the trigger or the menu is now stopped deliberately — without that, "r" switches to the rectangle tool while a menu is open. The menu closes on scroll rather than following its anchor, which is what Figma does and avoids threading a panel's scroll offset into a floating surface. Any future floating surface (colour picker, layer menu, page menu) inherits this file's rules rather than the platform's.
+
+**Revisit when.** Two menus need to nest (a submenu), or the app needs a real modal layer with focus trapping — at that point the placement and keyboard logic here should become a shared popover primitive rather than being copied.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -557,6 +579,7 @@ The fillet is computed **without trigonometry**: `tan(θ/2) = s/(1+c)` from the 
 | 022 | Agent access = individually revocable capabilities (writes default OFF); endpoint controls claimed once, unreachable from plugin-realm code | Yes | Plugin worker isolation (F-15); write patterns outgrowing one-batch commits |
 | 023 | CLI = same binary headless (one renderer, pixel-identical exports); `mcp serve` = loopback endpoint + RUN_AS_NODE stdio relay (Windows GUI stdin is dead), all-on grants (spawning IS consent), save-on-edit, no dialogs headless | Yes | Packaged `bin` story (v1.0); cross-directory query; Electron fixing Windows main stdin |
 | 024 | Frameless window + one bottom bar (agent / tools / view) + autosave with a visible save state | No (stable) | Debounce too eager on huge documents; status line folded into the bar |
-| 025 | Vector edit = modes over one network; per-vertex mirroring; carve bakes by nesting depth | Partially | Per-anchor corner radius (needs the Rust twin); branching-edge editing |
+| 025 | Vector edit = modes over one network; per-vertex mirroring; per-anchor corner radius in the outline; carve bakes by nesting depth | Partially | Fillets against a *curved* neighbour (needs the segment split); branching-edge editing |
+| 026 | Menus are our own DOM (caret, checkmark, body portal, native key capture) — no OS-drawn surfaces in the editor | No (stable) | A submenu or a real modal layer, at which point this becomes a shared popover primitive |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

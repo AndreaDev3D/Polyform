@@ -31,9 +31,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
-| [Desktop / Platform](#desktop--platform) | 6 | 1 | 3 | 1 | 11 |
+| [Desktop / Platform](#desktop--platform) | 7 | 1 | 3 | 1 | 12 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **141** | **24** | **52** | **23** | **240** |
+| **Total** | **142** | **24** | **52** | **23** | **241** |
 
 ---
 
@@ -333,6 +333,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Resizable side panels | Drag the panel edges to rebalance the workspace | ✅ | Both panels; width remembered per machine in localStorage (not in the `.poly`, which would carry one person's layout to another's screen), clamped 180–560px and to 40% of the window |
 | Native desktop app | Electron app for Windows/macOS | ✅ | Electron + electron-vite + React 19 + TypeScript + Tailwind CSS 4; Windows, macOS, Linux |
 | Native application menus | OS menu bar with full command set | ✅ | |
+| App-drawn menu surfaces | Dropdowns and menus styled as part of the editor | ✅ | Our own DOM, not the OS `<select>` popup (ADR-026): caret in the box, checkmark on the current option, keyboard + first-letter typeahead, placement flipped and clamped to the window — and, unlike a native popup, present in the screenshots the e2e gate takes |
 | Context menu | Right-click canvas/layer menus | ✅ | |
 | Figma-compatible shortcuts | Extensive keyboard shortcut map | ✅ | Shortcut map deliberately mirrors Figma |
 | Status bar | No equivalent (zoom lives in toolbar) | ✅ | Polyform addition |

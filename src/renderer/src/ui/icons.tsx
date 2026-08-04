@@ -91,6 +91,11 @@ export const ChevronDownIcon = (p: P) => (
     <path d="M3.5 6L8 10.5 12.5 6" />
   </I>
 )
+export const CheckIcon = (p: P) => (
+  <I {...p}>
+    <path d="M3.5 8.5l3 3 6-7" strokeWidth="1.6" />
+  </I>
+)
 export const PlusIcon = (p: P) => (
   <I {...p}>
     <path d="M8 3v10M3 8h10" />
