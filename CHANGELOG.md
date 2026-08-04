@@ -2,6 +2,18 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
+## Unreleased
+
+### Added
+
+- **A rotate handle you can see.** A round knob on a short stem above the top edge of the selection, and it is the *shape's* top edge — turn the shape and the knob goes with it, so it always reads as "above this object". Round and filled to distinguish it from the white resize squares: a different shape for a different verb. Dragging it shows the angle in a pill beside the knob, the same number as the inspector's Rotation field, and Shift still snaps to 15°. The four invisible corner zones keep working, because that is the reflex a Figma user arrives with — but they are no longer the *only* way to find rotation.
+- **A real rotation cursor.** CSS has no keyword for one, so it is a circular arrow drawn inline: white ink over a solid black rim, legible on the canvas, on a pale shape and on a dark one. It shows on the knob and on the corner zones, and stays for the whole drag.
+- Rotate affordances are hidden where rotation is refused — inside an instance, where nothing would commit. Previously the invisible corner zones swallowed the click and did nothing.
+
+### Fixed
+
+- **Hovering a handle usually didn't change the cursor at all** (F-23). The cursor was written inside the canvas's dirty-gated repaint, but the cursor depends on where the *pointer* is, which changes nothing in the document or the editor store — so moving onto a resize handle or a rotate zone produced no repaint and therefore no cursor change. You got feedback only when a repaint happened to be triggered by something else, which made it feel intermittent rather than broken; combined with rotate zones that draw nothing, it is most of why rotating felt like guesswork. Now written every frame, outside the gate, diffed so it is still one DOM write per real change. Covered by a new `npm run test:e2e` check, verified to fail without the fix.
+
 ## 0.6.0 — "Agent Connectivity" — 2026-08-04
 
 ### Added

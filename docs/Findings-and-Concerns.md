@@ -522,6 +522,22 @@ What made it real was letting frames render with the path still open, so the pre
 
 ---
 
+## F-23. Pointer-derived state behind a repaint gate: the cursor rarely changed
+
+**Severity: medium (interaction, silent) — found via a complaint about rotation, fixed, now gated.**
+
+The canvas render loop is dirty-gated: it repaints only when the document or the editor store changed. The cursor was written *inside* that gate — one line at the end of the paint. But the cursor is derived from **where the pointer is**, which is not something the store knows: moving the mouse from empty space onto a resize handle or a rotate zone changes `cursorOverride` on the controller and nothing else. No store write, no dirty flag, no paint, no cursor change.
+
+So the app was computing the right cursor and then usually not applying it. Hovering a handle produced feedback only when a repaint happened to be triggered by something else — a hover outline appearing, a marquee, an animation elsewhere — which made it feel intermittent rather than broken. This is most of why rotating "felt like guesswork": the rotate zones were invisible **and** silent, so there was nothing at all to tell you the corner had two meanings.
+
+Fixed by writing the cursor every frame, outside the gate, diffed against the last value so it is still one DOM write per actual change.
+
+**Why no test caught it.** The geometry was never wrong — `boxHandles` and `hitHandle` had (and have) unit tests, and they passed. The controller's `cursor` getter returned the right string when asked. The defect lived entirely in *when the answer was read*, which needs a live pointer over a live overlay: it is now an `npm run test:e2e` check, and confirmed to fail without the fix per [F-22](#f-22-a-regression-test-that-has-never-failed-is-a-guess).
+
+**Standing obligation.** Anything derived from pointer position — cursor, hover affordances, snap candidates, tooltips — must not sit behind the document/store dirty gate. If a new derived value is cheap and pointer-driven, compute it per frame and diff it; if it is expensive, it needs its own invalidation signal, not the paint's.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -531,4 +547,4 @@ Three themes run through every entry:
 3. **Deferred features have present-tense obligations.** F-10 (auto-update) doesn't exist yet, but pinned CI actions and published checksums are obligations *now*; F-09's missing-font notice is cheap now and much cheaper than support tickets later.
 4. **Anything that lets outside code in gets its defences before its features.** F-15 (plugins) and F-20 (the agent endpoint) are the same shape: capability first draws a threat model, then ships the gate, then ships the capability. F-20's 401/403 checks were written in the same commit as the server, not after it.
 5. **Input-layer bugs are invisible to unit and pixel tests.** F-18 and F-19 both survived multiple releases with a green suite, and both were found only by driving the built app with synthetic OS-level input. That is why `npm run test:e2e` exists and why it keeps growing.
-6. **A correct document is not a correct app.** F-21 was a stale cache over right data, and F-22 is the reason it now has a check that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.
+6. **A correct document is not a correct app.** F-21 was a stale cache over right data, F-23 was the right answer computed and then not applied, and F-22 is the reason both now have checks that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.

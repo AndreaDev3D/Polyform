@@ -117,7 +117,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Axis-locked move | Shift constrains movement to one axis | ✅ | |
 | Resize handles | 8 handles on the selection bounds | ✅ | |
 | Aspect-locked resize | Shift preserves aspect ratio while resizing | ✅ | |
-| Rotation handles | Rotate from just outside the corners | ✅ | |
+| Rotation handles | Rotate from just outside the corners | ✅ | A visible knob on a stem above the top edge, plus the four invisible corner zones; rotation cursor, live angle readout, Shift snaps to 15° |
 | Arrow-key nudge | Arrows move selection by 1px | ✅ | |
 | Shift-nudge | Shift+arrows move by 10px | ✅ | |
 | Numeric X/Y/W/H | Type exact position and size in inspector | ✅ | |

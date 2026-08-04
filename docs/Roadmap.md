@@ -228,7 +228,7 @@ Not roadmap items: work that came out of using the app while building the agent 
 | **Vector editing** | **Move / Bend / Delete** modes; **per-point handle mirroring** (none / angle / angle+length, Alt to break for one drag); round anchor handles; **Carve** — enclosed shapes become holes in one editable path | ADR-025. Rules live in `engine/vector-edit.ts` as pure functions over a network |
 | **Effects** | An effect on a **group** now applies to its composite in both renderers (one shadow around the union silhouette, no seam) — it used to be silently dropped | New `group-effects` pixel-parity fixture; `worldAABB` also stopped cropping a group's shadow out of exports |
 | **Layers panel** | Drag feedback (what you are carrying, where it will land, why a drop is refused), auto-scroll near either end, right-click parity with the canvas, caret/rename fix | |
-| **Gates** | `npm run test:e2e` grew to 5 checks; render parity to 12 fixtures; 150 vitest, 44 Rust | F-21/F-22 in the findings register are the two lessons this phase produced |
+| **Gates** | `npm run test:e2e` grew to 5 checks; render parity to 12 fixtures; 157 vitest, 44 Rust at release | F-21/F-22 in the findings register are the two lessons this phase produced |
 
 
 

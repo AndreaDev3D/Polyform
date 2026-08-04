@@ -63,6 +63,8 @@ interface EditorState {
   arcDrag: ArcHandleKind | null
   /** Corner-radius handle under an active drag. */
   cornerDrag: CornerKind | null
+  /** A rotate drag is in progress, so the knob can show the live angle. */
+  rotating: boolean
   /** Transient one-line message: why a command did nothing, mostly. */
   status: string | null
   /**
@@ -101,6 +103,7 @@ interface EditorState {
   setVectorMode: (mode: VectorMode) => void
   setArcDrag: (k: ArcHandleKind | null) => void
   setCornerDrag: (k: CornerKind | null) => void
+  setRotating: (v: boolean) => void
   setStatus: (text: string | null) => void
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
@@ -130,6 +133,7 @@ export const useEditor = create<EditorState>((set) => ({
   vectorMode: 'move' as const,
   arcDrag: null,
   cornerDrag: null,
+  rotating: false,
   status: null,
   saveState: 'idle' as const,
   showHistory: false,
@@ -161,6 +165,7 @@ export const useEditor = create<EditorState>((set) => ({
   setVectorMode: (vectorMode) => set({ vectorMode }),
   setArcDrag: (arcDrag) => set({ arcDrag }),
   setCornerDrag: (cornerDrag) => set({ cornerDrag }),
+  setRotating: (rotating) => set({ rotating }),
   setStatus: (status) => set({ status }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),

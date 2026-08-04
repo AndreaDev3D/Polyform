@@ -13,6 +13,11 @@ export const HANDLE_SIZE = 8
 /** Vector anchor radius, in screen px. Its hit radius lives in the controller. */
 export const VERTEX_R = 4
 export const ROTATE_ZONE = 14
+/** Stem length from the top edge out to the rotate knob, in screen px. */
+export const ROTATE_STEM = 18
+const ROTATE_KNOB_R = 4.5
+/** Tight, so it never steals a click meant for the top edge or the shape. */
+const ROTATE_KNOB_PAD = 9
 export const RULER_SIZE = 20
 const ACCENT = '#4f9eff'
 const ACCENT_DIM = 'rgba(79, 158, 255, 0.9)'
@@ -49,6 +54,8 @@ export interface OverlayState {
   arcDrag?: ArcHandleKind | null
   /** Corner-radius handle being dragged right now. */
   cornerDrag?: CornerKind | null
+  /** A rotate drag is in progress, so the knob shows its angle. */
+  rotating?: boolean
   width: number
   height: number
   dpr: number
@@ -112,10 +119,35 @@ export type HandleKind =
   | 'e'
   | 's'
   | 'w'
+  /** The one rotate handle you can see: a knob on a stem above the top edge. */
+  | 'rotate'
   | 'rotate-nw'
   | 'rotate-ne'
   | 'rotate-se'
   | 'rotate-sw'
+
+/**
+ * A real rotation cursor. CSS has no keyword for one, so this is a circular
+ * arrow as an inline SVG, drawn the way system cursors are: white ink over a
+ * solid black rim, so it survives the canvas, a light shape and a dark one
+ * alike. Three details are all load-bearing at 24px, and each was a failed
+ * draft first — a translucent halo disappeared on white; a head sitting on the
+ * arc merged into it, so the arc stops 25° short and the head takes the tip;
+ * and round joins turned a 5px triangle into a pentagon, so the head miters
+ * while the arc stays round.
+ *
+ * The hotspot is the centre of the ring: the arrow surrounds the point you are
+ * acting on, which is what every other rotate cursor does. `alias` is the
+ * fallback, and is what this used to be on its own.
+ */
+export const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">' +
+    '<path d="M14.75 6.11A6.5 6.5 0 1 1 5.5 12" fill="none" stroke="#000" stroke-width="4" stroke-linecap="round"/>' +
+    '<path d="M2.6 12.1 5.5 7.2 8.4 12.1Z" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="miter"/>' +
+    '<path d="M14.75 6.11A6.5 6.5 0 1 1 5.5 12" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' +
+    '<path d="M2.6 12.1 5.5 7.2 8.4 12.1Z" fill="#fff"/>' +
+    '</svg>',
+)}") 12 12, alias`
 
 export interface Handle {
   kind: HandleKind
@@ -129,6 +161,12 @@ function mid(a: Vec2, b: Vec2): Vec2 {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
 }
 
+/** Unit vector, falling back to straight up for a collapsed box. */
+function unit(v: Vec2): Vec2 {
+  const len = Math.hypot(v.x, v.y)
+  return len < 1e-6 ? { x: 0, y: -1 } : { x: v.x / len, y: v.y / len }
+}
+
 function cursorForDirection(dx: number, dy: number): string {
   const angle = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 180
   if (angle < 22.5 || angle >= 157.5) return 'ew-resize'
@@ -137,8 +175,21 @@ function cursorForDirection(dx: number, dy: number): string {
   return 'nesw-resize'
 }
 
-/** Interactive handles for a selection box (corners, edges, rotate zones). */
-export function boxHandles(corners: Vec2[]): Handle[] {
+/**
+ * Whether a rotate gesture on this selection would do anything — the same
+ * filter the gesture itself applies. Instance internals commit nowhere, so
+ * offering a handle there would be a promise the app does not keep. (Locked
+ * nodes are deliberately not excluded: rotating one does work today.)
+ */
+export function canRotate(scene: SceneGraph, ids: NodeId[]): boolean {
+  return ids.some((id) => scene.hasNode(id) && nearestInstanceAncestor(scene, id) === null)
+}
+
+/**
+ * Interactive handles for a selection box: resize corners and edges, the
+ * visible rotate knob, and the four invisible corner rotate zones.
+ */
+export function boxHandles(corners: Vec2[], rotatable = true): Handle[] {
   const [nw, ne, se, sw] = corners
   const center = mid(nw, se)
   const handles: Handle[] = []
@@ -150,8 +201,24 @@ export function boxHandles(corners: Vec2[]): Handle[] {
   ]
   for (const { kind, p } of cornerDefs) {
     handles.push({ kind, x: p.x, y: p.y, cursor: cursorForDirection(p.x - center.x, p.y - center.y) })
+    if (!rotatable) continue
     const out = { x: p.x + (p.x - center.x ? Math.sign(p.x - center.x) : 0) * ROTATE_ZONE, y: p.y + (p.y - center.y ? Math.sign(p.y - center.y) : 0) * ROTATE_ZONE }
-    handles.push({ kind: `rotate-${kind}` as HandleKind, x: out.x, y: out.y, cursor: 'crosshair' })
+    handles.push({ kind: `rotate-${kind}` as HandleKind, x: out.x, y: out.y, cursor: ROTATE_CURSOR })
+  }
+  // The visible rotate handle: a knob on a stem, out past the top edge along
+  // the box's own up direction, so it stays "above the shape" once the shape is
+  // turned. The four corner zones above still rotate — they are the reflex a
+  // Figma user arrives with — but they are invisible, and an invisible handle
+  // is not an affordance. This one is the one you can find.
+  if (rotatable) {
+    const topMid = mid(nw, ne)
+    const up = unit({ x: topMid.x - center.x, y: topMid.y - center.y })
+    handles.push({
+      kind: 'rotate',
+      x: topMid.x + up.x * ROTATE_STEM,
+      y: topMid.y + up.y * ROTATE_STEM,
+      cursor: ROTATE_CURSOR,
+    })
   }
   const edgeDefs: { kind: HandleKind; p: Vec2; d: Vec2 }[] = [
     { kind: 'n', p: mid(nw, ne), d: { x: ne.y - nw.y, y: -(ne.x - nw.x) } },
@@ -166,14 +233,20 @@ export function boxHandles(corners: Vec2[]): Handle[] {
 }
 
 export function hitHandle(handles: Handle[], p: Vec2): Handle | null {
-  // Corner/edge handles take priority over rotate zones.
+  // Resize handles first: they sit on the outline, and a click on the outline
+  // means resize. Then the visible knob, then the invisible corner zones —
+  // drawn last, hit last, so what you can see always wins.
   const pad = HANDLE_SIZE / 2 + 3
   for (const h of handles) {
     if (h.kind.startsWith('rotate')) continue
     if (Math.abs(p.x - h.x) <= pad && Math.abs(p.y - h.y) <= pad) return h
   }
   for (const h of handles) {
-    if (!h.kind.startsWith('rotate')) continue
+    // Round handle, round hit area.
+    if (h.kind === 'rotate' && Math.hypot(p.x - h.x, p.y - h.y) <= ROTATE_KNOB_PAD) return h
+  }
+  for (const h of handles) {
+    if (!h.kind.startsWith('rotate-')) continue
     if (Math.abs(p.x - h.x) <= ROTATE_ZONE && Math.abs(p.y - h.y) <= ROTATE_ZONE) return h
   }
   return null
@@ -407,6 +480,48 @@ function drawCornerHandles(
   if (h) drawChip(ctx, h.x, h.y - 24, `${Math.round(node.cornerRadius[CORNER_KEYS[dragging]])}`)
 }
 
+/**
+ * The rotate knob: a stem out past the top edge, ending in a filled round
+ * handle. Round and filled so it cannot be read as one more white resize
+ * square — a different shape for a different verb. While the drag is live it
+ * carries the angle, the same number the inspector's Rotation field shows.
+ */
+function drawRotateKnob(
+  ctx: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  box: Vec2[],
+  handles: Handle[],
+  state: OverlayState,
+): void {
+  const knob = handles.find((h) => h.kind === 'rotate')
+  if (!knob) return
+  const topMid = mid(box[0], box[1])
+  const up = unit({ x: knob.x - topMid.x, y: knob.y - topMid.y })
+  // Start clear of the 'n' resize square rather than through it.
+  const from = { x: topMid.x + up.x * (HANDLE_SIZE / 2 + 1), y: topMid.y + up.y * (HANDLE_SIZE / 2 + 1) }
+  ctx.strokeStyle = ACCENT
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.moveTo(from.x, from.y)
+  ctx.lineTo(knob.x, knob.y)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(knob.x, knob.y, state.rotating ? ROTATE_KNOB_R + 1 : ROTATE_KNOB_R, 0, Math.PI * 2)
+  ctx.fillStyle = ACCENT
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 1.5
+  ctx.fill()
+  ctx.stroke()
+  if (!state.rotating) return
+  // One node has an angle; a multi-selection has one per node, so it shows none
+  // rather than whichever happened to be first.
+  const node = state.selection.length === 1 ? scene.getNode(state.selection[0]) : null
+  // Further out along the stem, not straight up the screen: on a turned shape
+  // "up the screen" is over the shape itself, and a readout you have to move
+  // the shape to read is no readout.
+  if (node) drawChip(ctx, knob.x + up.x * 18, knob.y + up.y * 18 - 8, `${round2(node.rotation)}°`)
+}
+
 function arcChipText(node: EllipseNode, kind: ArcHandleKind): string {
   if (kind === 'arc-start') return `${Math.round((node.arcStart ?? 0) * 360)}°`
   if (kind === 'arc-sweep') return `${Math.round((node.arcSweep ?? 1) * 100)}%`
@@ -522,7 +637,8 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
   const box = selectionScreenBox(scene, state.selection, camera)
   if (box && state.editingTextId === null && !state.vectorEditId) {
     strokePolygon(ctx, box, ACCENT, 1.5)
-    for (const h of boxHandles(box)) {
+    const handles = boxHandles(box, canRotate(scene, state.selection))
+    for (const h of handles) {
       if (h.kind.startsWith('rotate')) continue
       ctx.fillStyle = '#ffffff'
       ctx.strokeStyle = ACCENT
@@ -530,6 +646,7 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
       ctx.fillRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
       ctx.strokeRect(h.x - HANDLE_SIZE / 2, h.y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
     }
+    drawRotateKnob(ctx, scene, box, handles, state)
     // Dimensions chip
     const [nw, , se] = box
     const cx = (nw.x + se.x) / 2

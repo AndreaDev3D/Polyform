@@ -8,15 +8,21 @@ import { SceneGraph } from '../scene'
 import { createNode } from '../types'
 import type { EllipseNode } from '../types'
 import {
+  HANDLE_SIZE,
+  ROTATE_CURSOR,
+  ROTATE_STEM,
   arcEditTarget,
   arcHandles,
   arcRadiusFromLocal,
   arcTurnsFromLocal,
+  boxHandles,
+  canRotate,
   cornerEditTarget,
   cornerHandles,
   cornerRadiusFromLocal,
   hitArcHandle,
   hitCornerHandle,
+  hitHandle,
 } from './overlays'
 
 const CAMERA = { x: 0, y: 0, zoom: 1 }
@@ -157,6 +163,151 @@ describe('hitArcHandle', () => {
     expect(hitArcHandle(handles, { x: 104, y: 103 })?.kind).toBe('arc-start')
     expect(hitArcHandle(handles, { x: 198, y: 96 })?.kind).toBe('arc-ratio')
     expect(hitArcHandle(handles, { x: 150, y: 100 })).toBeNull()
+  })
+})
+
+// --- box handles + the rotate knob -----------------------------------------
+
+describe('boxHandles', () => {
+  // An upright 200x100 box at the origin, in screen space.
+  const upright = [
+    { x: 0, y: 0 },
+    { x: 200, y: 0 },
+    { x: 200, y: 100 },
+    { x: 0, y: 100 },
+  ]
+
+  it('puts one visible rotate knob on a stem above the top edge', () => {
+    const knobs = boxHandles(upright).filter((h) => h.kind === 'rotate')
+    expect(knobs).toHaveLength(1)
+    expect(knobs[0].x).toBeCloseTo(100, 6) // top edge midpoint
+    expect(knobs[0].y).toBeCloseTo(-ROTATE_STEM, 6) // out, not on the edge
+    expect(knobs[0].cursor).toBe(ROTATE_CURSOR)
+  })
+
+  it('carries the knob around with the box’s own up direction', () => {
+    // The same box turned a quarter turn clockwise about its centre: its top
+    // edge now faces right, so "above the shape" is to the right of it.
+    const turned = [
+      { x: 150, y: -50 },
+      { x: 150, y: 150 },
+      { x: 50, y: 150 },
+      { x: 50, y: -50 },
+    ]
+    const knob = boxHandles(turned).find((h) => h.kind === 'rotate')!
+    expect(knob.x).toBeCloseTo(150 + ROTATE_STEM, 6)
+    expect(knob.y).toBeCloseTo(50, 6)
+  })
+
+  it('points the knob up when the box has collapsed to a point', () => {
+    const point = [
+      { x: 40, y: 40 },
+      { x: 40, y: 40 },
+      { x: 40, y: 40 },
+      { x: 40, y: 40 },
+    ]
+    const knob = boxHandles(point).find((h) => h.kind === 'rotate')!
+    expect(knob.x).toBeCloseTo(40, 6)
+    expect(knob.y).toBeCloseTo(40 - ROTATE_STEM, 6)
+  })
+
+  it('drops every rotate affordance when rotation would do nothing', () => {
+    const hs = boxHandles(upright, false)
+    expect(hs.some((h) => h.kind.startsWith('rotate'))).toBe(false)
+    // ...but the resize handles are all still there.
+    expect(hs.map((h) => h.kind).sort()).toEqual(['e', 'n', 'ne', 'nw', 's', 'se', 'sw', 'w'])
+  })
+
+  it('keeps the knob clear of the n resize handle at every rotation', () => {
+    // If the two ever overlapped, one of them would be unclickable.
+    const pad = HANDLE_SIZE / 2 + 3
+    for (let deg = 0; deg < 360; deg += 15) {
+      const a = (deg * Math.PI) / 180
+      const rot = (p: { x: number; y: number }) => ({
+        x: 100 + (p.x - 100) * Math.cos(a) - (p.y - 50) * Math.sin(a),
+        y: 50 + (p.x - 100) * Math.sin(a) + (p.y - 50) * Math.cos(a),
+      })
+      const hs = boxHandles(upright.map(rot))
+      const knob = hs.find((h) => h.kind === 'rotate')!
+      const n = hs.find((h) => h.kind === 'n')!
+      expect(Math.hypot(knob.x - n.x, knob.y - n.y)).toBeGreaterThan(pad + 2)
+    }
+  })
+})
+
+describe('canRotate', () => {
+  it('accepts ordinary nodes and refuses instance internals', () => {
+    const scene = new SceneGraph()
+    const rect = createNode('RECTANGLE', 'r')
+    scene.addNode(rect, null, 0)
+    const instance = createNode('INSTANCE', 'i')
+    scene.addNode(instance, null, 1)
+    const inner = createNode('RECTANGLE', 'inner')
+    scene.addNode(inner, instance.id, 0)
+
+    expect(canRotate(scene, [rect.id])).toBe(true)
+    // The instance itself turns; its internals commit nowhere.
+    expect(canRotate(scene, [instance.id])).toBe(true)
+    expect(canRotate(scene, [inner.id])).toBe(false)
+    expect(canRotate(scene, [])).toBe(false)
+    expect(canRotate(scene, ['missing'])).toBe(false)
+    // A mixed selection still turns the part that can — which is what the
+    // gesture itself does.
+    expect(canRotate(scene, [inner.id, rect.id])).toBe(true)
+  })
+
+  it('turns a locked node, so it keeps the handle', () => {
+    const scene = new SceneGraph()
+    const rect = createNode('RECTANGLE', 'r')
+    rect.locked = true
+    scene.addNode(rect, null, 0)
+    expect(canRotate(scene, [rect.id])).toBe(true)
+  })
+})
+
+describe('hitHandle', () => {
+  const upright = [
+    { x: 0, y: 0 },
+    { x: 200, y: 0 },
+    { x: 200, y: 100 },
+    { x: 0, y: 100 },
+  ]
+  const hs = boxHandles(upright)
+
+  it('hits the knob, and rotates from it', () => {
+    expect(hitHandle(hs, { x: 100, y: -ROTATE_STEM })?.kind).toBe('rotate')
+    expect(hitHandle(hs, { x: 104, y: -ROTATE_STEM + 4 })?.kind).toBe('rotate')
+  })
+
+  it('gives the top edge to resize, not to the knob', () => {
+    expect(hitHandle(hs, { x: 100, y: 0 })?.kind).toBe('n')
+    expect(hitHandle(hs, { x: 0, y: 0 })?.kind).toBe('nw')
+  })
+
+  it('leaves the gap between the edge and the knob to neither', () => {
+    // The knob's hit area is the knob, not the whole strip above the shape —
+    // between the two, a drag is still a marquee.
+    expect(hitHandle(hs, { x: 100, y: -8 })).toBeNull()
+    // ...and the two are adjacent enough that the gap is only a couple of px.
+    expect(hitHandle(hs, { x: 100, y: -7 })?.kind).toBe('n')
+    expect(hitHandle(hs, { x: 100, y: -9 })?.kind).toBe('rotate')
+  })
+
+  it('still rotates from the invisible corner zones', () => {
+    expect(hitHandle(hs, { x: -14, y: -14 })?.kind).toBe('rotate-nw')
+    expect(hitHandle(hs, { x: 214, y: 114 })?.kind).toBe('rotate-se')
+  })
+
+  it('prefers the visible knob where a corner zone reaches it', () => {
+    // On a box narrow enough that the nw/ne zones cover the top middle, the
+    // handle you can see is the one you get.
+    const narrow = [
+      { x: 0, y: 0 },
+      { x: 12, y: 0 },
+      { x: 12, y: 100 },
+      { x: 0, y: 100 },
+    ]
+    expect(hitHandle(boxHandles(narrow), { x: 6, y: -ROTATE_STEM })?.kind).toBe('rotate')
   })
 })
 

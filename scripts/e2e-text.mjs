@@ -8,6 +8,10 @@
 //      every double-click gesture in the app (F-19).
 //   3. inspector scrub: dragging a value updates the canvas live and lands
 //      as exactly ONE undo entry.
+//   4. leaving vector edit leaves the transform box ON the shape (F-21).
+//   5. hovering a handle changes the cursor, and dragging the rotate knob
+//      turns the shape - the cursor was written only on repaint, so hovering
+//      a handle often changed nothing at all (F-23).
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -291,6 +295,76 @@ try {
     fail(`transform box is stale after leaving vector edit: drawn at ${boxCheck.drawn}, shape at ${boxCheck.real} (off by ${boxCheck.offBy})`)
   } else {
     console.log('E2E PASS: the transform box follows the shape out of vector edit')
+  }
+
+  // ---------------------------------------------------------------------
+  // 5. Hovering a handle changes the cursor.
+  //
+  // The cursor is derived from the pointer position, but it used to be written
+  // only inside the repaint branch — and moving onto a handle changes nothing
+  // the store knows about, so it often produced no repaint and no cursor
+  // change. Rotating in particular felt like guesswork. Only a live pointer
+  // over a live overlay can see this: the geometry unit tests all passed.
+  // ---------------------------------------------------------------------
+  await evaluate(`(() => {
+    const P = globalThis.__polyform
+    P.editor.set({ selection: [], vectorEditId: null, tool: 'select', showRulers: false,
+      camera: { x: 0, y: 0, zoom: 1 } })
+    const s = P.documentStore.scene
+    s.addNode({ id: 'e2e-rot', type: 'RECTANGLE', name: 'E2E Rot', visible: true, locked: false,
+      opacity: 1, blendMode: 'NORMAL', x: 100, y: 100, width: 200, height: 100, rotation: 0,
+      cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 },
+      fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.5, g: 0.4, b: 0.4, a: 1 } }],
+      strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE', strokeDash: [], effects: [] }, null, 0)
+    P.documentStore.transient()
+    P.editor.set({ selection: ['e2e-rot'] })
+    return 'built'
+  })()`)
+  await sleep(450)
+  const canvasOrigin = JSON.parse(await evaluate(`(() => {
+    const r = document.querySelector('canvas').getBoundingClientRect()
+    return JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) })
+  })()`))
+  // Camera at the origin with zoom 1, so world == canvas-local. The knob sits
+  // ROTATE_STEM px out from the top edge midpoint of a 200x100 box at (100,100).
+  const at = (wx, wy) => ({ x: canvasOrigin.left + wx, y: canvasOrigin.top + wy })
+  const readCursor = async (p) => {
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y })
+    await sleep(220)
+    return await evaluate(`(document.querySelector('canvas').parentElement.style.cursor || '')`)
+  }
+  const overNothing = await readCursor(at(700, 500))
+  const overKnob = await readCursor(at(200, 100 - 18))
+  const overEdge = await readCursor(at(200, 100))
+  if (!/svg/.test(overKnob)) {
+    fail(`hovering the rotate knob gave no rotation cursor (was "${overNothing}" over empty space, "${overKnob}" on the knob)`)
+  } else if (overEdge !== 'ns-resize') {
+    fail(`hovering the top edge should still resize, got "${overEdge}"`)
+  } else {
+    console.log('E2E PASS: the rotate knob and resize handles change the cursor on hover')
+  }
+
+  // ...and dragging that knob turns the shape, in one undo step.
+  const knob = at(200, 100 - 18)
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: knob.x, y: knob.y, button: 'left', clickCount: 1 })
+  await sleep(80)
+  const quarter = at(200 + 70, 150) // a quarter turn about the centre (200,150)
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: quarter.x, y: quarter.y, button: 'left', buttons: 1 })
+  await sleep(160)
+  const rotatingNow = await evaluate(`globalThis.__polyform.editor.get().rotating`)
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: quarter.x, y: quarter.y, button: 'left', clickCount: 1 })
+  await sleep(350)
+  const rot = JSON.parse(await evaluate(`JSON.stringify({
+    deg: Math.round(globalThis.__polyform.documentStore.scene.getNode('e2e-rot').rotation),
+    rotating: globalThis.__polyform.editor.get().rotating,
+    label: globalThis.__polyform.documentStore.history.undoStack.at(-1)?.label,
+  })`))
+  if (Math.abs(rot.deg - 90) > 2 || rot.label !== 'Rotate') {
+    fail(`dragging the knob should be a quarter turn in one step, got ${JSON.stringify(rot)}`)
+  } else if (rotatingNow !== true || rot.rotating !== false) {
+    fail(`the rotating flag should be on mid-drag and off after (mid=${rotatingNow}, after=${rot.rotating})`)
+  } else {
+    console.log('E2E PASS: dragging the rotate knob turns the shape in one undo step')
   }
 
 } catch (err) {

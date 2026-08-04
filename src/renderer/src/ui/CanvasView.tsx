@@ -45,6 +45,7 @@ export function CanvasView() {
     let raf = 0
     let disposed = false
     let gpu: WebGPURenderer | null = null
+    let lastCursor = ''
     const ctx2d = useGpu ? null : sceneCanvas.getContext('2d')!
     const overlayCtx = overlayCanvas.getContext('2d')!
 
@@ -152,8 +153,19 @@ export function CanvasView() {
           vectorSelection: state.vectorSelection,
           arcDrag: state.arcDrag,
           cornerDrag: state.cornerDrag,
+          rotating: state.rotating,
         })
-        container.style.cursor = interactionController.cursor
+      }
+      // Outside the dirty gate on purpose. The cursor is derived from where the
+      // pointer is, and moving onto a handle changes nothing the store knows
+      // about — so gating this on a repaint meant approaching a rotate zone or
+      // a resize handle often produced no cursor change at all, which is most
+      // of why rotating felt like guesswork. Diffing keeps it to one DOM write
+      // per actual change.
+      const cursor = interactionController.cursor
+      if (cursor !== lastCursor) {
+        lastCursor = cursor
+        container.style.cursor = cursor
       }
       raf = requestAnimationFrame(frame)
     }

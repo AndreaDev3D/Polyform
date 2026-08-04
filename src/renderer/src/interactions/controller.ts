@@ -22,12 +22,14 @@ import type { PatchOp } from '../engine/commands'
 import { removeSubtreeOps } from '../engine/commands'
 import {
   CORNER_KEYS,
+  ROTATE_CURSOR,
   RULER_SIZE,
   arcEditTarget,
   arcHandles,
   arcRadiusFromLocal,
   arcTurnsFromLocal,
   boxHandles,
+  canRotate,
   cornerEditTarget,
   cornerHandles,
   cornerRadiusFromLocal,
@@ -329,7 +331,7 @@ export class InteractionController {
     // 1. Handles on the current selection.
     const box = selectionScreenBox(this.scene, state.selection, state.camera)
     if (box && state.selection.length > 0) {
-      const handle = hitHandle(boxHandles(box), screen)
+      const handle = hitHandle(boxHandles(box, canRotate(this.scene, state.selection)), screen)
       if (handle) {
         if (handle.kind.startsWith('rotate')) this.startRotate(handle)
         else this.startResize(handle)
@@ -513,6 +515,7 @@ export class InteractionController {
       snapshots: this.snapshotNodes(ids, ['rotation', 'x', 'y']),
       worldCenters,
     }
+    editor.set({ rotating: true })
   }
 
   /** World point in a node's own space (rotation- and nesting-aware). */
@@ -913,9 +916,9 @@ export class InteractionController {
     }
     const box = selectionScreenBox(this.scene, state.selection, state.camera)
     if (box && state.selection.length > 0) {
-      const handle = hitHandle(boxHandles(box), screen)
+      const handle = hitHandle(boxHandles(box, canRotate(this.scene, state.selection)), screen)
       if (handle) {
-        this.cursorOverride = handle.kind.startsWith('rotate') ? rotateCursor() : handle.cursor
+        this.cursorOverride = handle.cursor
         if (state.hover) editor.set({ hover: null })
         return
       }
@@ -1140,6 +1143,7 @@ export class InteractionController {
         this.commitFromSnapshots(this.mode.snapshots, 'Resize')
         break
       case 'rotate':
+        editor.set({ rotating: false })
         this.commitFromSnapshots(this.mode.snapshots, 'Rotate')
         break
       case 'arc':
@@ -1710,7 +1714,7 @@ export class InteractionController {
       }
       this.scene.bump()
       documentStore.transient()
-      editor.set({ arcDrag: null, cornerDrag: null })
+      editor.set({ arcDrag: null, cornerDrag: null, rotating: false })
     }
     if (
       this.mode.kind === 'vector-vertex' ||
@@ -1758,6 +1762,8 @@ export class InteractionController {
   get cursor(): string {
     const state = editor.get()
     if (this.mode.kind === 'pan') return 'grabbing'
+    // A live rotate keeps the rotation cursor even where the pointer wanders to.
+    if (this.mode.kind === 'rotate') return ROTATE_CURSOR
     if (state.spacePanning || state.tool === 'hand') return 'grab'
     if (this.cursorOverride) return this.cursorOverride
     if (state.tool !== 'select') return 'crosshair'
@@ -1814,10 +1820,6 @@ function norm180(deg: number): number {
   if (d > 180) d -= 360
   if (d < -180) d += 360
   return d
-}
-
-function rotateCursor(): string {
-  return 'alias'
 }
 
 function defaultName(type: SceneNode['type'], scene: typeof documentStore.scene): string {
