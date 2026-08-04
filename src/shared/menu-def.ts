@@ -54,8 +54,11 @@ export const MENU: MenuDef[] = [
       { id: 'file.save', label: 'Save', accelerator: 'CmdOrCtrl+S', action: 'file.save' },
       { id: 'file.saveAs', label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', action: 'file.saveAs' },
       sep,
-      { id: 'file.placeImage', label: 'Place Image…', accelerator: 'CmdOrCtrl+Shift+K', action: 'file.placeImage' },
-      { id: 'file.placeModel', label: 'Place 3D Model…', action: 'file.placeModel' },
+      // "Import" for all three, because they are the same errand from the
+      // user's side: bring a file on disk into the document. The old "Place"
+      // wording split one group of menu items into two vocabularies.
+      { id: 'file.importImage', label: 'Import Image…', accelerator: 'CmdOrCtrl+Shift+K', action: 'file.importImage' },
+      { id: 'file.importModel', label: 'Import 3D Model…', action: 'file.importModel' },
       { id: 'file.importSvg', label: 'Import SVG…', action: 'file.importSvg' },
       sep,
       { id: 'file.exportPng', label: 'Export PNG…', accelerator: 'CmdOrCtrl+Shift+E', action: 'file.exportPng' },

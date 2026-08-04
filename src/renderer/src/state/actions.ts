@@ -1089,7 +1089,7 @@ export async function saveAsFlow(): Promise<boolean> {
 // Images
 // ---------------------------------------------------------------------------
 
-export async function placeImages(): Promise<void> {
+export async function importImages(): Promise<void> {
   const assets = await window.polyform.assetsImportDialog()
   if (!assets || assets.length === 0) return
   const scene = documentStore.scene
@@ -1134,7 +1134,7 @@ export async function placeImages(): Promise<void> {
     created.push(node.id)
     offset += 24
   }
-  rec.commit(assets.length === 1 ? 'Place Image' : `Place ${assets.length} Images`)
+  rec.commit(assets.length === 1 ? 'Import Image' : `Import ${assets.length} Images`)
   setSelection(created)
 }
 
@@ -1152,7 +1152,7 @@ const MODEL_FORMAT_BY_EXT: Record<string, Model3dFormat> = {
   sog: 'SOG',
 }
 
-export async function placeModels(): Promise<void> {
+export async function importModels(): Promise<void> {
   const assets = await window.polyform.assetsImportDialog('model')
   if (!assets || assets.length === 0) return
   const scene = documentStore.scene
@@ -1192,7 +1192,7 @@ export async function placeModels(): Promise<void> {
     offset += 24
   }
   if (created.length === 0) return
-  rec.commit(created.length === 1 ? 'Place 3D Model' : `Place ${created.length} 3D Models`)
+  rec.commit(created.length === 1 ? 'Import 3D Model' : `Import ${created.length} 3D Models`)
   setSelection(created)
 }
 
@@ -1605,11 +1605,11 @@ export function dispatchMenuAction(id: string): void {
     case 'file.saveAs':
       void saveAsFlow()
       break
-    case 'file.placeImage':
-      void placeImages()
+    case 'file.importImage':
+      void importImages()
       break
-    case 'file.placeModel':
-      void placeModels()
+    case 'file.importModel':
+      void importModels()
       break
     case 'file.importSvg':
       void importSvgFlow()

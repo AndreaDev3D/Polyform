@@ -315,7 +315,7 @@ function registerIpc(): void {
           ]
         : [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'] }]
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: kind === 'model' ? 'Place 3D Model' : 'Place Image',
+      title: kind === 'model' ? 'Import 3D Model' : 'Import Image',
       filters,
       properties: ['openFile', 'multiSelections'],
     })

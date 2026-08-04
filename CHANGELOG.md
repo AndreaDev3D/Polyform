@@ -12,6 +12,10 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 - **A real rotation cursor.** CSS has no keyword for one, so it is a circular arrow drawn inline: white ink over a solid black rim, legible on the canvas, on a pale shape and on a dark one. It shows on the knob and on the corner zones, and stays for the whole drag.
 - Rotate affordances are hidden where rotation is refused — inside an instance, where nothing would commit. Previously the invisible corner zones swallowed the click and did nothing.
 
+### Changed
+
+- **"Place" is now "Import" in the File menu**: **Import Image…** (`Ctrl+Shift+K`) and **Import 3D Model…** now sit beside **Import SVG…**, because from where you stand they are one errand — bring a file on disk into the document — and the old wording split one group of menu items into two vocabularies. The native file dialogs and the history entries follow ("Import Image", "Import 3 Images"), so undo describes itself with the same word you clicked. The menu **ids** moved with the labels (`file.importImage`, `file.importModel`): `shared/menu-def.ts` is the single definition both the native menu and the app's own bar are built from, and a split vocabulary there is how the next reader gets confused. *(Entries below still cite "File → Place 3D Model…" — that is where it was in 0.5.0.)*
+
 ### Fixed
 
 - **The app now claims its own Windows identity.** It sets the AppUserModelID from the installer's `appId`, as a build-time define from the same `package.json`, so the running window and the installed shortcut cannot drift apart — without it the shell attributes notification toasts to "Electron" and a pinned shortcut doesn't recognise the running window as itself. Note what this does *not* change: the name in Task Manager and the taskbar group is the executable's own version info, so a run from source still reads **Electron** (the binary is `node_modules/electron/dist/electron.exe`) while the packaged `Polyform.exe` reads **Polyform**. The taskbar *icon* was already correct in both, because the window icon is set explicitly for unpackaged runs.
