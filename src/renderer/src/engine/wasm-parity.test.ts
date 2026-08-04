@@ -197,13 +197,21 @@ describe('geometry parity (TS <-> WASM)', () => {
       const deg = range(-720, 720)
       closeMat(w.matRotateDeg(deg), matRotateDeg(deg), 'matRotateDeg')
       const [x, y, wd, ht] = [range(-500, 500), range(-500, 500), range(0, 400), range(0, 400)]
+      const fh = rand() < 0.5
+      const fv = rand() < 0.5
       closeMat(
-        w.nodeLocalMatrix(x, y, wd, ht, deg),
-        nodeLocalMatrix(x, y, wd, ht, deg),
+        w.nodeLocalMatrix(x, y, wd, ht, deg, fh, fv),
+        nodeLocalMatrix(x, y, wd, ht, deg, fh, fv),
         'nodeLocalMatrix',
       )
-      // rotation === 0 short-circuit is pure arithmetic -> exact
-      exactMat(w.nodeLocalMatrix(x, y, wd, ht, 0), nodeLocalMatrix(x, y, wd, ht, 0), 'nlm(0)')
+      // rotation === 0 short-circuit is pure arithmetic -> exact. With a flip it
+      // is still only arithmetic (a sign and two translates), so it stays exact.
+      exactMat(w.nodeLocalMatrix(x, y, wd, ht, 0, false, false), nodeLocalMatrix(x, y, wd, ht, 0), 'nlm(0)')
+      exactMat(
+        w.nodeLocalMatrix(x, y, wd, ht, 0, fh, fv),
+        nodeLocalMatrix(x, y, wd, ht, 0, fh, fv),
+        'nlm(0, flipped)',
+      )
     }
   })
 

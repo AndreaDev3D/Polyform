@@ -42,6 +42,8 @@ import {
   detachSelectedInstances,
   detachStyle,
   distributeSelection,
+  flipSelection,
+  rotateSelection,
   renameSharedStyle,
   resetInstanceOverrides,
   runExports,
@@ -84,7 +86,10 @@ import {
   MirrorNoneIcon,
   OpacityIcon,
   PlusIcon,
+  Rotate90Icon,
   RotationIcon,
+  FlipHIcon,
+  FlipVIcon,
   StrokeWeightIcon,
   TextAlignCenterIcon,
   TextAlignLeftIcon,
@@ -93,6 +98,7 @@ import {
   TextMiddleIcon,
   TextTopIcon,
 } from './icons'
+import { ResizeHandle, usePanelWidth } from './panel-resize'
 
 const BLEND_OPTIONS: { value: BlendMode; label: string }[] = [
   { value: 'NORMAL', label: 'Normal' },
@@ -136,10 +142,15 @@ export function Inspector() {
 
   const scene = documentStore.scene
   const nodes = selection.map((id) => scene.getNode(id)).filter((n): n is SceneNode => !!n)
+  const panel = usePanelWidth('polyform.panel.right', 288, 'left')
 
   if (nodes.length === 0) {
     return (
-      <div className="w-72 shrink-0 bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto">
+      <div
+        className="shrink-0 relative bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto"
+        style={{ width: panel.width }}
+      >
+        <ResizeHandle edge="left" dragging={panel.dragging} onPointerDown={panel.onPointerDown} title="Drag to resize the panel" />
         <StylesPanel />
         <div className="px-4 py-6 text-[11px] text-[var(--pf-text-dim)]">
           Select a layer to edit its properties.
@@ -273,7 +284,11 @@ export function Inspector() {
   const isModel3d = nodes.length === 1 && first.type === 'MODEL3D'
 
   return (
-    <div className="w-72 shrink-0 bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto select-none">
+    <div
+      className="shrink-0 relative bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto select-none"
+      style={{ width: panel.width }}
+    >
+      <ResizeHandle edge="left" dragging={panel.dragging} onPointerDown={panel.onPointerDown} title="Drag to resize the panel" />
       {/* Transform */}
       <Section title={nodes.length === 1 ? first.name : `${nodes.length} layers`}>
         <Field label="Alignment" className="mb-2.5">
@@ -289,20 +304,21 @@ export function Inspector() {
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Position">
-            <div className="grid grid-cols-2 gap-1.5">
-              <NumberInput label="X" title="X position" value={common((n) => round(n.x))} onCommit={(v) => commit(() => ({ x: v }), 'Set X')} />
-              <NumberInput label="Y" title="Y position" value={common((n) => round(n.y))} onCommit={(v) => commit(() => ({ y: v }), 'Set Y')} />
-            </div>
-          </Field>
-          <Field label="Dimensions">
-            <div className="grid grid-cols-2 gap-1.5">
-              <NumberInput label="W" title="Width" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => setSelectionSize('width', v)} />
-              <NumberInput label="H" title="Height" value={common((n) => round(n.height))} min={0} onCommit={(v) => setSelectionSize('height', v)} />
-            </div>
-          </Field>
-        </div>
+        {/* Two columns, never four. X/Y and W/H each get a full row: at 288px
+            of panel, four number fields on one line left every value clipped to
+            three characters ("5163", "3603" in a box that fits "516"). */}
+        <Field label="Position">
+          <div className="grid grid-cols-2 gap-1.5">
+            <NumberInput label="X" title="X position" value={common((n) => round(n.x))} onCommit={(v) => commit(() => ({ x: v }), 'Set X')} />
+            <NumberInput label="Y" title="Y position" value={common((n) => round(n.y))} onCommit={(v) => commit(() => ({ y: v }), 'Set Y')} />
+          </div>
+        </Field>
+        <Field label="Dimensions" className="mt-2.5">
+          <div className="grid grid-cols-2 gap-1.5">
+            <NumberInput label="W" title="Width" value={common((n) => round(n.width))} min={0.5} onCommit={(v) => setSelectionSize('width', v)} />
+            <NumberInput label="H" title="Height" value={common((n) => round(n.height))} min={0} onCommit={(v) => setSelectionSize('height', v)} />
+          </div>
+        </Field>
 
         <div className="grid grid-cols-2 gap-2 mt-2.5">
           <Field label="Rotation">
@@ -314,6 +330,22 @@ export function Inspector() {
               onCommit={(v) => commit(() => ({ rotation: v }), 'Set Rotation')}
             />
           </Field>
+          <Field label="Transform" hint="Quarter-turn, or mirror about the selection's centre">
+            <div className="flex items-center gap-1">
+              <button className="pf-icon-btn flex-1" title="Rotate 90° right" onClick={() => rotateSelection(90)}>
+                <Rotate90Icon />
+              </button>
+              <button className="pf-icon-btn flex-1" title="Flip horizontal (Shift+H)" onClick={() => flipSelection('h')}>
+                <FlipHIcon />
+              </button>
+              <button className="pf-icon-btn flex-1" title="Flip vertical (Shift+V)" onClick={() => flipSelection('v')}>
+                <FlipVIcon />
+              </button>
+            </div>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mt-2.5">
           {hasCorner && (
             <Field
               label="Corner radius"

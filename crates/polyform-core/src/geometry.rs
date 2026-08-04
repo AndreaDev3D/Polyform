@@ -54,6 +54,10 @@ pub fn mat_translate(tx: f64, ty: f64) -> Mat {
     Mat { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: tx, f: ty }
 }
 
+pub fn mat_scale(sx: f64, sy: f64) -> Mat {
+    Mat { a: sx, b: 0.0, c: 0.0, d: sy, e: 0.0, f: 0.0 }
+}
+
 pub fn mat_rotate_deg(deg: f64) -> Mat {
     let rad = (deg * PI) / 180.0;
     let cos = rad.cos();
@@ -83,16 +87,30 @@ pub fn apply_mat(m: Mat, p: Vec2) -> Vec2 {
 
 /// Local-to-parent matrix for a node at (x, y) with size (w, h) rotated
 /// `rotation` degrees about its center.
-pub fn node_local_matrix(x: f64, y: f64, w: f64, h: f64, rotation: f64) -> Mat {
-    if rotation == 0.0 {
+pub fn node_local_matrix(
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    rotation: f64,
+    flip_h: bool,
+    flip_v: bool,
+) -> Mat {
+    if rotation == 0.0 && !flip_h && !flip_v {
         return mat_translate(x, y);
     }
     let cx = w / 2.0;
     let cy = h / 2.0;
-    mat_multiply(
-        mat_translate(x + cx, y + cy),
-        mat_multiply(mat_rotate_deg(rotation), mat_translate(-cx, -cy)),
-    )
+    // Mirror first, then rotate, both about the centre: T(c) * R * S * T(-c).
+    let inner = if flip_h || flip_v {
+        mat_multiply(
+            mat_scale(if flip_h { -1.0 } else { 1.0 }, if flip_v { -1.0 } else { 1.0 }),
+            mat_translate(-cx, -cy),
+        )
+    } else {
+        mat_translate(-cx, -cy)
+    };
+    mat_multiply(mat_translate(x + cx, y + cy), mat_multiply(mat_rotate_deg(rotation), inner))
 }
 
 // ---------------------------------------------------------------------------

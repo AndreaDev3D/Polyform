@@ -765,10 +765,12 @@ export function networkToSubPaths(vertices, edges) {
  * @param {number} w
  * @param {number} h
  * @param {number} rotation
+ * @param {boolean} flip_h
+ * @param {boolean} flip_v
  * @returns {Float64Array}
  */
-export function nodeLocalMatrix(x, y, w, h, rotation) {
-    const ret = wasm.nodeLocalMatrix(x, y, w, h, rotation);
+export function nodeLocalMatrix(x, y, w, h, rotation, flip_h, flip_v) {
+    const ret = wasm.nodeLocalMatrix(x, y, w, h, rotation, flip_h, flip_v);
     var v1 = getArrayF64FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 8, 8);
     return v1;

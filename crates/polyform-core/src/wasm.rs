@@ -130,8 +130,16 @@ pub fn apply_mat(m: &[f64], x: f64, y: f64) -> Vec<f64> {
 }
 
 #[wasm_bindgen(js_name = nodeLocalMatrix)]
-pub fn node_local_matrix(x: f64, y: f64, w: f64, h: f64, rotation: f64) -> Vec<f64> {
-    mat_out(g::node_local_matrix(x, y, w, h, rotation))
+pub fn node_local_matrix(
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    rotation: f64,
+    flip_h: bool,
+    flip_v: bool,
+) -> Vec<f64> {
+    mat_out(g::node_local_matrix(x, y, w, h, rotation, flip_h, flip_v))
 }
 
 #[wasm_bindgen(js_name = transformedRectAabb)]

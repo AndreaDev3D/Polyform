@@ -86,14 +86,33 @@ function strokeAttrs(ctx: SvgCtx, node: SceneNode): string {
   return attrs
 }
 
+/** Exported for the equivalence test against nodeLocalMatrix. */
+export function transformAttrFor(node: SceneNode): string {
+  return transformAttr(node)
+}
+
 function transformAttr(node: SceneNode): string {
-  if (node.rotation === 0) {
+  const flipH = node.flipH ?? false
+  const flipV = node.flipV ?? false
+  if (node.rotation === 0 && !flipH && !flipV) {
     if (node.x === 0 && node.y === 0) return ''
     return ` transform="translate(${num(node.x)} ${num(node.y)})"`
   }
   const cx = node.width / 2
   const cy = node.height / 2
-  return ` transform="translate(${num(node.x)} ${num(node.y)}) rotate(${num(node.rotation)} ${num(cx)} ${num(cy)})"`
+  if (!flipH && !flipV) {
+    return ` transform="translate(${num(node.x)} ${num(node.y)}) rotate(${num(node.rotation)} ${num(cx)} ${num(cy)})"`
+  }
+  // The same composition nodeLocalMatrix builds — T(c) rotate S(±1) T(-c) —
+  // spelled out, because SVG has no single attribute for "mirror about my own
+  // centre" and the order has to match the engine or an export would disagree
+  // with the canvas.
+  const sx = flipH ? -1 : 1
+  const sy = flipV ? -1 : 1
+  return (
+    ` transform="translate(${num(node.x + cx)} ${num(node.y + cy)})` +
+    ` rotate(${num(node.rotation)}) scale(${sx} ${sy}) translate(${num(-cx)} ${num(-cy)})"`
+  )
 }
 
 function commonAttrs(node: SceneNode): string {

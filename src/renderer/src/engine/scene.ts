@@ -241,7 +241,15 @@ export class SceneGraph {
   // -------------------------------------------------------------------------
 
   localMatrix(node: SceneNode): Mat {
-    return nodeLocalMatrix(node.x, node.y, node.width, node.height, node.rotation)
+    return nodeLocalMatrix(
+      node.x,
+      node.y,
+      node.width,
+      node.height,
+      node.rotation,
+      node.flipH ?? false,
+      node.flipV ?? false,
+    )
   }
 
   worldMatrix(id: NodeId): Mat {

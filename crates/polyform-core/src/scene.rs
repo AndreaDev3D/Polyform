@@ -325,6 +325,8 @@ impl SceneGraph {
             f64_of(node, "width"),
             f64_of(node, "height"),
             f64_of(node, "rotation"),
+            bool_of(node, "flipH", false),
+            bool_of(node, "flipV", false),
         )
     }
 

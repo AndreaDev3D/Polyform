@@ -20,7 +20,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Canvas & Viewport](#canvas--viewport) | 16 | 1 | 1 | 0 | 18 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
 | [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
-| [Selection & Transform](#selection--transform) | 19 | 0 | 5 | 0 | 24 |
+| [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
@@ -31,9 +31,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
-| [Desktop / Platform](#desktop--platform) | 5 | 1 | 3 | 1 | 10 |
+| [Desktop / Platform](#desktop--platform) | 6 | 1 | 3 | 1 | 11 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **138** | **24** | **53** | **23** | **238** |
+| **Total** | **141** | **24** | **52** | **23** | **240** |
 
 ---
 
@@ -122,7 +122,8 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Shift-nudge | Shift+arrows move by 10px | ✅ | |
 | Numeric X/Y/W/H | Type exact position and size in inspector | ✅ | |
 | Numeric rotation | Type exact rotation angle | ✅ | |
-| Flip horizontal/vertical | Mirror selection (Shift+H / Shift+V) | 📋 | |
+| Flip horizontal/vertical | Mirror selection (Shift+H / Shift+V) | ✅ | A transform (`flipH`/`flipV` in the node matrix), not a geometry edit, so one operation mirrors an image fill, shaped text, a vector network and a whole group alike — and is exactly reversible. Rust twin + parity fuzz + `flip-transforms` render fixture; Object menu, Shift+H/V, and the inspector's Transform row |
+| Rotate 90° | Quarter-turn the selection | ✅ | Inspector Transform row and Object → Rotate 90° Right; one node turns in place, several turn rigidly about the shared centre |
 | Scale tool (K) | Proportionally scale including strokes/text | 📋 | |
 | Align 6-way | Left/center/right, top/middle/bottom alignment | ✅ | |
 | Distribute | Even horizontal/vertical distribution | ✅ | |
@@ -329,6 +330,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
+| Resizable side panels | Drag the panel edges to rebalance the workspace | ✅ | Both panels; width remembered per machine in localStorage (not in the `.poly`, which would carry one person's layout to another's screen), clamped 180–560px and to 40% of the window |
 | Native desktop app | Electron app for Windows/macOS | ✅ | Electron + electron-vite + React 19 + TypeScript + Tailwind CSS 4; Windows, macOS, Linux |
 | Native application menus | OS menu bar with full command set | ✅ | |
 | Context menu | Right-click canvas/layer menus | ✅ | |

@@ -2,7 +2,7 @@
 // (accelerators); this handles single-key tools, nudging and Escape/Enter.
 
 import { editor, type Tool } from '../state/editor'
-import { deleteSelection, nudgeSelection, setSelection, zoomToFit, zoomToSelection } from '../state/actions'
+import { deleteSelection, flipSelection, nudgeSelection, setSelection, zoomToFit, zoomToSelection } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { documentStore } from '../state/document'
 
@@ -92,6 +92,18 @@ export function installShortcuts(): () => void {
 
     if (e.shiftKey && e.code === 'KeyR') {
       editor.set({ showRulers: !state.showRulers })
+      return
+    }
+
+    // Mirror the selection. Bare Shift+letter, so it is handled here behind the
+    // focus guard rather than registered as a native accelerator — H and V are
+    // printable, and the native menu would take them away from every text field.
+    if (e.shiftKey && e.code === 'KeyH') {
+      flipSelection('h')
+      return
+    }
+    if (e.shiftKey && e.code === 'KeyV') {
+      flipSelection('v')
       return
     }
 

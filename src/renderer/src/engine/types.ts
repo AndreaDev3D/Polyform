@@ -229,6 +229,14 @@ export interface BaseNode {
   height: number
   /** Degrees, clockwise, about the node center. */
   rotation: number
+  /**
+   * Mirror about the node's own centre, applied *before* rotation. A transform
+   * rather than a geometry edit, which is the only way a flip can mean the same
+   * thing for an image fill, shaped text, a vector network and a whole group.
+   * Absent is false — every node written before this existed is unflipped.
+   */
+  flipH?: boolean
+  flipV?: boolean
   fills: Paint[]
   strokes: Paint[]
   strokeWeight: number

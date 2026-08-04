@@ -28,6 +28,8 @@ fn children() -> Vec<SubPath> {
             210.39229708490893,
             219.7389481868595,
             57.253798241727054,
+            false,
+            false,
         ),
     );
     let r = transform(
@@ -38,6 +40,8 @@ fn children() -> Vec<SubPath> {
             79.52884296886623,
             153.92721193144098,
             0.0,
+            false,
+            false,
         ),
     );
     let p = transform(
@@ -48,6 +52,8 @@ fn children() -> Vec<SubPath> {
             181.4340677158907,
             216.778450619895,
             60.86340964771807,
+            false,
+            false,
         ),
     );
     vec![e, r, p]

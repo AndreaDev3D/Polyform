@@ -261,7 +261,11 @@ fn normalize_containers(scene: &mut SceneGraph, id: &str) -> bool {
                     f64_of(c, "height"),
                     f64_of(c, "rotation"),
                 );
-                let m = node_local_matrix(cx, cy, cw, ch, cr);
+                let m = node_local_matrix(
+                    cx, cy, cw, ch, cr,
+                    bool_of(c, "flipH", false),
+                    bool_of(c, "flipV", false),
+                );
                 pts.push(apply_mat(m, vec2(0.0, 0.0)));
                 pts.push(apply_mat(m, vec2(cw, 0.0)));
                 pts.push(apply_mat(m, vec2(cw, ch)));

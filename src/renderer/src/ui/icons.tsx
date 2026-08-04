@@ -267,6 +267,30 @@ export const RotationIcon = (p: P) => (
     <path d="M13.2 2v3h-3" />
   </I>
 )
+/** A quarter turn clockwise: the box, and the arc it swings through. */
+export const Rotate90Icon = (p: P) => (
+  <I {...p}>
+    <path d="M7 9h6v5H7z" />
+    <path d="M4 6.5A6 6 0 0110.5 3" />
+    <path d="M10.6 1.2 12.8 3l-2.2 1.8" />
+  </I>
+)
+/** Mirror left↔right: two halves facing each other across a dashed axis. */
+export const FlipHIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 2v12" strokeDasharray="2 2" />
+    <path d="M6 4.5 3 8l3 3.5z" />
+    <path d="M10 4.5 13 8l-3 3.5z" />
+  </I>
+)
+/** Mirror top↕bottom: the same, turned. */
+export const FlipVIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2 8h12" strokeDasharray="2 2" />
+    <path d="M4.5 6 8 3l3.5 3z" />
+    <path d="M4.5 10 8 13l3.5-3z" />
+  </I>
+)
 /** One rounded corner: the uniform-radius field. */
 export const CornerRadiusIcon = (p: P) => (
   <I {...p}>

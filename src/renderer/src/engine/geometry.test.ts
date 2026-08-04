@@ -32,6 +32,40 @@ describe('matrices', () => {
     expect(p.y).toBeCloseTo(11)
   })
 
+  it('nodeLocalMatrix mirrors about the center, and leaves the box alone', () => {
+    // A 100x40 node at (10, 20): flipping H swaps its left and right edges but
+    // the box it occupies is identical, which is why a flip never moves a node.
+    const m = nodeLocalMatrix(10, 20, 100, 40, 0, true, false)
+    expect(applyMat(m, { x: 0, y: 0 })).toEqual({ x: 110, y: 20 })
+    expect(applyMat(m, { x: 100, y: 0 })).toEqual({ x: 10, y: 20 })
+    expect(applyMat(m, { x: 50, y: 20 })).toEqual({ x: 60, y: 40 }) // centre holds
+    const v = nodeLocalMatrix(10, 20, 100, 40, 0, false, true)
+    expect(applyMat(v, { x: 0, y: 0 })).toEqual({ x: 10, y: 60 })
+    expect(applyMat(v, { x: 0, y: 40 })).toEqual({ x: 10, y: 20 })
+  })
+
+  it('flips before it rotates, so a mirror never spins the node', () => {
+    // Flipping after the rotation would mirror the rotation itself: a 90° node
+    // flipped H would come out at -90°. Mirroring first keeps the turn.
+    const m = nodeLocalMatrix(0, 0, 100, 40, 90, true, false)
+    // Node-local +x is mirrored to -x, then rotated 90° (x -> +y): so the
+    // node's own right edge ends up ABOVE its centre, not below.
+    const right = applyMat(m, { x: 100, y: 20 })
+    const centre = applyMat(m, { x: 50, y: 20 })
+    expect(right.y).toBeLessThan(centre.y)
+    // Two flips are the identity.
+    const twice = nodeLocalMatrix(7, 9, 100, 40, 33, true, true)
+    const plain = nodeLocalMatrix(7, 9, 100, 40, 33)
+    const p = { x: 81, y: 12 }
+    const a = applyMat(twice, p)
+    const b = applyMat(nodeLocalMatrix(7, 9, 100, 40, 33 + 180), p)
+    // flipH+flipV about the centre IS a half turn: 33° flipped both ways
+    // equals 213°.
+    expect(a.x).toBeCloseTo(b.x, 9)
+    expect(a.y).toBeCloseTo(b.y, 9)
+    expect(applyMat(plain, p).x).not.toBeCloseTo(a.x, 6)
+  })
+
   it('nodeLocalMatrix rotates about the center', () => {
     const m = nodeLocalMatrix(0, 0, 100, 50, 180)
     const center = applyMat(m, { x: 50, y: 25 })

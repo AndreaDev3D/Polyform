@@ -190,6 +190,10 @@ function randomNode(): SceneNode {
       })),
     }
   }
+  // A mirror rides in the node matrix, so it has to reach world matrices, world
+  // AABBs and every hit test identically in both engines.
+  if (rand() < 0.3) node.flipH = true
+  if (rand() < 0.3) node.flipV = true
   if (rand() < 0.3 && !isNaN(0)) node.visible = rand() < 0.85
   return node
 }

@@ -213,6 +213,84 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Flips ride in the node matrix, and the GPU backend bakes its own copy of
+    // every transform — so a mirrored node is exactly the sort of thing that can
+    // come out right on one rasterizer and backwards on the other. Every shape
+    // here is asymmetric on purpose; a mirrored square proves nothing.
+    name: 'flip-transforms',
+    badLimit: 0.02,
+    build: (s) => {
+      const wedge = () => ({
+        windingRule: 'NONZERO' as const,
+        network: {
+          vertices: [
+            { id: 1, x: 0, y: 0 },
+            { id: 2, x: 130, y: 0 },
+            { id: 3, x: 130, y: 40 },
+            { id: 4, x: 46, y: 40 },
+            { id: 5, x: 46, y: 120 },
+            { id: 6, x: 0, y: 120 },
+          ],
+          edges: [1, 2, 3, 4, 5, 6].map((i, k, all) => ({
+            id: i,
+            v0: all[k],
+            v1: all[(k + 1) % all.length],
+            cp0: null,
+            cp1: null,
+          })),
+        },
+      })
+      const variants: { x: number; y: number; flipH?: boolean; flipV?: boolean; rotation?: number }[] = [
+        { x: 30, y: 30 },
+        { x: 200, y: 30, flipH: true },
+        { x: 370, y: 30, flipV: true },
+        { x: 30, y: 200, flipH: true, flipV: true },
+        { x: 200, y: 200, rotation: 33, flipH: true },
+        { x: 370, y: 200, rotation: -57, flipH: true, flipV: true },
+      ]
+      for (const v of variants) {
+        make(s, 'VECTOR', null, {
+          ...wedge(),
+          x: v.x,
+          y: v.y,
+          width: 130,
+          height: 120,
+          rotation: v.rotation ?? 0,
+          flipH: v.flipH,
+          flipV: v.flipV,
+          fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.45, g: 0.75, b: 0.95, a: 1 } }],
+          strokes: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+          strokeWeight: 2,
+        })
+      }
+      // An image fill mirrors with the node; a gradient must mirror with it too,
+      // since both are painted in node-local space.
+      for (const [i, f] of [{}, { flipH: true }, { flipV: true }].entries()) {
+        make(s, 'RECTANGLE', null, {
+          x: 30 + i * 170,
+          y: 350,
+          width: 140,
+          height: 90,
+          cornerRadius: { tl: 28, tr: 0, br: 0, bl: 0 },
+          ...f,
+          fills: [
+            {
+              type: 'GRADIENT_LINEAR',
+              visible: true,
+              opacity: 1,
+              start: { x: 0, y: 0 },
+              end: { x: 1, y: 0 },
+              stops: [
+                { position: 0, color: { r: 0.95, g: 0.6, b: 0.2, a: 1 } },
+                { position: 1, color: { r: 0.2, g: 0.25, b: 0.4, a: 1 } },
+              ],
+            },
+          ],
+        })
+      }
+    },
+  },
+  {
     // Per-point corner radius: the fillet is generated in the outline, so both
     // rasterizers see the same path — and the tessellator has to walk the arcs
     // the same way Canvas2D does.

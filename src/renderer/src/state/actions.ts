@@ -567,6 +567,108 @@ function alignOne(
   if (dx !== 0 || dy !== 0) rec.update(id, { x: node.x + dx, y: node.y + dy })
 }
 
+/**
+ * Quarter-turn the selection, the way Figma's rotate button does.
+ *
+ * One node turns about its own centre — the box is unchanged, only `rotation`
+ * moves, so a 90° turn is reversible to the exact number it started from. Two
+ * or more turn RIGIDLY about the shared centre: each node keeps its own turn and
+ * orbits, which is the same maths the rotate gesture uses (interactions/
+ * controller), so dragging the knob a quarter turn and pressing the button land
+ * in the same place.
+ */
+export function rotateSelection(deg: number): void {
+  const scene = documentStore.scene
+  const ids = topSelection().filter((id) => !isInsideInstance(scene, id))
+  if (ids.length === 0) return
+  const box = selectionWorldBounds(scene, ids)
+  const centre = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }
+  const rad = (deg * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const rec = new OpRecorder()
+  for (const id of ids) {
+    const node = scene.requireNode(id)
+    const patch: Partial<SceneNode> = { rotation: norm180(node.rotation + deg) }
+    if (ids.length > 1) {
+      // Orbit this node's centre about the selection's.
+      const c0 = applyMat(scene.worldMatrix(id), { x: node.width / 2, y: node.height / 2 })
+      const dx = c0.x - centre.x
+      const dy = c0.y - centre.y
+      const moved = { x: centre.x + dx * cos - dy * sin, y: centre.y + dx * sin + dy * cos }
+      const parentId = scene.parentOf(id)
+      const local =
+        parentId && !scene.isPage(parentId)
+          ? applyMat(matInvert(scene.worldMatrix(parentId)), moved)
+          : moved
+      patch.x = local.x - node.width / 2
+      patch.y = local.y - node.height / 2
+    }
+    rec.update(id, patch)
+  }
+  rec.commit(deg === 90 ? 'Rotate 90° Right' : deg === -90 ? 'Rotate 90° Left' : 'Rotate')
+}
+
+/**
+ * Mirror the selection about its own centre.
+ *
+ * A transform, not a geometry edit: `flipH`/`flipV` ride in the node matrix
+ * (engine/geometry nodeLocalMatrix), which is the only way one operation can
+ * mean the same thing for an image fill, shaped text, a vector network and a
+ * whole group — and it makes the flip exactly reversible.
+ *
+ * With several nodes selected the flip is rigid, like the rotation: each node
+ * mirrors AND its position mirrors across the selection's centre line, so the
+ * arrangement flips rather than each piece flipping in place.
+ */
+export function flipSelection(axis: 'h' | 'v'): void {
+  const scene = documentStore.scene
+  const ids = topSelection().filter((id) => {
+    const n = scene.getNode(id)
+    return n && !n.locked && !isInsideInstance(scene, id)
+  })
+  if (ids.length === 0) return
+  const box = selectionWorldBounds(scene, ids)
+  const mid = axis === 'h' ? (box.minX + box.maxX) / 2 : (box.minY + box.maxY) / 2
+  const rec = new OpRecorder()
+  for (const id of ids) {
+    const node = scene.requireNode(id)
+    const patch: Partial<SceneNode> =
+      axis === 'h' ? { flipH: !(node.flipH ?? false) } : { flipV: !(node.flipV ?? false) }
+    if (ids.length > 1) {
+      const b = scene.worldAABB(id)
+      // Reflect the node's box across the selection's centre line, then convert
+      // the world delta into the parent's space so nesting and rotation hold.
+      const world = axis === 'h' ? 2 * mid - (b.minX + b.maxX) : 2 * mid - (b.minY + b.maxY)
+      const parentId = scene.parentOf(id)
+      const pm = parentId && !scene.isPage(parentId) ? scene.worldMatrix(parentId) : null
+      const scale = pm ? Math.hypot(pm.a, pm.b) || 1 : 1
+      if (axis === 'h') patch.x = node.x + world / scale
+      else patch.y = node.y + world / scale
+    }
+    rec.update(id, patch)
+  }
+  rec.commit(axis === 'h' ? 'Flip Horizontal' : 'Flip Vertical')
+}
+
+/** World-space union of a set of nodes, ignoring the empty ones. */
+function selectionWorldBounds(scene: typeof documentStore.scene, ids: NodeId[]): AABB {
+  let box = emptyAABB()
+  for (const id of ids) {
+    const b = scene.worldAABB(id)
+    if (!aabbIsEmpty(b)) box = aabbIsEmpty(box) ? b : aabbUnion(box, b)
+  }
+  return box
+}
+
+/** Keep an angle in the readable ±180 half, as the inspector's field shows it. */
+function norm180(deg: number): number {
+  let d = deg % 360
+  if (d > 180) d -= 360
+  if (d < -180) d += 360
+  return d
+}
+
 export function distributeSelection(axis: 'h' | 'v'): void {
   const scene = documentStore.scene
   const ids = topSelection()
@@ -1706,6 +1808,15 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'object.sendToBack':
       reorderSelection('back')
+      break
+    case 'object.rotate90':
+      rotateSelection(90)
+      break
+    case 'object.flipH':
+      flipSelection('h')
+      break
+    case 'object.flipV':
+      flipSelection('v')
       break
     case 'object.flatten':
       flattenSelection()

@@ -227,6 +227,13 @@ table Node {
   width: float;
   height: float;
   rotation: float;
+  /// Mirror about the node's own centre, applied BEFORE rotation, so a flip
+  /// never appears to spin the node. A transform rather than a geometry edit:
+  /// that is what lets one operation mirror an image fill, shaped text, a
+  /// vector network and a whole group alike, and be exactly reversible.
+  /// Additive and defaulted, like corner_radius — no version bump.
+  flip_h: bool = false;
+  flip_v: bool = false;
   fills: [Paint];
   strokes: [Paint];
   stroke_weight: float = 1.0;

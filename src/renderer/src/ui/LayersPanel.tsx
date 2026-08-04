@@ -38,6 +38,7 @@ import {
   PlusIcon,
 } from './icons'
 import type { DropTarget } from '../engine/layer-drop'
+import { ResizeHandle, usePanelWidth } from './panel-resize'
 import { dropAtEnd, dropOnRow, instanceRefusal } from '../engine/layer-drop'
 import { AssetsPanel } from './AssetsPanel'
 
@@ -189,6 +190,7 @@ export function LayersPanel() {
   useDocVersion()
   const selection = useEditor((s) => s.selection)
   const leftTab = useEditor((s) => s.leftTab)
+  const panel = usePanelWidth('polyform.panel.left', 256, 'right')
   const [collapsed, setCollapsed] = useState<Set<NodeId>>(new Set())
   /** Set when a drag begins in earnest, so its trailing click is ignored. */
   const suppressClick = useRef(false)
@@ -418,16 +420,23 @@ export function LayersPanel() {
 
   if (leftTab === 'assets') {
     return (
-      <div className="w-64 shrink-0 flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]">
+      <div
+        className="shrink-0 relative flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]"
+        style={{ width: panel.width }}
+      >
         <PagesSection />
         <LeftTabs />
         <AssetsPanel />
+        <ResizeHandle edge="right" dragging={panel.dragging} onPointerDown={panel.onPointerDown} title="Drag to resize the panel" />
       </div>
     )
   }
 
   return (
-    <div className="w-64 shrink-0 flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]">
+    <div
+      className="shrink-0 relative flex flex-col bg-[var(--pf-bg-0)] border-r border-[var(--pf-border)]"
+      style={{ width: panel.width }}
+    >
       <PagesSection />
       <LeftTabs />
       <div
@@ -589,6 +598,7 @@ export function LayersPanel() {
         })}
       </div>
       {drag?.active && <DragChip drag={drag} />}
+      <ResizeHandle edge="right" dragging={panel.dragging} onPointerDown={panel.onPointerDown} title="Drag to resize the panel" />
     </div>
   )
 }

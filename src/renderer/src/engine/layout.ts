@@ -135,7 +135,7 @@ function normalizeContainers(scene: SceneGraph, id: NodeId): boolean {
       const pts = node.children.flatMap((cid) => {
         const c = scene.getNode(cid)
         if (!c || !c.visible) return []
-        const m = nodeLocalMatrix(c.x, c.y, c.width, c.height, c.rotation)
+        const m = nodeLocalMatrix(c.x, c.y, c.width, c.height, c.rotation, c.flipH ?? false, c.flipV ?? false)
         return [
           applyMat(m, { x: 0, y: 0 }),
           applyMat(m, { x: c.width, y: 0 }),

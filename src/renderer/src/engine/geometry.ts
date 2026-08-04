@@ -38,6 +38,10 @@ export function matTranslate(tx: number, ty: number): Mat {
   return { a: 1, b: 0, c: 0, d: 1, e: tx, f: ty }
 }
 
+export function matScale(sx: number, sy: number): Mat {
+  return { a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 }
+}
+
 export function matRotateDeg(deg: number): Mat {
   const rad = (deg * Math.PI) / 180
   const cos = Math.cos(rad)
@@ -67,14 +71,25 @@ export function applyMat(m: Mat, p: Vec2): Vec2 {
  * Local-to-parent matrix for a node at (x, y) with size (w, h) rotated
  * `rotation` degrees about its center.
  */
-export function nodeLocalMatrix(x: number, y: number, w: number, h: number, rotation: number): Mat {
-  if (rotation === 0) return matTranslate(x, y)
+export function nodeLocalMatrix(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rotation: number,
+  flipH = false,
+  flipV = false,
+): Mat {
+  // The overwhelmingly common case, kept allocation-free: this runs per node
+  // per frame.
+  if (rotation === 0 && !flipH && !flipV) return matTranslate(x, y)
   const cx = w / 2
   const cy = h / 2
-  return matMultiply(
-    matTranslate(x + cx, y + cy),
-    matMultiply(matRotateDeg(rotation), matTranslate(-cx, -cy)),
-  )
+  // Mirror first, then rotate, both about the centre: T(c) · R · S · T(-c).
+  // Flipping after the rotation would mirror the rotation itself, so a flip
+  // would appear to spin the node.
+  const inner = flipH || flipV ? matMultiply(matScale(flipH ? -1 : 1, flipV ? -1 : 1), matTranslate(-cx, -cy)) : matTranslate(-cx, -cy)
+  return matMultiply(matTranslate(x + cx, y + cy), matMultiply(matRotateDeg(rotation), inner))
 }
 
 // ---------------------------------------------------------------------------

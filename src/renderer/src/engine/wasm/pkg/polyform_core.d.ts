@@ -128,7 +128,7 @@ export function migrateDocumentJson(doc_json: string): string;
 
 export function networkToSubPaths(vertices: Float64Array, edges: Float64Array): Float64Array;
 
-export function nodeLocalMatrix(x: number, y: number, w: number, h: number, rotation: number): Float64Array;
+export function nodeLocalMatrix(x: number, y: number, w: number, h: number, rotation: number, flip_h: boolean, flip_v: boolean): Float64Array;
 
 export function pointInEllipse(px: number, py: number, cx: number, cy: number, rx: number, ry: number): boolean;
 
@@ -188,7 +188,7 @@ export interface InitOutput {
     readonly matRotateDeg: (a: number) => [number, number];
     readonly migrateDocumentJson: (a: number, b: number) => [number, number];
     readonly networkToSubPaths: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly nodeLocalMatrix: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly nodeLocalMatrix: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly pointInEllipse: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly pointInPolygonRings: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly pointInRoundedRect: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
