@@ -83,6 +83,15 @@ jobs:
       - run: npx electron-builder --${{ matrix.target }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The packaged tree needs its sandbox helper owned by root; the .deb and
+      # AppImage set that on install, an unpacked directory cannot. Fix it here
+      # rather than passing --no-sandbox, so the smoke test runs the app the way
+      # an installed one runs — sandbox on.
+      - name: Sandbox helper permissions (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          sudo chown root:root release/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 release/linux-unpacked/chrome-sandbox
       - name: Packaging smoke test
         run: ${{ matrix.xvfb }} npm run test:packaging
       - name: SHA-256 checksums
