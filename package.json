@@ -117,6 +117,7 @@
     },
     "linux": {
       "icon": "resources/icon.png",
+      "maintainer": "Andrea Pomposelli <AndreaDev3D@users.noreply.github.com>",
       "target": [
         "AppImage",
         "deb"

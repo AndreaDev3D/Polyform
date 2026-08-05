@@ -458,8 +458,15 @@ function registerIpc(): void {
       // Snapshots rasterize the scene (and may settle 3D first, ADR-020);
       // imports decode multi-MB images; bg removal runs ~5s of inference.
       // All get a longer leash than a structure read.
+      //
+      // 30s for a structure read, not 10: the FIRST read after a cold headless
+      // boot has to wait for the renderer to warm up (2.6 MB of WASM engine, no
+      // GPU, nothing in the disk cache), and 10s was enough on a developer
+      // machine and not on a CI runner — `polyform query` timed out on the
+      // Windows runner while the same command passed locally and on macOS. A
+      // timeout is there to stop a hang lasting forever, and 30s still does that.
       const slow = method.startsWith('render.') || method.startsWith('asset.') || method.startsWith('bg.')
-      const timeout = slow ? 60_000 : 10_000
+      const timeout = slow ? 60_000 : 30_000
       setTimeout(() => {
         if (scenePending.delete(id)) reject(new Error(`scene query timed out: ${method}`))
       }, timeout)
