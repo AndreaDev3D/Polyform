@@ -4,7 +4,7 @@
 
 **A local-first, open-source vector design tool for the desktop.**
 
-Polyform is a Figma-style design editor that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
+Polyform is a vector design editor for interfaces and graphics that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
 > Status: **v0.6.0 shipped (2026-08-04)** — "Agent Connectivity". Agents attach to the *running* app over an in-app loopback MCP server: read the live document, see PNG views of the canvas, watch edits stream in, and **make edits** that land as one attributed, undoable journal entry — behind five individually revocable capabilities, with writes off by default ([ADR-021](docs/Architecture-Decisions.md)/[022](docs/Architecture-Decisions.md)). A headless **`polyform` CLI** does the same over stdio for files at rest ([ADR-023](docs/Architecture-Decisions.md)). Shipped alongside it: the app draws **its own window chrome** with one bottom bar, **saving is automatic**, the inspector names every field, and vector editing gained **Move/Bend/Delete modes, per-point handle mirroring and Carve** ([ADR-024](docs/Architecture-Decisions.md)/[025](docs/Architecture-Decisions.md)). Built on v0.5 (3D models and gaussian splats as posable canvas nodes) and v0.4 (fuzz-proven Rust/WASM engine twins; a WebGPU renderer beta that pans **100,000 shapes at 60fps** with 13/13 pixel-parity fixtures). Full plan in [docs/Roadmap.md](docs/Roadmap.md); exactly what is implemented, partial and planned is in [docs/Feature-Matrix.md](docs/Feature-Matrix.md).
 
@@ -29,7 +29,7 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 Requirements: Node.js 20+ (22 recommended) and npm. A Rust toolchain is **optional** — the compiled WASM engine pkg is committed, so you only need Rust (stable + `wasm32-unknown-unknown` + [wasm-pack](https://github.com/rustwasm/wasm-pack)) if you change `crates/`.
 
 ```bash
-git clone https://github.com/AndreaDev3D/polyform
+git clone https://github.com/AndreaDev3D/Polyform
 cd polyform
 npm install
 npm run dev        # launches the Electron app with hot reload
@@ -85,7 +85,7 @@ were found in; nothing is rewritten behind your back.
 | Doc | Contents |
 | --- | -------- |
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
-| [Feature-Matrix.md](docs/Feature-Matrix.md) | 242-row Figma parity matrix with honest statuses (recounted each release) |
+| [Feature-Matrix.md](docs/Feature-Matrix.md) | 242-row feature matrix with honest statuses, compared against the tool most readers know (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v0.4.1 background removal → v0.5 3D model import → v0.6 agent connectivity (reads shipped; writes + CLI next) → v1.0 distribution |
 | [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…026: every load-bearing decision and its replacement trigger |
 | [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-24 with severities and mitigations |
@@ -117,6 +117,13 @@ The engine (scene graph, geometry, commands, booleans, layout, serialization) is
 ## Contributing
 
 Issues and PRs welcome. Run `npm run typecheck && npm test` before submitting. The feature matrix marks plenty of well-scoped 📋 items if you're looking for something to pick up.
+
+## Trademarks
+
+Polyform is an independent project and is not affiliated with or endorsed by any
+other design-tool vendor. Product names referenced in the documentation belong to
+their owners and are used for identification and comparison only — see
+[TRADEMARKS.md](TRADEMARKS.md).
 
 ## License
 

@@ -1865,7 +1865,7 @@ export function dispatchMenuAction(id: string): void {
         window.alert(
           `Polyform ${v} — a local-first, open-source vector design tool.\n\n` +
             'MIT licensed. Third-party licences: Help → Third-Party Licences.\n' +
-            'https://github.com/AndreaDev3D/polyform',
+            'https://github.com/AndreaDev3D/Polyform',
         )
       })
       break

@@ -1,4 +1,4 @@
-// Update checking against the GitHub Releases of AndreaDev3D/polyform.
+// Update checking against the GitHub Releases of AndreaDev3D/Polyform.
 //
 // It NOTIFIES; it does not install. That is not timidity, it is F-10: an
 // auto-updater is a remote-code-execution channel by design, and
@@ -26,7 +26,7 @@ import type { UpdateStatus } from '../shared/types'
  */
 const INSTALL_UPDATES = false
 
-const RELEASES_URL = 'https://github.com/AndreaDev3D/polyform/releases/latest'
+const RELEASES_URL = 'https://github.com/AndreaDev3D/Polyform/releases/latest'
 
 let checking = false
 let lastStatus: UpdateStatus = { state: 'idle' }

@@ -145,7 +145,7 @@ export const MENU: MenuDef[] = [
       sep,
       { id: 'help.about', label: 'About Polyform', action: 'help.about' },
       { id: 'help.licenses', label: 'Third-Party Licences', action: 'help.licenses' },
-      { id: 'help.github', label: 'GitHub Repository', url: 'https://github.com/AndreaDev3D/polyform' },
+      { id: 'help.github', label: 'GitHub Repository', url: 'https://github.com/AndreaDev3D/Polyform' },
     ],
   },
 ]

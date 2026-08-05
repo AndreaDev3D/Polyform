@@ -1,7 +1,8 @@
 # `.fig` import — research spike
 
-**Status:** research done, implementation not started. Waiting on real `.fig`
-exports to build against (see [What is needed](#what-is-needed-to-start)).
+**Status:** research done and **verified against three real exports**; the
+container + Kiwi reader ships as engine code (`engine/import/fig/`, 21 tests).
+The node mapper and the vector-geometry blobs are the remaining work.
 **Roadmap item:** 5.4 (v1.0, effort **L**).
 **Date:** 2026-08-05.
 
@@ -26,9 +27,9 @@ means in Polyform's model, and being honest about what has no equivalent.
 
 ## The container
 
-Established from several independent write-ups and consistent between them; the
-byte offsets below are to be confirmed against a real file before any of this is
-committed as code.
+Established from several independent write-ups, then **checked byte for byte
+against three real exports** (`OmniTecta.fig`, `Dipped.fig`, `OpenMods.fig`, all
+version 106). Two published claims were wrong and are corrected below.
 
 ```
 MyDesign.fig                    ZIP archive, entries STORED (PK\x03\x04)
@@ -45,13 +46,16 @@ MyDesign.fig                    ZIP archive, entries STORED (PK\x03\x04)
 | 0 | 8 | `fig-kiwi` magic |
 | 8 | 4 | version, LE uint32 (e.g. 106) |
 | 12 | 4 | chunk 0 length, LE uint32 |
-| 16 | N | **chunk 0 — the schema**, deflate (`78 da`) |
+| 16 | N | **chunk 0 — the schema**, **RAW deflate** (no `78 da` header — the write-ups say zlib; the bytes start `b5 bd 09 98`, and `inflateRaw` reads them) |
 | 16+N | 4 | chunk 1 length |
 | 20+N | M | **chunk 1 — the message**, zstd (`28 b5 2f fd`) on recent versions, deflate on older |
 
 Compression is detected from the magic bytes rather than the version number:
 version thresholds are a guess about Figma's history, magic bytes are a fact
-about the file in front of us.
+about the file in front of us. (In all three files chunk 0 was raw deflate and
+chunk 1 was zstd. The schema chunk was byte-identical across the three — 28881
+compressed, 72042 raw, 629 definitions — which is what "self-describing per
+version" looks like in practice.)
 
 The message decodes to a root `NODE_CHANGES` object holding a **flat** array of
 node records — the same shape Figma's collaborative engine syncs, not a tree.
@@ -85,6 +89,37 @@ dependencies) already does it. Reasons to write it instead:
 
 If the binary-schema format turns out to have corners the write-ups gloss over,
 take `kiwi-schema` and move on — that is a one-line decision, not a rewrite.
+
+## What is actually in the three files
+
+Read by the shipped engine code, not by a probe (`POLYFORM_FIG=… npx vitest run fig.test.ts`):
+
+| | OmniTecta | Dipped | OpenMods |
+| :--- | ---: | ---: | ---: |
+| nodes | 158 | 63 | 139 |
+| VECTOR | 76 | 23 | 45 |
+| FRAME | 20 | 8 | 32 |
+| ROUNDED_RECTANGLE | 11 | 17 | 14 |
+| ELLIPSE | 21 | 12 | — |
+| LINE | — | — | 27 |
+| BOOLEAN_OPERATION | 20 | — | 9 |
+| TEXT | 7 | — | 8 |
+| with fillPaints | 133 | 42 | 90 |
+| with strokePaints | 56 | 18 | 36 |
+| with vectorData | 86 | 25 | 45 |
+| effects / auto layout | 0 / 0 | 0 / 0 | 0 / 0 |
+| geometry blobs | 82 | 30 | 65 |
+| images | 0 | 2 | 22 |
+
+The lesson for the mapper is in the first two rows: **`VECTOR` is the most common
+node type in all three files** (and `BOOLEAN_OPERATION` is next in two). An
+importer that skips vector geometry would drop roughly half of every one of these
+documents, so the geometry blobs are not a "later" item — they are the feature.
+
+`vectorData` is `{ vectorNetworkBlob: <index>, normalizedSize, styleOverrideTable? }`,
+where the index points into the root's `blobs` array of raw byte strings (46–2504
+bytes each here). Decoding that blob layout is the next piece of reverse
+engineering, and the only one left before a mapper can be written honestly.
 
 ## Mapping: where the fidelity goes
 

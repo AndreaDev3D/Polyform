@@ -1,6 +1,14 @@
-# Polyform ↔ Figma Feature Parity Matrix
+# Polyform Feature Matrix
 
-This document tracks Polyform's feature parity against Figma, section by section. It is deliberately honest: approximations are marked partial, and deliberate non-goals are marked out of scope rather than "coming soon."
+This document tracks what Polyform does, section by section, measured against the
+behaviour of the design tool most readers already know — Figma, referred to
+throughout **for comparison and identification only**. Polyform is an independent
+project, unaffiliated with and unendorsed by Figma, Inc.; see
+[TRADEMARKS.md](../TRADEMARKS.md). The comparison is here because it is the
+fastest honest way to say what is and is not implemented, and because a matrix
+that measures itself against nothing cannot be checked.
+
+It is deliberately honest: approximations are marked partial, and deliberate non-goals are marked out of scope rather than "coming soon."
 
 **Scope reminder:** Polyform is a local-first, single-user, open-source desktop design tool. Cloud, multiplayer, and SaaS platform features are out of scope by design, not by omission. See [Product-Overview.md](./Product-Overview.md) and [Technical-Specification.md](./Technical-Specification.md).
 
@@ -269,7 +277,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Per-node export settings | Persisted export presets on layers | 📋 | Export is invoked ad hoc for now |
 | Slice export | Export arbitrary canvas regions | 📋 | Blocked on slice tool |
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
-| .fig import | Open Figma's native files | 📋 | |
+| .fig import | Open its own native files | 📋 | **Reader done, mapper not.** The container and Kiwi decoder ship as engine code with 21 tests, and read three real v106 exports end to end (schema, node tree, paints, text, images). No import command yet: the node mapper and the vector-geometry blobs are the remaining work — [Fig-Import-Spike.md](research/Fig-Import-Spike.md) |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
 | 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 🟡 | v0.5 (ADR-020): GLB meshes and gaussian splats place as MODEL3D nodes, double-click to orbit, procedural lighting presets, PNG/SVG export bake the render — all through an offscreen three.js+Spark island. Partial: SPZ v3 only (v4 pending upstream), no perf/memory gates on real multi-million-splat captures, menu-only import |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |

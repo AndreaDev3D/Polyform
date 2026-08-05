@@ -119,10 +119,12 @@ for (const file of ['LICENSE', 'THIRD-PARTY-NOTICES.md']) {
     .some((e) => e.isFile() && /\.(exe|dmg|AppImage|deb)$/.test(e.name))
   if (fs.existsSync(feed)) {
     const text = fs.readFileSync(feed, 'utf8')
-    if (!/provider:\s*github/.test(text) || !/repo:\s*polyform/.test(text)) {
+    // Case-insensitive on purpose: the repo is AndreaDev3D/Polyform and GitHub
+    // does not care about the casing, so neither should the gate.
+    if (!/provider:\s*github/i.test(text) || !/repo:\s*polyform/i.test(text)) {
       fail(`app-update.yml does not point at the GitHub releases of this repo:\n${text}`)
     } else {
-      pass('app-update.yml carries the update feed (provider github, AndreaDev3D/polyform)')
+      pass('app-update.yml carries the update feed (provider github, AndreaDev3D/Polyform)')
     }
   } else if (installerBuilt) {
     fail('no app-update.yml in the package — checkForUpdates() throws without it')

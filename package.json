@@ -6,13 +6,13 @@
   "type": "module",
   "license": "MIT",
   "author": "Polyform Contributors",
-  "homepage": "https://github.com/AndreaDev3D/polyform",
+  "homepage": "https://github.com/AndreaDev3D/Polyform",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AndreaDev3D/polyform.git"
+    "url": "git+https://github.com/AndreaDev3D/Polyform.git"
   },
   "bugs": {
-    "url": "https://github.com/AndreaDev3D/polyform/issues"
+    "url": "https://github.com/AndreaDev3D/Polyform/issues"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -88,7 +88,7 @@
       {
         "provider": "github",
         "owner": "AndreaDev3D",
-        "repo": "polyform"
+        "repo": "Polyform"
       }
     ],
     "fileAssociations": [

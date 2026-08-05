@@ -17,7 +17,7 @@
 # integrity: anyone can prove a file came out of this repo's release workflow
 # from this commit, rather than out of somebody's laptop.
 #
-#   gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/polyform
+#   gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/Polyform
 #
 # It only works on public repositories, which this is.
 
@@ -98,7 +98,7 @@ jobs:
         run: node scripts/checksums.mjs release --out SHA256SUMS-${{ matrix.target }}.txt
       # Free provenance, since there is no money for certificates: a Sigstore
       # attestation binding these exact bytes to this repo, workflow and commit.
-      # Verify with `gh attestation verify <file> --repo AndreaDev3D/polyform`.
+      # Verify with `gh attestation verify <file> --repo AndreaDev3D/Polyform`.
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-path: |

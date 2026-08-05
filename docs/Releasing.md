@@ -57,7 +57,7 @@ Every artifact also carries a **Sigstore build-provenance attestation**, created
 by the release workflow under its own OIDC identity:
 
 ```sh
-gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/polyform
+gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/Polyform
 ```
 
 That proves the file came out of *this repository's release workflow at that
