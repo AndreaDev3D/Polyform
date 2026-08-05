@@ -107,6 +107,30 @@ for (const file of ['LICENSE', 'THIRD-PARTY-NOTICES.md']) {
   else pass(`${file} ships with the app (${(fs.statSync(p).size / 1024).toFixed(0)} KB)`)
 }
 
+// The update feed. electron-builder writes app-update.yml from the `publish`
+// config, and without it `checkForUpdates()` throws in a packaged app — the
+// check would report a failure rather than a version. Only produced for real
+// installer targets, so a `--dir` build says so instead of failing: it is the
+// release build that has to carry it.
+{
+  const feed = path.join(resourcesDir, 'app-update.yml')
+  const installerBuilt = fs
+    .readdirSync(RELEASE, { withFileTypes: true })
+    .some((e) => e.isFile() && /\.(exe|dmg|AppImage|deb)$/.test(e.name))
+  if (fs.existsSync(feed)) {
+    const text = fs.readFileSync(feed, 'utf8')
+    if (!/provider:\s*github/.test(text) || !/repo:\s*polyform/.test(text)) {
+      fail(`app-update.yml does not point at the GitHub releases of this repo:\n${text}`)
+    } else {
+      pass('app-update.yml carries the update feed (provider github, AndreaDev3D/polyform)')
+    }
+  } else if (installerBuilt) {
+    fail('no app-update.yml in the package — checkForUpdates() throws without it')
+  } else {
+    console.log('PACKAGING NOTE: no app-update.yml, as expected for a --dir build (only installer targets get one)')
+  }
+}
+
 // --- 2. the CLI gate, against the packaged binary --------------------------
 console.log('\n--- CLI gate against the packaged binary ---')
 const gate = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'cli-test.mjs')], {

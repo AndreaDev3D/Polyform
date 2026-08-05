@@ -5,7 +5,7 @@
 // answered by a picture far faster than by a filename.
 
 import { useEffect, useRef, useState } from 'react'
-import type { RecentEntry } from '../../../shared/types'
+import type { RecentEntry, UpdateStatus } from '../../../shared/types'
 import { newProjectFlow, openProjectFlow } from '../state/actions'
 import { FolderIcon, PlusIcon, PolyformMark } from './icons'
 import { useTitlebarGeometry } from './titlebar'
@@ -72,6 +72,8 @@ function parentDir(bundlePath: string): string {
 export function WelcomeScreen() {
   const [recents, setRecents] = useState<RecentEntry[]>([])
   const [version, setVersion] = useState('')
+  const [update, setUpdate] = useState<UpdateStatus | null>(null)
+  const [onLaunch, setOnLaunch] = useState(false)
   const thumbs = useThumbnails(recents)
   const { height: titlebarHeight } = useTitlebarGeometry()
   const mod = window.polyform.platform === 'darwin' ? '⌘' : 'Ctrl'
@@ -79,7 +81,15 @@ export function WelcomeScreen() {
   useEffect(() => {
     void window.polyform.recentsList().then(setRecents)
     void window.polyform.appVersion().then(setVersion)
+    void window.polyform.updateOnLaunch().then(setOnLaunch)
+    // A launch check reports through the same line this button writes to.
+    return window.polyform.onUpdateStatus(setUpdate)
   }, [])
+
+  const runCheck = async () => {
+    setUpdate({ state: 'checking' })
+    setUpdate(await window.polyform.checkUpdates())
+  }
 
   return (
     <div className="pf-welcome h-full flex flex-col">
@@ -127,6 +137,49 @@ export function WelcomeScreen() {
 
           <div className="text-[11px] leading-relaxed text-[var(--pf-text-dim)] border-t border-[var(--pf-border)] pt-4">
             Saves are atomic and every edit is journalled, so history survives closing the app.
+          </div>
+
+          {/* Updates live here rather than in a settings panel, because this is
+              the screen you are on just after installing. The launch check is
+              off until asked for: the paragraph above promises nothing phones
+              home, and that has to stay true by default. */}
+          <div className="mt-4 text-[11px] text-[var(--pf-text-dim)]">
+            <div className="flex items-center gap-2">
+              <button
+                className="text-[var(--pf-accent)] hover:underline disabled:opacity-50"
+                disabled={update?.state === 'checking'}
+                onClick={() => void runCheck()}
+              >
+                {update?.state === 'checking' ? 'Checking…' : 'Check for updates'}
+              </button>
+              <label className="flex items-center gap-1.5 ml-auto cursor-default">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--pf-accent-solid)]"
+                  checked={onLaunch}
+                  onChange={(e) => {
+                    setOnLaunch(e.target.checked)
+                    void window.polyform.updateOnLaunch(e.target.checked)
+                  }}
+                />
+                on launch
+              </label>
+            </div>
+            {update && update.state !== 'checking' && (
+              <div className="mt-1.5">
+                {update.state === 'available' ? (
+                  <button className="text-left text-[var(--pf-accent)] hover:underline" onClick={() => void window.polyform.openReleases()}>
+                    {update.message ?? `Polyform ${update.version} is available.`}
+                  </button>
+                ) : (
+                  <span>
+                    {update.state === 'current'
+                      ? `You have the latest version (${update.version}).`
+                      : (update.message ?? 'Could not check for updates.')}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

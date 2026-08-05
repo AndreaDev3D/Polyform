@@ -8,6 +8,7 @@ import type {
   PolyformAgentGate,
   PolyformApi,
   SaveProjectPayload,
+  UpdateStatus,
 } from '../shared/types'
 
 const api: PolyformApi = {
@@ -21,6 +22,19 @@ const api: PolyformApi = {
   recentsThumbnail: (path: string) => ipcRenderer.invoke('recents:thumbnail', path),
   appVersion: () => ipcRenderer.invoke('app:version'),
   openLicenses: () => ipcRenderer.invoke('app:licenses'),
+  onOpenProjectPath: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, bundlePath: string) => cb(bundlePath)
+    ipcRenderer.on('project:openPath', listener)
+    return () => ipcRenderer.removeListener('project:openPath', listener)
+  },
+  checkUpdates: () => ipcRenderer.invoke('update:check'),
+  openReleases: () => ipcRenderer.invoke('update:openReleases'),
+  updateOnLaunch: (enabled) => ipcRenderer.invoke('update:onLaunch', enabled),
+  onUpdateStatus: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, status: UpdateStatus) => cb(status)
+    ipcRenderer.on('update:status', listener)
+    return () => ipcRenderer.removeListener('update:status', listener)
+  },
   historyAppend: (label, opsJson) => ipcRenderer.invoke('history:append', label, opsJson),
   historySetCursor: (cursor) => ipcRenderer.invoke('history:setCursor', cursor),
   assetsImportDialog: (kind?: 'image' | 'model') => ipcRenderer.invoke('assets:importDialog', kind),

@@ -10,7 +10,7 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 
 ## Highlights
 
-- **100% local-first** — projects are self-contained `.poly` directory bundles: `manifest.json`, binary `scene.bin`, a real SQLite `history.sqlite` journal, and SHA-256 content-addressed `assets/`. Design-system libraries are just other `.poly` folders you attach.
+- **100% local-first** — a project is a self-contained folder: a `<Name>.poly` project file you double-click, binary `scene.bin`, a real SQLite `history.sqlite` journal, and SHA-256 content-addressed `assets/`. Design-system libraries are just other projects you attach.
 - **Session-spanning undo/redo + version history** — every edit is journaled to SQLite on disk; reopen a project and keep undoing, or browse the timeline (`Ctrl+Alt+H`) and jump anywhere.
 - **Components & instances** — materialized instances with journaled overrides, swap, and detach; a design system can live entirely in local files.
 - **Real design tools** — multi-page documents, frames with auto layout + constraints, shapes, pen paths with a vector-edit mode (Move/Bend/Delete, per-point handle mirroring and **corner radius**, and **Carve** to punch holes),  text with system fonts, image fills (crop/adjust), gradients with a stop editor, effects (drop/inner shadow, layer/background blur), masks, boolean operations, rulers + guides, snapping with smart + spacing guides, align/distribute, SVG import, PNG/SVG export.
@@ -29,7 +29,7 @@ Polyform is a Figma-style design editor that runs entirely on your machine. No c
 Requirements: Node.js 20+ (22 recommended) and npm. A Rust toolchain is **optional** — the compiled WASM engine pkg is committed, so you only need Rust (stable + `wasm32-unknown-unknown` + [wasm-pack](https://github.com/rustwasm/wasm-pack)) if you change `crates/`.
 
 ```bash
-git clone https://github.com/polyform/polyform
+git clone https://github.com/AndreaDev3D/polyform
 cd polyform
 npm install
 npm run dev        # launches the Electron app with hot reload
@@ -60,8 +60,8 @@ Then: **New Project…**, pick where to save the `.poly` folder, and draw. Press
 ## The `.poly` project bundle
 
 ```text
-MyDesign.poly/
-├── manifest.json       # metadata, schema version, viewport state
+MyDesign/
+├── MyDesign.poly       # the project file: metadata, schema version, viewport state
 ├── scene.bin           # binary scene graph (PFRM envelope, MessagePack payload)
 ├── history.sqlite      # undo/redo journal — standard SQLite, survives restarts
 ├── thumbnail.png       # rendered preview
@@ -69,14 +69,23 @@ MyDesign.poly/
     └── e3b0c44298fc…855.png
 ```
 
-Copying the folder copies the entire project — shapes, history, and assets included.
+A project is a **folder**, and `MyDesign.poly` inside it is the file you
+double-click — the shape `.csproj`, `.uproject` and `project.godot` all use, and
+the only one that works: a folder cannot carry a file association on Windows or
+Linux, so a project that is *only* a folder can never be opened from a file
+manager. Copying the folder copies the entire project — shapes, history and
+assets included.
+
+Bundles written before v0.7 are a `MyDesign.poly/` **directory** with a
+`manifest.json` inside. Those still open, and still save to the manifest they
+were found in; nothing is rewritten behind your back.
 
 ## Documentation
 
 | Doc | Contents |
 | --- | -------- |
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
-| [Feature-Matrix.md](docs/Feature-Matrix.md) | 241-row Figma parity matrix with honest statuses (recounted each release) |
+| [Feature-Matrix.md](docs/Feature-Matrix.md) | 242-row Figma parity matrix with honest statuses (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v0.4.1 background removal → v0.5 3D model import → v0.6 agent connectivity (reads shipped; writes + CLI next) → v1.0 distribution |
 | [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…026: every load-bearing decision and its replacement trigger |
 | [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-24 with severities and mitigations |

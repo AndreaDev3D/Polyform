@@ -551,6 +551,48 @@ The fillet is computed **without trigonometry**: `tan(θ/2) = s/(1+c)` from the 
 
 ---
 
+## ADR-027: The bundle is a folder whose manifest is the double-clickable file (v0.7)
+
+**Context.** A `.poly` project was a *directory* carrying the extension, with `manifest.json` inside. Self-contained, inspectable, copyable — and impossible to open from a file manager, because **a folder cannot carry a file association** on Windows or Linux. Double-clicking a project opened Explorer. The only way in was to launch Polyform and use its own recents or File → Open, which is fine on the second day and wrong on the first.
+
+**Decision.** **The folder stays the bundle; the manifest becomes `<Name>.poly` inside it**, registered as a file association with the app's icon:
+
+```
+MyPoster/
+  MyPoster.poly      <- JSON manifest, and the entry point
+  scene.bin
+  history.sqlite
+  assets/<sha256>.png
+```
+
+This is the shape `.csproj`, `.uproject` and `project.godot` all use, for the same reason. macOS could have had a bundle-style directory that Finder treats as a document (`.xcodeproj`), but that trick does not exist on the other two platforms, and one shape everywhere beats a better shape in one place.
+
+**One resolver, because there were three.** `resolveBundle()` in `main/project.ts` accepts the bundle directory, the `<Name>.poly` file, or a legacy `manifest.json`, and returns the pair. Opening a project, attaching a library and pruning the recents list all hardcoded `manifest.json` before; they would have drifted the moment a fourth caller appeared. Resolution order inside a directory is *named after its folder* → *the single `.poly`* → *legacy manifest*, so a copied-and-renamed project still opens, and a folder holding two project files is an error rather than a coin toss.
+
+**Old bundles are not migrated.** A pre-v0.7 bundle opens, and **saves back to the `manifest.json` it was found in** — no second manifest appears beside it, nothing is renamed under the user's feet. They simply do not gain the double-click behaviour, which is a property of new projects and of Save As.
+
+**Consequences.** `polyform new MyPoster.poly` and `polyform new MyPoster` both produce `MyPoster/` — the argument names the project, and a trailing extension is accepted and dropped, because the extension now belongs to the manifest. The open dialog asks for a **file** rather than a folder (`openFile`, with `manifest.json` selectable for old bundles; macOS gets both). Launch paths that did not exist before now do: a file argument in `argv`, macOS's `open-file` event, and a **single-instance lock** so a second double-click hands its path to the running window instead of starting a rival that fights over the userData lock — deliberately *not* taken in CLI mode, where many `polyform mcp serve` processes are expected to coexist.
+
+**Revisit when.** Someone wants two documents open at once (the lock becomes a window router rather than a redirector), or the bundle needs to be a single file for emailing — at which point it is a zip and this decision is unaffected: the manifest inside it keeps the same name.
+
+---
+
+## ADR-028: Updates notify; they do not install unsigned bytes (v0.7)
+
+**Context.** Auto-update was planned for v1.0 behind code signing (Roadmap 5.1/5.2), and there is no budget for a certificate. The temptation is to ship the updater anyway, because "it works": electron-updater will happily download and run an installer.
+
+**Decision.** **Check, tell, link. Never install** — `INSTALL_UPDATES = false` in `main/updater.ts`, `autoDownload` and `autoInstallOnAppQuit` off, and the message the user sees says why there is a link instead of a progress bar. electron-updater's protection against a swapped artifact **is** signature verification ([F-10](Findings-and-Concerns.md#f-10-future-auto-update-security--code-signing-and-artifact-integrity)); with nothing signed there is nothing to verify, and an updater that installs unverifiable binaries is a remote-code-execution channel with a checksum in front of it. On macOS this is the only behaviour available anyway — Squirrel.Mac refuses an unsigned update, so an install attempt would fail *after* the download.
+
+Flipping that one constant is the last step of shipping signing, not a separate feature. `allowDowngrade` is already off, because a downgrade to a known-vulnerable version is an attack, not an update.
+
+**The launch check is opt-in.** Off by default, in `settings.json` beside recents. The welcome screen's own copy promises that nothing phones home; an unannounced call to a web API on every start would quietly make that false, and the standing rule in this project is that network work and downloads are consent-gated (ADR-019's model download, ADR-022's agent capabilities). Help → Check for Updates is always available, and the checkbox sits next to it on the welcome screen — the screen you are on immediately after installing.
+
+**Provenance instead of a signature, for now.** Releases carry SHA-256 checksums *and* a Sigstore build-provenance attestation from the release workflow, verifiable with `gh attestation verify <file> --repo AndreaDev3D/polyform`. That is free, and it answers a different question from a code-signing certificate: not "does the OS trust this publisher" (SmartScreen and Gatekeeper still object) but "did these exact bytes come out of that repo's workflow at that commit". Worth having on its own, and worth keeping after signing lands.
+
+**Revisit when.** A certificate exists — Windows first (SignPath Foundation signs open-source projects for free; Apple has no free path and notarization needs the paid programme). Then: turn on downloads, keep verification on, and only then consider a silent channel.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -581,5 +623,7 @@ The fillet is computed **without trigonometry**: `tan(θ/2) = s/(1+c)` from the 
 | 024 | Frameless window + one bottom bar (agent / tools / view) + autosave with a visible save state | No (stable) | Debounce too eager on huge documents; status line folded into the bar |
 | 025 | Vector edit = modes over one network; per-vertex mirroring; per-anchor corner radius in the outline; carve bakes by nesting depth | Partially | Fillets against a *curved* neighbour (needs the segment split); branching-edge editing |
 | 026 | Menus are our own DOM (caret, checkmark, body portal, native key capture) — no OS-drawn surfaces in the editor | No (stable) | A submenu or a real modal layer, at which point this becomes a shared popover primitive |
+| 027 | Bundle = folder + `<Name>.poly` manifest as the double-clickable entry point; one resolver, legacy shape still opens | No (stable) | Two documents open at once; a single-file (zip) bundle |
+| 028 | Updates check and notify, never install unsigned bytes; launch check opt-in; Sigstore provenance instead of a certificate | Yes | A code-signing certificate exists (Windows via SignPath Foundation first) |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

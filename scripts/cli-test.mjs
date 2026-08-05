@@ -36,7 +36,11 @@ const MAIN = path.join(ROOT, 'out', 'main', 'index.js')
 /** Leading args before the verb: none when the binary IS the app. */
 const ARGS = PACKAGED ? [] : [MAIN]
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'polyform-cli-gate-'))
-const BUNDLE = path.join(WORK, 'Gate.poly')
+// v0.7 bundle shape: the DIRECTORY is the project and `<Name>.poly` inside it is
+// the manifest — the file a user double-clicks. `polyform new Gate.poly` and
+// `polyform new Gate` both produce Gate/Gate.poly.
+const BUNDLE = path.join(WORK, 'Gate')
+const PROJECT_FILE = path.join(BUNDLE, 'Gate.poly')
 const ENV = { ...process.env }
 delete ENV.ELECTRON_RUN_AS_NODE
 
@@ -147,11 +151,33 @@ function run(args, timeoutMs = 90_000) {
 try {
   // --- 1. new --------------------------------------------------------------
   const created = run(['new', BUNDLE])
-  if (created.code !== 0 || !fs.existsSync(path.join(BUNDLE, 'manifest.json'))) {
+  if (created.code !== 0 || !fs.existsSync(PROJECT_FILE)) {
     fail(`polyform new failed (exit ${created.code}): ${created.stderr.slice(-300)}`)
     throw new Error('cannot continue without a bundle')
   }
-  pass(`polyform new created a real bundle (${path.basename(BUNDLE)})`)
+  if (fs.existsSync(path.join(BUNDLE, 'manifest.json'))) {
+    fail('new wrote a legacy manifest.json as well as the project file')
+  }
+  pass(`polyform new created a real bundle (${path.basename(BUNDLE)}/${path.basename(PROJECT_FILE)})`)
+
+  // A project file is openable BY ITSELF — this is what the shell hands us when
+  // someone double-clicks it, and the whole reason the manifest has a name and
+  // an extension now.
+  const byFile = run(['query', PROJECT_FILE])
+  if (byFile.code !== 0) fail(`query on the project file failed (exit ${byFile.code}): ${byFile.stderr.slice(-200)}`)
+  else if (!JSON.parse(byFile.stdout).path) fail(`query on the project file returned no path: ${byFile.stdout.slice(0, 200)}`)
+  else pass('the <Name>.poly file opens the bundle around it (double-click path)')
+
+  // ...and a pre-0.7 bundle still opens: a DIRECTORY carrying the extension,
+  // with manifest.json inside and no project file at all.
+  const legacy = path.join(WORK, 'Legacy.poly')
+  fs.mkdirSync(path.join(legacy, 'assets'), { recursive: true })
+  // Manifest only: `new` has not written a journal yet (it persists on the first
+  // edit), and an absent history.sqlite is a normal state for a fresh bundle.
+  fs.copyFileSync(PROJECT_FILE, path.join(legacy, 'manifest.json'))
+  const legacyRead = run(['query', legacy])
+  if (legacyRead.code !== 0) fail(`a pre-0.7 bundle no longer opens (exit ${legacyRead.code}): ${legacyRead.stderr.slice(-200)}`)
+  else pass('a pre-0.7 bundle (directory.poly + manifest.json) still opens')
 
   // --- 2. mcp serve over stdio ----------------------------------------------
   const client = new Client({ name: 'cli-gate', version: '1.0.0' })

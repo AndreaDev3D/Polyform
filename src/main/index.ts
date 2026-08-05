@@ -5,10 +5,12 @@ import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron'
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { McpGrants, SaveProjectPayload } from '../shared/types'
-import { ProjectManager } from './project'
+import { ProjectManager, resolveBundle } from './project'
 import { parseCliCommand, runCli } from './cli'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
 import { mcpStart, mcpStop, mcpStatus, mcpSetGrants, onMcpStatus } from './mcp'
+import { readSettings, writeSettings } from './settings'
+import { checkForUpdates, openReleasesPage } from './updater'
 import { listRecents, pushRecent, readRecentThumbnail } from './recents'
 import { clickMenuItem, installMenu } from './menu'
 
@@ -39,6 +41,66 @@ const cliReady = new Promise<void>((resolve) => {
   cliReadyResolve = resolve
 })
 let sceneQueryForCli: ((method: string, params: unknown) => Promise<unknown>) | null = null
+
+/**
+ * A project path handed over by the shell: `polyform.exe C:\…\MyPoster.poly`
+ * from a double-click or "Open with", or the macOS `open-file` event. Held here
+ * until the renderer is ready to be told to load it.
+ */
+let pendingOpenPath: string | null = null
+
+/** A file argument, as distinct from a CLI verb or a switch. */
+function fileArgFrom(argv: string[]): string | null {
+  for (const a of argv.slice(1)) {
+    if (a.startsWith('-')) continue
+    if (a.endsWith('index.js')) continue
+    if (/\.poly$/i.test(a) || path.basename(a) === 'manifest.json') return path.resolve(a)
+  }
+  return null
+}
+
+if (!cliCommand) pendingOpenPath = fileArgFrom(process.argv)
+
+// macOS delivers the file this way instead of in argv, and it can arrive BEFORE
+// ready — so the listener has to be installed at module scope.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  if (app.isReady() && mainWindow) openPathInWindow(filePath)
+  else pendingOpenPath = filePath
+})
+
+/**
+ * One instance owns the userData directory (the journal's cache lock among other
+ * things), so a second double-click has to hand its path to the first rather
+ * than start a rival. NOT taken in CLI mode: `polyform mcp serve` is expected to
+ * run many at once, and the gates do exactly that.
+ */
+if (!cliCommand && !app.requestSingleInstanceLock()) {
+  app.quit()
+} else if (!cliCommand) {
+  app.on('second-instance', (_e, argv) => {
+    const file = fileArgFrom(argv)
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+      if (file) openPathInWindow(file)
+    }
+  })
+}
+
+/**
+ * Hand the path to the renderer rather than opening it here: the renderer's own
+ * flow already saves a dirty document first, applies the saved viewport and
+ * updates recents by calling straight back into `project:open`. Duplicating that
+ * in main is how the two paths would start to differ.
+ */
+function openPathInWindow(inputPath: string): void {
+  if (!mainWindow) {
+    pendingOpenPath = inputPath
+    return
+  }
+  mainWindow.webContents.send('project:openPath', inputPath)
+}
 
 function windowTitle(): string {
   const title = projects.current?.manifest.title
@@ -119,6 +181,14 @@ function createWindow(hidden = false): void {
     let finishedLoad = false
     mainWindow.webContents.on('did-finish-load', () => {
       finishedLoad = true
+      // A project the shell asked for at launch. Only now: the listener that
+      // receives it lives in the renderer, so sending it earlier sends it to
+      // nobody.
+      if (pendingOpenPath) {
+        const target = pendingOpenPath
+        pendingOpenPath = null
+        openPathInWindow(target)
+      }
     })
     const paintDeadline = process.env['ELECTRON_RENDERER_URL'] ? 30_000 : 10_000
     const watchdog = setTimeout(() => {
@@ -232,19 +302,27 @@ function registerIpc(): void {
     let bundlePath = requestedPath
     if (!bundlePath) {
       const result = await dialog.showOpenDialog(mainWindow, {
-        title: 'Open Polyform Project (.poly folder)',
+        title: 'Open Polyform Project',
         defaultPath: app.getPath('documents'),
-        properties: ['openDirectory'],
+        // The project FILE is the entry point now. macOS can offer folders in
+        // the same dialog and Windows cannot, so elsewhere the file is the way
+        // in — and `manifest.json` stays selectable so pre-v0.7 bundles, which
+        // have no .poly file inside, can still be opened.
+        properties: process.platform === 'darwin' ? ['openFile', 'openDirectory'] : ['openFile'],
+        filters: [
+          { name: 'Polyform Project', extensions: ['poly'] },
+          { name: 'Polyform Project (pre-0.7)', extensions: ['json'] },
+        ],
       })
       if (result.canceled || result.filePaths.length === 0) return null
       bundlePath = result.filePaths[0]
     }
     try {
-      await fs.access(path.join(bundlePath, 'manifest.json'))
-    } catch {
+      await resolveBundle(bundlePath)
+    } catch (err) {
       // Headless mode must NEVER raise a dialog — a modal on a hidden
       // window blocks the process and lands on the user's screen (it did).
-      failOpen('Not a Polyform project', `The selected folder does not contain a manifest.json:\n${bundlePath}`)
+      failOpen('Not a Polyform project', String(err instanceof Error ? err.message : err))
       return null
     }
     try {
@@ -301,6 +379,13 @@ function registerIpc(): void {
   // Licences opens the shipped file. One resolver, like the WASM assets
   // (F-08): `extraResources` in the electron-builder config puts it beside the
   // app when packaged; from source it sits at the repo root.
+  ipcMain.handle('update:check', () => checkForUpdates(true))
+  ipcMain.handle('update:openReleases', () => openReleasesPage())
+  ipcMain.handle('update:onLaunch', async (_e, enabled?: boolean) => {
+    if (typeof enabled === 'boolean') return (await writeSettings({ checkUpdatesOnLaunch: enabled })).checkUpdatesOnLaunch
+    return (await readSettings()).checkUpdatesOnLaunch
+  })
+
   ipcMain.handle('app:licenses', async () => {
     const candidates = app.isPackaged
       ? [path.join(process.resourcesPath ?? '', 'THIRD-PARTY-NOTICES.md')]
@@ -474,27 +559,34 @@ function registerIpc(): void {
   ipcMain.handle('library:pick', async () => {
     if (!mainWindow) return null
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Attach Library (.poly folder)',
+      title: 'Attach Library',
       defaultPath: app.getPath('documents'),
-      properties: ['openDirectory'],
+      properties: process.platform === 'darwin' ? ['openFile', 'openDirectory'] : ['openFile'],
+      filters: [
+        { name: 'Polyform Project', extensions: ['poly'] },
+        { name: 'Polyform Project (pre-0.7)', extensions: ['json'] },
+      ],
     })
     if (result.canceled || result.filePaths.length === 0) return null
-    const libPath = result.filePaths[0]
     try {
-      const manifest = JSON.parse(await fs.readFile(path.join(libPath, 'manifest.json'), 'utf-8'))
-      return { path: libPath, title: String(manifest.title ?? path.basename(libPath)) }
-    } catch {
-      dialog.showErrorBox('Not a Polyform project', `No manifest.json found in:\n${libPath}`)
+      // Through the same resolver as opening a project: a library IS a project,
+      // and it may be either bundle shape.
+      const { dir, manifestFile } = await resolveBundle(result.filePaths[0])
+      const manifest = JSON.parse(await fs.readFile(path.join(dir, manifestFile), 'utf-8'))
+      return { path: dir, title: String(manifest.title ?? path.basename(dir)) }
+    } catch (err) {
+      dialog.showErrorBox('Not a Polyform project', String(err instanceof Error ? err.message : err))
       return null
     }
   })
 
   ipcMain.handle('library:read', async (_e, libPath: string) => {
     try {
-      const manifest = JSON.parse(await fs.readFile(path.join(libPath, 'manifest.json'), 'utf-8'))
-      const sceneBytes = new Uint8Array(await fs.readFile(path.join(libPath, 'scene.bin')))
+      const { dir, manifestFile } = await resolveBundle(libPath)
+      const manifest = JSON.parse(await fs.readFile(path.join(dir, manifestFile), 'utf-8'))
+      const sceneBytes = new Uint8Array(await fs.readFile(path.join(dir, 'scene.bin')))
       return {
-        title: String(manifest.title ?? path.basename(libPath)),
+        title: String(manifest.title ?? path.basename(dir)),
         sceneBytes,
         updatedAt: String(manifest.updated_at ?? ''),
       }
@@ -575,6 +667,13 @@ app.whenReady().then(async () => {
   setupPermissions()
   registerIpc()
   createWindow()
+
+  // Only if the user turned it on, and never during a CLI run (handled above).
+  // Delayed so a network call cannot compete with opening a document, and it
+  // reports nothing unless there is something to report.
+  void readSettings().then((s) => {
+    if (s.checkUpdatesOnLaunch) setTimeout(() => void checkForUpdates(false), 4000)
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

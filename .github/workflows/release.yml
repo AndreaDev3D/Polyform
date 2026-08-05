@@ -7,12 +7,19 @@
 # announcing one: someone opens the draft, reads the notes, downloads one
 # artifact, checks it runs, and presses Publish. See docs/Releasing.md.
 #
-# What this deliberately does NOT do yet: sign anything. Until Windows
-# Authenticode and macOS Developer ID + notarization are in place (Roadmap 5.2,
-# F-10), these artifacts trip SmartScreen and Gatekeeper, and a checksum is the
-# only integrity signal a downloader has. Signing is also the floor under
-# auto-update (5.1): electron-updater verifies signatures, and unsigned packages
-# give it nothing to verify. Do not ship an updater before the certificates.
+# What this does NOT do yet: Authenticode / Developer ID signing (Roadmap 5.2,
+# F-10). Until then the installers trip SmartScreen and Gatekeeper, and the app
+# will not install an update for itself — updater.ts explains why.
+#
+# What it DOES do, free: every artifact gets a **Sigstore build-provenance
+# attestation** signed by GitHub's OIDC identity for this workflow. That is not
+# code signing (it does not touch SmartScreen or Gatekeeper) but it is real
+# integrity: anyone can prove a file came out of this repo's release workflow
+# from this commit, rather than out of somebody's laptop.
+#
+#   gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/polyform
+#
+# It only works on public repositories, which this is.
 
 name: Release
 
@@ -46,6 +53,12 @@ jobs:
             xvfb: xvfb-run -a
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # For the Sigstore attestation: an OIDC token identifying this workflow,
+      # and permission to record the attestation against the repo.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -74,6 +87,16 @@ jobs:
         run: ${{ matrix.xvfb }} npm run test:packaging
       - name: SHA-256 checksums
         run: node scripts/checksums.mjs release --out SHA256SUMS-${{ matrix.target }}.txt
+      # Free provenance, since there is no money for certificates: a Sigstore
+      # attestation binding these exact bytes to this repo, workflow and commit.
+      # Verify with `gh attestation verify <file> --repo AndreaDev3D/polyform`.
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-${{ matrix.target }}
@@ -116,18 +139,32 @@ jobs:
             echo
             echo "### Verify your download"
             echo
+            echo "Checksums:"
+            echo
             echo '```sh'
             echo "sha256sum -c SHA256SUMS.txt        # Linux"
             echo "shasum -a 256 -c SHA256SUMS.txt    # macOS"
-            echo 'Get-FileHash .\<file> -Algorithm SHA256   # Windows'
+            echo 'Get-FileHash .\<file> -Algorithm SHA256   # Windows, compare against SHA256SUMS.txt'
+            echo '```'
+            echo
+            echo "Provenance — proves the file came out of this repo's release workflow, not someone's laptop:"
+            echo
+            echo '```sh'
+            echo "gh attestation verify <file> --repo ${GITHUB_REPOSITORY}"
             echo '```'
             echo
             echo "### These builds are not code signed"
             echo
-            echo "Windows shows a SmartScreen warning and macOS Gatekeeper will refuse to open the app"
-            echo "without an explicit override. That is expected for now (Roadmap 5.2) — until it is"
-            echo "fixed, the checksums above are the only way to confirm you have the bytes this"
-            echo "workflow built. There is no auto-update: new versions are downloaded from this page."
+            echo "There is no certificate yet (Roadmap 5.2), so:"
+            echo
+            echo "- **Windows** shows a SmartScreen warning: *More info* → *Run anyway*."
+            echo "- **macOS** refuses on first launch: right-click the app → *Open*, or"
+            echo '  `xattr -d com.apple.quarantine /Applications/Polyform.app`.'
+            echo "- **Polyform will not install updates for itself.** It can tell you a new version"
+            echo "  exists (Help → Check for Updates, off by default on launch) and link here."
+            echo "  An updater that installs unverifiable binaries is worse than no updater."
+            echo
+            echo "The checksum and the attestation above are what you have instead of a signature."
             echo
             echo "Third-party licences ship with the app (Help → Third-Party Licences)."
           } > NOTES.md

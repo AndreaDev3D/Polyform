@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useEditor } from '../state/editor'
 import { documentStore, useDocVersion } from '../state/document'
-import { dispatchMenuAction } from '../state/actions'
+import { dispatchMenuAction, openProjectFlow } from '../state/actions'
 import { flushSave, installAutosave } from '../state/autosave'
 import { listSystemFontFamilies } from '../engine/fonts'
 import { installShortcuts } from './shortcuts'
@@ -27,6 +27,12 @@ export function App() {
     const offClose = window.polyform.onRequestClose(() => {
       void flushSave().finally(() => window.polyform.confirmClose())
     })
+    // A project the shell handed to main: a double-clicked <Name>.poly, an "Open
+    // with", or a second launch. Same flow as File → Open, so a dirty document
+    // is saved first and the bundle's viewport is restored.
+    const offOpenPath = window.polyform.onOpenProjectPath((bundlePath) => {
+      void openProjectFlow(bundlePath)
+    })
     const offShortcuts = installShortcuts()
 
     void listSystemFontFamilies().then((fonts) => useEditor.getState().setFonts(fonts))
@@ -36,6 +42,7 @@ export function App() {
     return () => {
       offMenu()
       offClose()
+      offOpenPath()
       offShortcuts()
       offAutosave()
     }

@@ -17,9 +17,15 @@ export interface ProjectManifest {
 }
 
 export interface ProjectInfo {
-  /** Absolute path of the .poly directory bundle. */
+  /** Absolute path of the bundle DIRECTORY. */
   path: string
   manifest: ProjectManifest
+  /**
+   * Manifest file name inside the bundle: `<Name>.poly`, or `manifest.json` for
+   * a bundle written before v0.7. Saves go back to the one it was opened from.
+   * Optional so a synthesized ProjectInfo (tests, harnesses) stays valid.
+   */
+  manifestFile?: string
 }
 
 export interface JournalEntry {
@@ -77,6 +83,18 @@ export interface AssetData {
 export type McpCapability = 'document' | 'selection' | 'changes' | 'render' | 'edit'
 
 export type McpGrants = Record<McpCapability, boolean>
+
+/**
+ * Where an update check got to. `available` carries a URL rather than a
+ * download, because the artifacts are not signed yet and electron-updater's
+ * integrity check is signature verification (F-10) — see main/updater.ts.
+ */
+export interface UpdateStatus {
+  state: 'idle' | 'checking' | 'available' | 'current' | 'error' | 'unsupported'
+  version?: string
+  url?: string
+  message?: string
+}
 
 export interface McpStatus {
   running: boolean
@@ -170,6 +188,7 @@ export type MenuActionId =
   | 'agent.connection'
   | 'help.about'
   | 'help.licenses'
+  | 'help.checkUpdates'
 
 export interface PolyformApi {
   platform: string
@@ -185,6 +204,18 @@ export interface PolyformApi {
   appVersion: () => Promise<string>
   /** Opens the shipped THIRD-PARTY-NOTICES.md in the OS default viewer. */
   openLicenses: () => Promise<boolean>
+  /**
+   * The shell handed us a project to open — a double-clicked `<Name>.poly`, an
+   * "Open with", or a second launch while this one is running. Main sends the
+   * path and the renderer runs its normal open flow.
+   */
+  onOpenProjectPath: (cb: (bundlePath: string) => void) => () => void
+  /** Ask GitHub whether a newer release exists. Never installs — see updater.ts. */
+  checkUpdates: () => Promise<UpdateStatus>
+  openReleases: () => Promise<void>
+  /** Persisted preference; OFF by default, because a launch-time web call is not free. */
+  updateOnLaunch: (enabled?: boolean) => Promise<boolean>
+  onUpdateStatus: (cb: (status: UpdateStatus) => void) => () => void
   historyAppend: (label: string, opsJson: string) => Promise<number>
   historySetCursor: (cursor: number) => Promise<void>
   assetsImportDialog: (kind?: 'image' | 'model') => Promise<ImportedAsset[] | null>

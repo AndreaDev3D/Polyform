@@ -1693,6 +1693,27 @@ export async function exportSelection(kind: 'png' | 'svg', scale = 1): Promise<v
 // Menu dispatch
 // ---------------------------------------------------------------------------
 
+/**
+ * Manual update check.
+ *
+ * Reports through the platform dialogs rather than a panel of its own: it is a
+ * once-in-a-while errand whose answer is one sentence. It never installs
+ * anything — `main/updater.ts` says why, and the message it hands back says so
+ * to the user too, rather than leaving them wondering where the progress bar is.
+ */
+export async function checkForUpdatesNow(): Promise<void> {
+  const status = await window.polyform.checkUpdates()
+  if (status.state === 'available') {
+    if (window.confirm(`${status.message}\n\nOpen the release page?`)) void window.polyform.openReleases()
+  } else if (status.state === 'current') {
+    window.alert(`Polyform ${status.version} is the latest version.`)
+  } else if (status.state === 'unsupported') {
+    window.alert(status.message ?? 'Update checks only work in an installed build.')
+  } else if (status.state === 'error') {
+    window.alert(`Could not check for updates.\n\n${status.message ?? ''}`)
+  }
+}
+
 export function dispatchMenuAction(id: string): void {
   switch (id) {
     case 'file.new':
@@ -1844,9 +1865,12 @@ export function dispatchMenuAction(id: string): void {
         window.alert(
           `Polyform ${v} — a local-first, open-source vector design tool.\n\n` +
             'MIT licensed. Third-party licences: Help → Third-Party Licences.\n' +
-            'https://github.com/polyform/polyform',
+            'https://github.com/AndreaDev3D/polyform',
         )
       })
+      break
+    case 'help.checkUpdates':
+      void checkForUpdatesNow()
       break
     case 'help.licenses':
       void window.polyform.openLicenses().then((ok) => {

@@ -31,9 +31,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
-| [Desktop / Platform](#desktop--platform) | 7 | 1 | 3 | 1 | 12 |
+| [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **142** | **24** | **52** | **23** | **241** |
+| **Total** | **143** | **26** | **50** | **23** | **242** |
 
 ---
 
@@ -339,8 +339,9 @@ This document tracks Polyform's feature parity against Figma, section by section
 | Status bar | No equivalent (zoom lives in toolbar) | ✅ | Polyform addition |
 | UI themes | Light and dark editor themes | 🟡 | Dark Figma-like UI only for now |
 | Runs in the browser | Full editor available at figma.com | ❌ | Desktop-only by design |
-| Auto-update | Silent background updates | 📋 | Planned via GitHub Releases; CI groundwork ships now |
-| Installers | Signed installers per platform | 📋 | NSIS `.exe`, `.dmg`, `.AppImage`/`.deb` all build and are smoke-tested as packages in CI, and a tag opens a draft release with SHA-256 checksums ([Releasing.md](Releasing.md)) — but **nothing is signed yet** (Roadmap 5.2, F-10), so SmartScreen and Gatekeeper both object |
+| Auto-update | Silent background updates | 🟡 | Checks GitHub Releases and tells you (Help → Check for Updates; launch check off by default, because "nothing phones home" is a promise). It will **not install** while the artifacts are unsigned — electron-updater's integrity check *is* signature verification (F-10), so the download stays a decision you make on the release page. One flag away once signing lands |
+| Double-click a project to open it | Double-click a `.fig` | ✅ | The bundle's manifest is `<Name>.poly` inside the project folder, registered as a file association; also handles "Open with", a second launch (single-instance, focuses the running window) and macOS `open-file` |
+| Installers | Signed installers per platform | 🟡 | NSIS `.exe`, `.dmg`, `.AppImage`/`.deb` all build and are smoke-tested as packages in CI; a tag opens a draft release with SHA-256 checksums and a **Sigstore build-provenance attestation** (`gh attestation verify`), which proves where the bytes came from ([Releasing.md](Releasing.md)). **No code signing certificate yet** (Roadmap 5.2, F-10), so SmartScreen and Gatekeeper still object |
 | Multiple windows / tabs | Many files open in tabs | 📋 | One document window for now |
 
 ## Extensibility

@@ -6,7 +6,14 @@
   "type": "module",
   "license": "MIT",
   "author": "Polyform Contributors",
-  "homepage": "https://github.com/polyform/polyform",
+  "homepage": "https://github.com/AndreaDev3D/polyform",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndreaDev3D/polyform.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AndreaDev3D/polyform/issues"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
@@ -32,6 +39,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@msgpack/msgpack": "^3.0.0",
     "@sparkjsdev/spark": "^2.1.0",
+    "electron-updater": "^6.8.9",
     "onnxruntime-web": "^1.27.0",
     "polygon-clipping": "^0.15.7",
     "rbush": "^4.0.0",
@@ -75,6 +83,23 @@
     ],
     "asarUnpack": [
       "**/node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "AndreaDev3D",
+        "repo": "polyform"
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "poly",
+        "name": "Polyform Project",
+        "description": "Polyform project",
+        "role": "Editor",
+        "icon": "resources/icon.png",
+        "mimeType": "application/x-polyform"
+      }
     ],
     "win": {
       "icon": "resources/icon.png",

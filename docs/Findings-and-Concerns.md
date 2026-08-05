@@ -310,6 +310,16 @@ Auto-update from GitHub Releases is planned (CI groundwork ships in v0.1). An au
   4. Version monotonicity enforced (reject downgrades) and update metadata fetched over TLS with certificate validation left ON (a depressingly common Electron footgun is disabling it "temporarily").
 * **Cost note for planning:** OV certificates and Apple Developer Program are recurring paid costs for an open-source project — the funding question should be settled before, not after, the updater is announced.
 
+### Where this stands as of v0.7 (budget: zero)
+
+The funding question was settled: there is none. So the checklist above was applied rather than waived.
+
+* **The updater ships, and it does not install anything** (ADR-028). It checks GitHub Releases, says a version exists, and links to it — `autoDownload` off, `autoInstallOnAppQuit` off, `allowDowngrade` off, behind an `INSTALL_UPDATES` constant that is the *last* step of shipping signing rather than a separate feature. Requirement 2 above ("verify the signature, not just the checksum") is met by not downloading: there is no artifact to verify.
+* **The launch check is opt-in and off by default.** Not caution — consistency: the welcome screen promises nothing phones home, and consent-gating network work is the same rule ADR-019 and ADR-022 already follow.
+* **Free integrity, since a certificate is not free.** Every release artifact carries a SHA-256 checksum *and* a Sigstore build-provenance attestation signed by the release workflow's own OIDC identity (`gh attestation verify <file> --repo AndreaDev3D/polyform`). This is **not** code signing and does not quiet SmartScreen or Gatekeeper; it answers "did these bytes come out of that workflow at that commit", which is the supply-chain half of the problem (bullet 3 above) and is worth keeping after signing lands.
+* **Pinned action SHAs and restricted release writes** are in effect: `contents: read` everywhere except the publish job, releases are created as **drafts** from tags only, and every third-party action is pinned to a commit.
+* **Still open, and the only paid part:** Windows Authenticode (free for open source via the **SignPath Foundation**, which signs on the strength of a public repo and a reproducible CI build rather than an identity certificate — an application, not a purchase) and macOS Developer ID + notarization, for which **no free path exists**; the Apple Developer Programme is required. Until then the release notes tell users exactly which override each OS will ask them for, which is better than surprise.
+
 ---
 
 <a id="f-11"></a>

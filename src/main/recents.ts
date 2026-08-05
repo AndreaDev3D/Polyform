@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { RecentEntry } from '../shared/types'
+import { resolveBundle } from './project'
 
 const MAX_RECENTS = 12
 
@@ -19,7 +20,10 @@ export async function listRecents(): Promise<RecentEntry[]> {
     const alive: RecentEntry[] = []
     for (const entry of entries) {
       try {
-        await fs.access(path.join(entry.path, 'manifest.json'))
+        // Through the resolver, so a recent entry survives either bundle shape
+        // — checking for manifest.json alone dropped every v0.7 project from
+        // this list.
+        await resolveBundle(entry.path)
         alive.push(entry)
       } catch {
         /* dropped */

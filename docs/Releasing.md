@@ -51,17 +51,50 @@ has, which is why [F-10](Findings-and-Concerns.md#f-10-future-auto-update-securi
 lists publishing checksums as an obligation that exists now rather than when the
 updater ships.
 
+## Provenance — what we have instead of a signature
+
+Every artifact also carries a **Sigstore build-provenance attestation**, created
+by the release workflow under its own OIDC identity:
+
+```sh
+gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/polyform
+```
+
+That proves the file came out of *this repository's release workflow at that
+commit*, rather than off someone's laptop. It is free, and it is not code
+signing: it answers a different question and does nothing for SmartScreen or
+Gatekeeper. Keep it after signing lands — the two cover different attacks.
+
+## Signing on a budget of zero
+
+- **Windows: apply to the [SignPath Foundation](https://signpath.org/).** They
+  provide Authenticode signing free to open-source projects, with the private key
+  in their HSM, and they vouch for the binary on the strength of *the build coming
+  out of a public repository* rather than on a purchased identity certificate.
+  That is an application with eligibility criteria, not a checkout — worth
+  starting early, because the pipeline it wants is the one we already have (public
+  repo, CI-only builds, pinned actions, a smoke-tested artifact).
+- **macOS: there is no free path.** Notarization requires the Apple Developer
+  Programme (paid, annual), full stop. Until then the release notes tell people
+  the exact override (right-click → Open, or `xattr -d com.apple.quarantine`).
+  Note for the first macOS build: Apple Silicon refuses to run a binary with *no*
+  signature at all, so confirm electron-builder's ad-hoc signature is applied —
+  ad-hoc is free and is not notarization, it just makes the binary loadable.
+- **Do not self-sign.** A self-signed certificate buys nothing with SmartScreen
+  or Gatekeeper and dresses an unverified build as a verified one.
+- **Later, cheaper trust than a certificate:** publishing through **winget**,
+  **Homebrew casks** or **Flathub** gives users an install path they already trust
+  and needs no certificate of ours.
+
 ## What is deliberately not here yet
 
-- **Code signing** (Roadmap 5.2). Windows shows a SmartScreen warning; macOS
-  Gatekeeper refuses to open the app without an explicit override. Fixing it is
-  certificate logistics — Authenticode (OV minimum, or Azure Trusted Signing)
-  plus an Apple Developer ID with notarization — and recurring cost, so the
-  funding question comes before the announcement.
-- **Auto-update** (Roadmap 5.1), and in that order: `electron-updater` verifies
-  the *signature* of what it downloads, and an unsigned package gives it nothing
-  to verify. An updater over unsigned artifacts is a remote-code-execution
-  channel with a checksum in front of it. Signing is the floor, not the polish.
+- **Code signing** (Roadmap 5.2) — see above.
+- **Installing updates.** The app *checks* and links to the release page; it does
+  not install (ADR-028). `electron-updater` verifies the *signature* of what it
+  downloads, and an unsigned package gives it nothing to verify, so an updater
+  over unsigned artifacts is a remote-code-execution channel with a checksum in
+  front of it. One constant, `INSTALL_UPDATES` in `main/updater.ts`, turns it on
+  in the same commit that adds signing.
 - **Crash reporting** (Roadmap 5.3), opt-in and local-queue-first when it lands.
 
 ## The pieces, and where they live
