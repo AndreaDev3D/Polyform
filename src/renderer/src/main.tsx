@@ -37,7 +37,22 @@ void import('./agent/bridge').then((m) => m.installAgentBridge())
 // Headless CLI boot (7.4): open the bundle the CLI was pointed at through
 // the normal project-open path, then tell main the bridge can be driven.
 if (bootParams.has('cli')) {
-  void Promise.all([import('./state/document'), import('./state/editor')]).then(async ([d, e]) => {
+  void Promise.all([
+    import('./state/document'),
+    import('./state/editor'),
+    // The bridge has to be in this list, not just started above.
+    //
+    // It is what ANSWERS the CLI's queries, and it registers its ipcRenderer
+    // listener inside its own dynamic import. Signalling ready from a different
+    // async chain meant the two raced: main sends `mcp:sceneRequest` the moment
+    // it hears `cli:ready`, and an IPC message with no listener yet is dropped
+    // with no retry — so the query waited out its entire timeout and failed as
+    // "scene query timed out: document.summary". Whoever won the race decided
+    // whether the CLI worked; it won locally and on macOS, and lost on a cold
+    // Windows CI runner where opening the bundle finished before the bridge
+    // chunk loaded. installAgentBridge() is idempotent by design.
+    import('./agent/bridge').then((m) => m.installAgentBridge()),
+  ]).then(async ([d, e]) => {
     const bundle = bootParams.get('cliBundle')
     if (bundle) {
       const viewport = await d.documentStore.openProject(bundle)

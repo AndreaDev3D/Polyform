@@ -459,12 +459,12 @@ function registerIpc(): void {
       // imports decode multi-MB images; bg removal runs ~5s of inference.
       // All get a longer leash than a structure read.
       //
-      // 30s for a structure read, not 10: the FIRST read after a cold headless
-      // boot has to wait for the renderer to warm up (2.6 MB of WASM engine, no
-      // GPU, nothing in the disk cache), and 10s was enough on a developer
-      // machine and not on a CI runner — `polyform query` timed out on the
-      // Windows runner while the same command passed locally and on macOS. A
-      // timeout is there to stop a hang lasting forever, and 30s still does that.
+      // 30s for a structure read, not 10. Raising it did NOT fix the failure it
+      // was raised for — that was a dropped-message race in the CLI handshake
+      // (F-25), fixed in main.tsx. The longer leash stays on its own merits: the
+      // first read after a cold headless boot waits on 2.6 MB of WASM engine
+      // with no GPU and an empty disk cache, and a CI runner is slower than the
+      // machine this number was first guessed on.
       const slow = method.startsWith('render.') || method.startsWith('asset.') || method.startsWith('bg.')
       const timeout = slow ? 60_000 : 30_000
       setTimeout(() => {

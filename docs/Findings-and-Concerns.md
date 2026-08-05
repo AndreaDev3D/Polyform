@@ -566,6 +566,24 @@ Fixed by giving the open menu a *native* `keydown` listener on `window` in the c
 
 ---
 
+## F-25. "Ready" signalled from one async chain while the listener loaded on another
+
+**Severity: medium (intermittent, product-affecting) — found by the packaging gate's first live CI run, fixed.**
+
+The headless CLI boots a hidden renderer, which opens the bundle and then sends `cli:ready`; main answers by sending `mcp:sceneRequest` for whatever the verb needs. The renderer's handler for that message lives in the agent bridge, which installs itself inside its **own dynamic import** — a different async chain from the one that signalled ready.
+
+So the two raced, and the loser decided whether the CLI worked. An Electron IPC message with no listener registered yet is **dropped, with no retry and no error**: the request went nowhere, and the query sat until its timeout and failed as `scene query timed out: document.summary`. The bridge chunk usually loaded first on a developer machine and on the macOS runner; on a cold Windows CI runner, opening the bundle finished first and the CLI failed.
+
+Two things made this hard to see from the outside. It was **intermittent by machine speed**, so it looked like slowness — and the first fix attempt (raising the timeout from 10s to 30s) changed nothing, which is what proved it was not slowness at all. And it only ever hit the **first** query of a process: by the second, the listener existed.
+
+Fixed by making `cli:ready` depend on the bridge — the import that installs the listener is now in the same `Promise.all` as the document and editor modules, and `installAgentBridge()` is idempotent by design so the general path can still call it.
+
+**Why no test caught it.** Every gate ran the app from source, where the module graph is served warm by Vite and the bridge always won. It took the packaged app on a slow machine — which is exactly the case [F-06](#f-06-electron-packaging-pitfalls--asar-and-sql-wasmwasm)'s smoke test exists for, on its first real run, three commits after the test was written.
+
+**Standing obligation.** A "ready" signal must be sent from the same chain that installs everything the peer will immediately use, or the peer must retry. Dropped-listener races do not surface as errors — they surface as timeouts, which read as performance problems and get "fixed" by raising limits. If raising a timeout does not change a failure, stop raising it and look for the dropped message.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
