@@ -1,8 +1,9 @@
 // The `.fig` container: a ZIP holding a `canvas.fig`, which holds the schema and
 // the document.
 //
-// Pure functions over bytes, with no Node and no DOM: the same code has to work
-// in the renderer (File → Import) and in the headless CLI. Decompression is the
+// In `src/shared` rather than in the engine because BOTH processes need it: main
+// owns the decompression (zlib and Zstandard are Node's), and the renderer owns
+// the mapping onto scene nodes. Pure functions over bytes, no Node and no DOM. Decompression is the
 // one thing it cannot do itself, so it is injected — the caller passes the two
 // primitives its platform has (`zlib` in Electron, DecompressionStream in a
 // browser), and this file stays testable without either.

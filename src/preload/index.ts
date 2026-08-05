@@ -40,6 +40,7 @@ const api: PolyformApi = {
   assetsImportDialog: (kind?: 'image' | 'model') => ipcRenderer.invoke('assets:importDialog', kind),
   assetsRead: (hash) => ipcRenderer.invoke('assets:read', hash),
   svgImportDialog: () => ipcRenderer.invoke('import:svgDialog'),
+  figImportDialog: (paths) => ipcRenderer.invoke('import:figDialog', paths),
   libraryPick: () => ipcRenderer.invoke('library:pick'),
   libraryRead: (path) => ipcRenderer.invoke('library:read', path),
   pluginOpenDialog: () => ipcRenderer.invoke('plugins:openDialog'),

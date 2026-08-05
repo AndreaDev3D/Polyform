@@ -11,8 +11,8 @@
 // would not do.
 
 import { describe, expect, it } from 'vitest'
-import { decodeKiwiSchema, KiwiDecoder, KIWI_TYPE, type KiwiDefinition } from './kiwi'
-import { readCanvasChunks, readZip, readFig, type FigInflators } from './container'
+import { decodeKiwiSchema, KiwiDecoder, KIWI_TYPE, type KiwiDefinition } from '../../../../../shared/fig/kiwi'
+import { readCanvasChunks, readZip, readFig, type FigInflators } from '../../../../../shared/fig/container'
 
 // --- a minimal Kiwi writer, only for tests ---------------------------------
 

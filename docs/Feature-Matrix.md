@@ -35,13 +35,13 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
-| [Export & Import](#export--import) | 4 | 2 | 6 | 0 | 12 |
+| [Export & Import](#export--import) | 4 | 3 | 5 | 0 | 12 |
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **143** | **26** | **50** | **23** | **242** |
+| **Total** | **143** | **27** | **49** | **23** | **242** |
 
 ---
 
@@ -277,7 +277,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Per-node export settings | Persisted export presets on layers | 📋 | Export is invoked ad hoc for now |
 | Slice export | Export arbitrary canvas regions | 📋 | Blocked on slice tool |
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
-| .fig import | Open its own native files | 📋 | **Reader done, mapper not.** The container and Kiwi decoder ship as engine code with 21 tests, and read three real v106 exports end to end (schema, node tree, paints, text, images). No import command yet: the node mapper and the vector-geometry blobs are the remaining work — [Fig-Import-Spike.md](research/Fig-Import-Spike.md) |
+| .fig import | Open its own native files | 🟡 | **Shipped, experimental** (File → Import .fig…): reads the container and the schema the file carries for itself, rebuilds the tree from GUIDs and fractional indices, and takes shape from Figma's own flattened geometry so booleans, stars, arcs and glyph outlines arrive as editable paths. 155/158, 60/63 and 135/139 nodes on three real v106 exports; images become content-addressed assets; one undoable entry; and it **reports** everything it approximated or dropped. Gaps are listed in [Fig-Import-Spike.md](research/Fig-Import-Spike.md) — gradient angle, auto layout, per-range text styles, prototyping, variables, components-as-components |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
 | 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 🟡 | v0.5 (ADR-020): GLB meshes and gaussian splats place as MODEL3D nodes, double-click to orbit, procedural lighting presets, PNG/SVG export bake the render — all through an offscreen three.js+Spark island. Partial: SPZ v3 only (v4 pending upstream), no perf/memory gates on real multi-million-splat captures, menu-only import |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |

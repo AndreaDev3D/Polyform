@@ -146,6 +146,7 @@ export type MenuActionId =
   | 'file.importImage'
   | 'file.importModel'
   | 'file.importSvg'
+  | 'file.importFig'
   | 'file.exportPng'
   | 'file.exportSvg'
   | 'edit.undo'
@@ -221,6 +222,14 @@ export interface PolyformApi {
   assetsImportDialog: (kind?: 'image' | 'model') => Promise<ImportedAsset[] | null>
   assetsRead: (hash: string) => Promise<AssetData | null>
   svgImportDialog: () => Promise<{ fileName: string; text: string }[] | null>
+  /**
+   * Pick `.fig` files and get them DECODED: main owns this half because the
+   * container needs zlib and Zstandard, which the sandboxed renderer has not got.
+   * `root` is the decoded document; mapping it to nodes happens in the renderer.
+   */
+  figImportDialog: (paths?: string[]) => Promise<
+    { fileName: string; version: number; root: unknown; images: Record<string, Uint8Array>; error?: string }[] | null
+  >
   /** Pick a .poly bundle to attach as a library. */
   libraryPick: () => Promise<{ path: string; title: string } | null>
   /** Read a library bundle's manifest + scene bytes. */

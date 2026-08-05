@@ -520,6 +520,53 @@ function registerIpc(): void {
     return files
   })
 
+  /**
+   * `.fig` import, split across the boundary at the one place it has to be: the
+   * container needs DEFLATE and Zstandard, which live in Node's zlib, and the
+   * renderer is sandboxed with no Node at all. So main reads the file and decodes
+   * the container + its embedded schema (pure engine code, shared with the
+   * renderer), and hands over the decoded document. Mapping it onto our nodes
+   * stays in the renderer, where the scene is.
+   */
+  ipcMain.handle('import:figDialog', async (_e, paths?: string[]) => {
+    if (!mainWindow) return null
+    let chosen = paths
+    if (!chosen || chosen.length === 0) {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Import Figma Document',
+        filters: [{ name: 'Figma Document', extensions: ['fig'] }],
+        properties: ['openFile', 'multiSelections'],
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      chosen = result.filePaths
+    }
+    const { readFig } = await import('../shared/fig/container')
+    const zlib = await import('node:zlib')
+    const inflators = {
+      inflateRaw: (b: Uint8Array) => new Uint8Array(zlib.inflateRawSync(b)),
+      zstd: (b: Uint8Array) => new Uint8Array(zlib.zstdDecompressSync(b)),
+    }
+    const files: { fileName: string; version: number; root: unknown; images: Record<string, Uint8Array>; error?: string }[] = []
+    for (const file of chosen) {
+      const fileName = path.basename(file)
+      try {
+        const bytes = new Uint8Array(await fs.readFile(file))
+        const doc = readFig(bytes, inflators)
+        files.push({
+          fileName,
+          version: doc.version,
+          root: doc.root,
+          images: Object.fromEntries(doc.archive.images),
+        })
+      } catch (err) {
+        // Report per file rather than failing the batch: one unreadable export
+        // should not stop the others, and the renderer shows the reason.
+        files.push({ fileName, version: 0, root: null, images: {}, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    return files
+  })
+
   ipcMain.handle('export:save', async (_e, defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => {
     if (!mainWindow) return null
     const result = await dialog.showSaveDialog(mainWindow, {

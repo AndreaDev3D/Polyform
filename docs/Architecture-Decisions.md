@@ -593,6 +593,26 @@ Flipping that one constant is the last step of shipping signing, not a separate 
 
 ---
 
+## ADR-029: `.fig` import takes shape from their flattened geometry, and reports what it lost (v0.7)
+
+**Context.** Reading a `.fig` looked like two hard problems: decoding a proprietary binary format, and reconstructing an editable vector model from whatever Figma stores. The first turned out to be easy — the file **carries its own Kiwi schema**, so a decoder reads the schema out of the file it is decoding and never chases version changes. The second looked like the real work: a vector network in someone else's private encoding.
+
+**Decision.** **Do not reverse-engineer the editable network. Use the flattened geometry the file already contains.** Every shape node carries `fillGeometry` (and `strokeGeometry` for open paths) as a path-command stream in **node-local coordinates** — the same space our `VectorNetwork` uses. So a boolean result, a star, an arc, a rounded rectangle with four different radii and a glyph outline all arrive as one editable path that looks right, with no per-type importer and nothing guessed.
+
+Where a **native** type is an exact fit — frame, group, rectangle, ellipse, line, text — we use it instead, because a rectangle whose corner radius you can still change is worth more than a four-point path.
+
+**Arities were derived, not assumed.** A 1024×1024 frame's fill is 46 bytes and parses *exactly* as MOVE + 4×LINE + CLOSE; requiring all 93 geometry blobs in three real exports to consume exactly their own length admits one consistent assignment; and a 64×64 ellipse decodes with control points at 32 + 32×0.5523, the circle kappa. The one op never seen in a real file (`0x03`, quadratic) is supported *and reported as inferred* when met.
+
+**The tree is rebuilt, not read.** `nodeChanges` is Figma's flat collaborative change stream: nodes are indexed by GUID, attached via `parentGuid`, and siblings sorted by `parentIndex.position` — a fractional index, an ordering **string**. Sorting those lexicographically reproduces the layer order the designer saw; using array order reproduces the order their edits happened to be made in.
+
+**Reporting is part of the feature, not a nicety.** Every approximation and omission is counted and shown when the import finishes — ellipse-as-path, boolean flattened, gradient angle reset, text re-shaped, skew reduced, per-range styles collapsed. An importer that quietly loses a third of a document is worse than one that says what it left behind, because the first kind is discovered later and trusted in between.
+
+**Consequences.** The container and Kiwi decoder live in `src/shared/fig/`, not the engine: main owns decompression (zlib and Zstandard are Node's, and the renderer is sandboxed) while the renderer owns mapping, so both processes import the same module. An import is **one undoable entry** however many layers it creates. Bitmaps are re-hashed from their SHA-1 into our SHA-256 content-addressed `assets/`, so the same image from two files lands once. Booleans arrive flattened, which means their operands are gone — reported, and the honest trade for shapes that are right.
+
+**Revisit when.** Gradient handles are worth decomposing out of their transform matrix (the data is there); auto layout is worth recreating rather than freezing into positions; and components could arrive as components rather than as copies, which needs their component-set model read as well.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -625,5 +645,6 @@ Flipping that one constant is the last step of shipping signing, not a separate 
 | 026 | Menus are our own DOM (caret, checkmark, body portal, native key capture) — no OS-drawn surfaces in the editor | No (stable) | A submenu or a real modal layer, at which point this becomes a shared popover primitive |
 | 027 | Bundle = folder + `<Name>.poly` manifest as the double-clickable entry point; one resolver, legacy shape still opens | No (stable) | Two documents open at once; a single-file (zip) bundle |
 | 028 | Updates check and notify, never install unsigned bytes; launch check opt-in; Sigstore provenance instead of a certificate | Yes | A code-signing certificate exists (Windows via SignPath Foundation first) |
+| 029 | `.fig` import: self-describing schema, shape from THEIR flattened geometry, native types where exact, every loss reported | Partially | Gradient transform decomposition; auto layout recreated; components imported as components |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

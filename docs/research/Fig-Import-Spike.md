@@ -1,14 +1,34 @@
-# `.fig` import — research spike
+# `.fig` import — spike and fidelity report
 
-**Status:** research done and **verified against three real exports**; the
-container + Kiwi reader ships as engine code (`engine/import/fig/`, 21 tests).
-The node mapper and the vector-geometry blobs are the remaining work.
+**Status: shipped, experimental.** File → Import .fig… works, and this document
+is now the fidelity report the roadmap asked for. Verified against three real
+exports (v106): **155/158, 60/63 and 135/139 nodes imported** — the only nodes
+not turned into layers are Figma's own DOCUMENT and CANVAS wrappers, which are
+deliberately unwrapped.
 **Roadmap item:** 5.4 (v1.0, effort **L**).
 **Date:** 2026-08-05.
 
 The roadmap asks for "a research spike + best-effort importer for the
 reverse-engineered Figma file format, explicitly labeled experimental, with a
-written fidelity report of what maps and what cannot". This is the first half.
+written fidelity report of what maps and what cannot". Both halves are here: the
+research first, then what shipped and what it costs.
+
+## What shipped
+
+- `src/shared/fig/` — container (ZIP → `canvas.fig` → chunks) and the Kiwi decoder.
+  In `shared` because both processes need it: main owns decompression (zlib and
+  Zstandard are Node's, and the renderer is sandboxed), the renderer owns mapping.
+- `engine/import/fig/geometry.ts` — the path-command stream, and vector networks
+  built from it.
+- `engine/import/fig/map.ts` — the tree rebuild, node mapping, and the **report**.
+- `File → Import .fig…`, landing as **one undoable entry**, with a summary of
+  everything approximated or dropped shown when it finishes.
+- 38 unit tests, plus two optional checks that run against a real export when
+  `POLYFORM_FIG` points at one.
+
+Measured in the running app, into a real project: **130 ms, 165 ms and 5.8 s**
+(the last is 22 bitmaps being hashed and written; the mapping itself is ~150 ms),
+one history entry each, one undo removes the whole import, 24 assets on disk.
 
 ## Verdict
 
@@ -140,17 +160,35 @@ deliverable a *fidelity report* rather than a converter.
 | components / instances | `COMPONENT` / `INSTANCE` with overrides (ADR-012) |
 | multiple pages | pages (ADR-011) |
 
-**Will need real work:**
+**Solved differently from the plan — and better.** Vector geometry looked like the
+big risk. It turned out that every shape node also carries its **flattened
+geometry** (`fillGeometry`, and `strokeGeometry` for open paths) as a command
+stream in node-local coordinates, which is the space our own `VectorNetwork` uses.
+So there was no need to reverse-engineer their editable network at all: a boolean
+result, a star, an arc, a rounded rectangle with four different corners, a glyph
+outline — all of it arrives as an editable path that looks right.
 
-- **Vector geometry.** Figma stores a vector network *plus* a separate serialized
-  blob of path commands; our `VectorNetwork` is vertices and edges with control
-  points. Expect this to be the largest single piece, and expect the blob to need
-  its own small decoder.
-- **Text.** Character runs with per-range styles, plus Figma's own line breaking.
-  Our text is one style per node with engine-side shaping (ADR-018), so a
-  multi-style paragraph either splits into several nodes or loses the ranges.
-  Either way the *layout* will differ: their line breaks came from their shaper.
-- **Fractional-index ordering** must be preserved as z-order, not re-derived.
+The command stream is `op byte + N float32`, no length prefix:
+`0x00` CLOSE, `0x01` MOVE (2), `0x02` LINE (2), `0x04` CUBIC (6), and `0x03`
+inferred as QUAD (4). The arities are not guesses: a 1024×1024 frame's fill is 46
+bytes and parses *exactly* as MOVE + 4×LINE + CLOSE; requiring all 93 geometry
+blobs across the three files to consume exactly their own length leaves one
+consistent assignment; and a 64×64 ellipse comes out as MOVE + 4 cubics with
+control points at 49.67 = 32 + 32×0.5523, the circle kappa. `0x03` never appears
+in a real file, so it is supported and **reported as inferred** when met.
+
+**Will need real work:**
+- **Text.** Characters, font family, size, weight (from the style name), and
+  alignment come across; per-range styles are flattened to one style per node and
+  reported. Line breaks are re-derived by rustybuzz (ADR-018), so wrapping can
+  differ even when every glyph matches — also reported.
+- **Gradients.** Stops and type come across; Figma stores the geometry as a
+  transform and we store handles, so the angle is currently reset to vertical and
+  reported. Angular and diamond become radial, reported.
+- **Auto layout** is read but not recreated: children arrive at their absolute
+  positions, and the report says so.
+- **Non-rotation transforms.** Skew and non-uniform scale reduce to rotation
+  (reported) — our node model is x/y/size/rotation/flip.
 
 **Cannot map, and should say so rather than approximate:**
 
@@ -159,6 +197,23 @@ deliverable a *fidelity report* rather than a converter.
 - variants beyond a plain component set (our variants are still 🟡)
 - shared/team library links — they point at a cloud we deliberately do not have
 - anything FigJam
+
+## What the three files reported
+
+Nothing here is hidden from the user: this is the text the importer itself shows.
+
+- **OmniTecta** — 155 layers from 158 nodes across 2 pages. Approximated: ellipse
+  as editable path ×21; boolean flattened ×20; children of a vector hoisted ×20;
+  open path from stroke outline ×9; text re-shaped ×7; skew reduced ×5.
+- **Dipped** — 60 layers from 63 nodes, 2 images. Approximated: ellipse ×12; open
+  path ×12.
+- **OpenMods** — 135 layers from 139 nodes across 3 pages, 22 images.
+  Approximated: gradient angle reset ×11; boolean flattened ×9; children hoisted
+  ×9; open path ×9; skew ×9; text re-shaped ×8; mixed text styles ×2.
+
+Two things to improve next, in order: the **gradient transform** (it is a matrix
+we could decompose into our two handles), and **speed with many bitmaps** — 22
+images cost 5.6 s of the 5.8 s, one IPC round trip and one hash per image.
 
 ## Proposed shape of the work
 
@@ -175,21 +230,21 @@ deliverable a *fidelity report* rather than a converter.
 4. **Explicitly experimental** in the UI and the changelog until the fidelity
    report says otherwise.
 
-## What is needed to start
+## Testing it yourself
 
-A real export, ideally two:
+```sh
+POLYFORM_FIG="D:/path/to/Yours.fig" npx vitest run src/renderer/src/engine/import/fig
+```
 
-- **a simple one** — a frame or two, rectangles, text, an image;
-- **a real one** — components, instances, auto layout, vector paths, effects.
+Two optional checks wake up: one reads the container end to end and prints an
+inventory, the other maps it and asserts the health properties a mapper can get
+wrong while still looking fine in a log — non-finite coordinates, and a bounding
+box so large that framing the import would show empty canvas.
 
-`File → Save local copy…` in Figma produces the `.fig`. Any path on disk is
-fine; the parser never touches the network, and nothing from these files is
-committed unless it is a fixture we agree to ship.
-
-Without one, the decoder can be written but not *believed*: every published
-description of this format is someone's reverse-engineering, and the only way to
-know which parts are still true for the files people actually have is to open
-one.
+No `.fig` is committed: a real export is somebody's design, and the format's
+self-description means synthetic files exercise the same code. What synthetic
+files cannot prove is that the *layout* guess is right, which is why the numbers
+above are from real ones.
 
 ## Sources
 

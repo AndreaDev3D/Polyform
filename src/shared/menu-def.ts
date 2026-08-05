@@ -60,6 +60,9 @@ export const MENU: MenuDef[] = [
       { id: 'file.importImage', label: 'Import Image…', accelerator: 'CmdOrCtrl+Shift+K', action: 'file.importImage' },
       { id: 'file.importModel', label: 'Import 3D Model…', action: 'file.importModel' },
       { id: 'file.importSvg', label: 'Import SVG…', action: 'file.importSvg' },
+      // Named for the FILE, like every other import here — and accurate: it reads
+      // a .fig you exported, and makes no claim to be anyone's importer.
+      { id: 'file.importFig', label: 'Import .fig…', action: 'file.importFig' },
       sep,
       { id: 'file.exportPng', label: 'Export PNG…', accelerator: 'CmdOrCtrl+Shift+E', action: 'file.exportPng' },
       { id: 'file.exportSvg', label: 'Export SVG…', action: 'file.exportSvg' },

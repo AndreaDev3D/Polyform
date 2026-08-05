@@ -29,6 +29,7 @@ import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance } from '../engine/hit-test'
 import { importSvgDocument } from '../engine/import/svg-import'
+import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
 import { nodeOutline, type SubPath } from '../engine/shapes'
 import { booleanRings } from '../engine/booleans'
 import {
@@ -1637,6 +1638,85 @@ export async function importSvgFlow(): Promise<void> {
   }
 }
 
+/** Sniff a bitmap's type from its own bytes: `.fig` names images by hash, with no extension. */
+function imageExtOf(bytes: Uint8Array): string | null {
+  const b = bytes
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png'
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpg'
+  if (b.length > 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'gif'
+  if (b.length > 12 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'webp'
+  return null
+}
+
+/**
+ * Import `.fig` documents — experimental, and it says what it could not carry.
+ *
+ * Main has already decoded the container (it owns zlib and Zstandard); this side
+ * writes the bitmaps into `assets/` as content-addressed files, maps the document
+ * onto our nodes, and lands the whole thing as ONE undoable entry. One Ctrl+Z
+ * removes an import, however many layers it made.
+ */
+export async function importFigFlow(paths?: string[]): Promise<void> {
+  const files = await window.polyform.figImportDialog(paths)
+  if (!files || files.length === 0) return
+  const scene = documentStore.scene
+  const { camera, viewportSize } = editor.get()
+  const centerWorld = {
+    x: camera.x + viewportSize.w / (2 * camera.zoom),
+    y: camera.y + viewportSize.h / (2 * camera.zoom),
+  }
+
+  const rec = new OpRecorder()
+  const created: NodeId[] = []
+  const lines: string[] = []
+  let offset = 0
+
+  for (const file of files) {
+    if (file.error || !file.root) {
+      lines.push(`${file.fileName}: could not be read — ${file.error ?? 'no document inside'}`)
+      continue
+    }
+    // Their SHA-1 → our SHA-256: assets are content-addressed by OUR hash, so the
+    // same bitmap imported twice from two files lands once on disk.
+    const imageMap = new Map<string, string>()
+    for (const [figHash, bytes] of Object.entries(file.images)) {
+      const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayLike<number>)
+      const ext = imageExtOf(data)
+      if (!ext) continue
+      const written = await window.polyform.assetsWrite(data, ext)
+      if (written?.hash) imageMap.set(figHash.toLowerCase(), written.hash)
+    }
+
+    const result = mapFigDocument(file.root as Parameters<typeof mapFigDocument>[0], imageMap)
+    if (result.bundle.rootIds.length === 0) {
+      lines.push(`${file.fileName}: nothing importable found.`)
+      continue
+    }
+    // Drop it where you are looking, like an SVG import.
+    const dx = centerWorld.x - (result.bounds.x + result.bounds.w / 2) + offset
+    const dy = centerWorld.y - (result.bounds.y + result.bounds.h / 2) + offset
+    for (const rid of result.bundle.rootIds) {
+      const n = result.bundle.nodes[rid]
+      n.x += dx
+      n.y += dy
+    }
+    rec.addBundle(result.bundle, null, scene.childListOf(null).length)
+    created.push(...result.bundle.rootIds)
+    offset += 24
+    lines.push(`${file.fileName} (v${file.version}): ${describeFigReport(result.report).join(' ')}`)
+  }
+
+  if (created.length > 0) {
+    rec.commit(files.length === 1 ? 'Import .fig' : `Import ${files.length} .fig files`)
+    setSelection(created)
+  }
+  // Said out loud rather than logged: an import that quietly approximated half a
+  // document is the thing this feature most needs to be honest about.
+  if (lines.length > 0) {
+    window.alert(`Imported .fig — experimental\n\n${lines.join('\n\n')}`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
@@ -1733,6 +1813,9 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'file.importModel':
       void importModels()
+      break
+    case 'file.importFig':
+      void importFigFlow()
       break
     case 'file.importSvg':
       void importSvgFlow()

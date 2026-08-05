@@ -108,15 +108,18 @@ for (const file of ['LICENSE', 'THIRD-PARTY-NOTICES.md']) {
 }
 
 // The update feed. electron-builder writes app-update.yml from the `publish`
-// config, and without it `checkForUpdates()` throws in a packaged app — the
-// check would report a failure rather than a version. Only produced for real
-// installer targets, so a `--dir` build says so instead of failing: it is the
-// release build that has to carry it.
+// config, and without it `checkForUpdates()` throws in a packaged app — the check
+// would report a failure rather than a version. Only real installer targets get
+// one, so its absence is a failure only when the caller says an installer was
+// built: pass `--expect-feed` (CI does, right after `electron-builder --<target>`).
+//
+// It used to infer that from "is there an .exe in release/", which is wrong the
+// moment a previous build leaves one behind — the check failed on a `--dir` build
+// because a week-old installer was still sitting there. An expectation belongs to
+// whoever knows what they built, not to a guess about the filesystem.
 {
   const feed = path.join(resourcesDir, 'app-update.yml')
-  const installerBuilt = fs
-    .readdirSync(RELEASE, { withFileTypes: true })
-    .some((e) => e.isFile() && /\.(exe|dmg|AppImage|deb)$/.test(e.name))
+  const expectFeed = process.argv.includes('--expect-feed')
   if (fs.existsSync(feed)) {
     const text = fs.readFileSync(feed, 'utf8')
     // Case-insensitive on purpose: the repo is AndreaDev3D/Polyform and GitHub
@@ -126,10 +129,10 @@ for (const file of ['LICENSE', 'THIRD-PARTY-NOTICES.md']) {
     } else {
       pass('app-update.yml carries the update feed (provider github, AndreaDev3D/Polyform)')
     }
-  } else if (installerBuilt) {
+  } else if (expectFeed) {
     fail('no app-update.yml in the package — checkForUpdates() throws without it')
   } else {
-    console.log('PACKAGING NOTE: no app-update.yml, as expected for a --dir build (only installer targets get one)')
+    console.log('PACKAGING NOTE: no app-update.yml; pass --expect-feed after an installer build to require it')
   }
 }
 

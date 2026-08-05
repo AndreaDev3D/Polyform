@@ -130,7 +130,7 @@ jobs:
           sudo chown root:root release/linux-unpacked/chrome-sandbox
           sudo chmod 4755 release/linux-unpacked/chrome-sandbox
       - name: Packaging smoke test
-        run: ${{ matrix.xvfb }} npm run test:packaging
+        run: ${{ matrix.xvfb }} npm run test:packaging -- --expect-feed
       - name: SHA-256 checksums
         run: node scripts/checksums.mjs release
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
