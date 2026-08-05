@@ -1,0 +1,145 @@
+# Cutting a release: push a tag, get a DRAFT GitHub Release with installers for
+# all three platforms and a SHA256SUMS.txt covering every file.
+#
+#   git tag v0.7.0 && git push origin v0.7.0
+#
+# Draft on purpose. A tag should be able to produce a release without also
+# announcing one: someone opens the draft, reads the notes, downloads one
+# artifact, checks it runs, and presses Publish. See docs/Releasing.md.
+#
+# What this deliberately does NOT do yet: sign anything. Until Windows
+# Authenticode and macOS Developer ID + notarization are in place (Roadmap 5.2,
+# F-10), these artifacts trip SmartScreen and Gatekeeper, and a checksum is the
+# only integrity signal a downloader has. Signing is also the floor under
+# auto-update (5.1): electron-updater verifies signatures, and unsigned packages
+# give it nothing to verify. Do not ship an updater before the certificates.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything CI does on a normal push, before a single artifact is built. A
+  # release that skipped the suite is not worth the tag.
+  ci:
+    uses: ./.github/workflows/build.yml
+
+  build:
+    needs: ci
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            xvfb: ''
+          - os: macos-latest
+            target: mac
+            xvfb: ''
+          - os: ubuntu-latest
+            target: linux
+            xvfb: xvfb-run -a
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      # The tag names the release; package.json names the FILES. If they
+      # disagree, v0.7.0 ships artifacts called 0.6.0 and the checksums describe
+      # a version nobody asked for.
+      - name: Tag matches package.json version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $pkg" >&2
+            exit 1
+          fi
+          echo "releasing $pkg"
+      - run: npm ci
+      - run: npx electron-vite build
+      - run: npx electron-builder --${{ matrix.target }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Packaging smoke test
+        run: ${{ matrix.xvfb }} npm run test:packaging
+      - name: SHA-256 checksums
+        run: node scripts/checksums.mjs release --out SHA256SUMS-${{ matrix.target }}.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+            release/SHA256SUMS-${{ matrix.target }}.txt
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # The only write in either workflow, and only on a tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: incoming
+      # Flatten, and merge the three per-platform checksum files into the one
+      # file a downloader actually wants: `sha256sum -c SHA256SUMS.txt`.
+      - name: Collect artifacts and merge checksums
+        run: |
+          mkdir -p dist
+          find incoming -type f ! -name 'SHA256SUMS-*.txt' -exec mv {} dist/ \;
+          cat incoming/*/SHA256SUMS-*.txt | sort -k2 > dist/SHA256SUMS.txt
+          echo "--- SHA256SUMS.txt"
+          cat dist/SHA256SUMS.txt
+          ( cd dist && sha256sum -c SHA256SUMS.txt )
+      - name: Release notes
+        run: |
+          {
+            echo "## Polyform ${GITHUB_REF_NAME}"
+            echo
+            echo "Changes: see [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)."
+            echo
+            echo "### Verify your download"
+            echo
+            echo '```sh'
+            echo "sha256sum -c SHA256SUMS.txt        # Linux"
+            echo "shasum -a 256 -c SHA256SUMS.txt    # macOS"
+            echo 'Get-FileHash .\<file> -Algorithm SHA256   # Windows'
+            echo '```'
+            echo
+            echo "### These builds are not code signed"
+            echo
+            echo "Windows shows a SmartScreen warning and macOS Gatekeeper will refuse to open the app"
+            echo "without an explicit override. That is expected for now (Roadmap 5.2) — until it is"
+            echo "fixed, the checksums above are the only way to confirm you have the bytes this"
+            echo "workflow built. There is no auto-update: new versions are downloaded from this page."
+            echo
+            echo "Third-party licences ship with the app (Help → Third-Party Licences)."
+          } > NOTES.md
+          cat NOTES.md
+      # gh is preinstalled on the runner: one less third-party action in a
+      # pipeline whose whole job is producing trustworthy bytes.
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "Polyform $GITHUB_REF_NAME" \
+            --notes-file NOTES.md \
+            dist/*

@@ -490,6 +490,31 @@ try {
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
       await sleep(260)
     }
+    /**
+     * Click a control by ASKING WHERE IT IS FIRST, then wait for the menu rather
+     * than sleeping a fixed 260ms.
+     *
+     * Both halves are load-bearing: reading a rect in one round trip and
+     * clicking it in the next lets a re-render move the target in between, and a
+     * fixed sleep turns a slow open into a failure. This check flaked exactly
+     * once that way, which makes it worthless as a gate until it cannot.
+     */
+    const openByLabel = async (label) => {
+      const at = JSON.parse(await evaluate(`(() => {
+        const b = [...document.querySelectorAll('button[role="combobox"]')]
+          .find(e => (e.querySelector('.pf-select-value')?.textContent || '') === ${JSON.stringify(label)})
+        if (!b) return 'null'
+        const r = b.getBoundingClientRect()
+        return JSON.stringify({ x: Math.round(r.left + 8), y: Math.round(r.top + r.height / 2), top: Math.round(r.top) })
+      })()`))
+      if (!at) return null
+      await clickAt(at.x, at.y)
+      for (let i = 0; i < 12; i++) {
+        if (await evaluate(`!!document.querySelector('[role="listbox"]')`)) return at
+        await sleep(120)
+      }
+      return at
+    }
     const menu = async () => JSON.parse(await evaluate(`(() => {
       const m = document.querySelector('[role="listbox"]')
       if (!m) return JSON.stringify({ open: false })
@@ -513,7 +538,7 @@ try {
       })
     })()`))
 
-    await clickAt(blend.x, blend.y)
+    await openByLabel('Normal')
     const opened = await menu()
     if (!opened.open) {
       fail('clicking the dropdown did not open a menu')
@@ -555,7 +580,9 @@ try {
         // ...and picking the SAME value again spends no history entry: the
         // native select fired no change event for it, and re-picking should not
         // cost an undo.
-        await clickAt(blend.x, blend.y)
+        // The label we just picked is now the trigger's label — no case mapping
+        // from the enum, which would guess wrong on 'Color dodge'.
+        await openByLabel(opened.pick.label)
         const again = await menu()
         const same = again.open
           ? await (async () => {

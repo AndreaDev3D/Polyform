@@ -1,6 +1,13 @@
-# CI: typecheck, test, and build installers on all three platforms.
-# Artifacts uploaded here are the groundwork for auto-update from GitHub
-# Releases (docs/Roadmap.md v1.0).
+# CI: the unit gates, the gates that need real OS input, and a packaged build
+# that is smoke tested on every platform.
+#
+# Cutting a release is a separate workflow (release.yml) which calls this one
+# first, so a release cannot skip anything here.
+#
+# Every action is pinned to a commit SHA rather than a floating tag. F-10 lists
+# that as an obligation that exists NOW: what this pipeline produces is what
+# users would eventually auto-update from, and a moving tag lets a third party
+# change what runs here after it was reviewed.
 
 name: Build
 
@@ -9,6 +16,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+
+# Least privilege: nothing in this workflow writes to the repository. Only
+# release.yml needs contents: write, and it asks for it there.
+permissions:
+  contents: read
 
 jobs:
   # Rust engine core: cargo tests, then a fresh wasm build that the JS
@@ -17,15 +30,19 @@ jobs:
   # fresh build (toolchain drift churns bytes); parity tests are the gate.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          # Pinned by SHA, so the action can no longer read the toolchain from
+          # the ref name — name it explicitly.
+          toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -34,10 +51,43 @@ jobs:
       - run: npm run build:wasm
       - run: npm run typecheck
       - run: npm test
+      # The licences of everything we ship have to travel with the binary, and
+      # the file carrying them is generated. Regenerate and diff: a dependency
+      # added, removed or upgraded without regenerating fails here rather than in
+      # an installer nobody checked. Needs cargo, which this job has — the WASM
+      # engine's crates are in the notices too.
+      - name: Third-party notices are current
+        run: npm run licenses -- --check
+
+  # The gates that need a real window and real OS-level input. F-18, F-19, F-21,
+  # F-23 and F-24 all survived a green unit suite and were caught only here.
+  #
+  # Windows only, deliberately: these drive synthetic pointer and keyboard input
+  # against the built app and are proven on Windows, while the Linux equivalent
+  # needs xvfb and a first live run to settle. Nothing they cover is
+  # platform-specific enough to justify blocking on an unproven runner — add the
+  # Linux leg once it has been watched pass.
+  gates:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: E2E — real pointer and keyboard input
+        run: npm run test:e2e
+      - name: Agent connectivity probe
+        run: npm run test:mcp
+      - name: Headless CLI gate
+        run: npm run test:cli
 
   # Installer builds use the committed wasm pkg — no Rust toolchain needed
   # in the platform matrix.
-  build:
+  package:
     needs: test
     strategy:
       fail-fast: false
@@ -45,14 +95,20 @@ jobs:
         include:
           - os: windows-latest
             target: win
+            xvfb: ''
           - os: macos-latest
             target: mac
+            xvfb: ''
           - os: ubuntu-latest
             target: linux
+            # The app opens a hidden window even for CLI work, and a Linux runner
+            # has no display to give it.
+            xvfb: xvfb-run -a
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -61,7 +117,14 @@ jobs:
       - run: npx electron-builder --${{ matrix.target }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v4
+      # The gate F-08 has been promising since v0.1: drive the PACKAGED app.
+      # Everything above this line runs from the repo, which cannot see a
+      # resource path that only resolves there.
+      - name: Packaging smoke test
+        run: ${{ matrix.xvfb }} npm run test:packaging
+      - name: SHA-256 checksums
+        run: node scripts/checksums.mjs release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: polyform-${{ matrix.target }}
           path: |
@@ -69,4 +132,5 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
+            release/SHA256SUMS.txt
           if-no-files-found: warn

@@ -48,6 +48,8 @@ Then: **New Project…**, pick where to save the `.poly` folder, and draw. Press
 | `npm run test:e2e`  | Drives the built app with synthetic OS input: 14 checks no unit test can reach (F-18/F-19/F-21/F-23/F-24) |
 | `npm run test:mcp`  | Agent-connectivity probe: 53 checks — a real MCP client vs the built app, driving the consent panel |
 | `npm run test:cli`  | Headless CLI gate: new → stdio-MCP edit → persistence → pixel-checked export |
+| `npm run test:packaging` | Drives the **packaged** app (after `electron-builder`): asar layout, the whole CLI gate against the installed binary, and history read back out of the journal it wrote |
+| `npm run licenses`  | Regenerates `THIRD-PARTY-NOTICES.md` (CI fails if it is stale) |
 | `npm run build:wasm`| Rebuild the WASM engine pkg from `crates/`      |
 | `npm run bench`     | TS vs WASM micro-benchmarks (perf gates)        |
 | `npm run build`     | Production build to `out/`                      |
@@ -74,13 +76,14 @@ Copying the folder copies the entire project — shapes, history, and assets inc
 | Doc | Contents |
 | --- | -------- |
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
-| [Feature-Matrix.md](docs/Feature-Matrix.md) | 234-row Figma parity matrix with honest statuses (recounted each release) |
+| [Feature-Matrix.md](docs/Feature-Matrix.md) | 241-row Figma parity matrix with honest statuses (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v0.4.1 background removal → v0.5 3D model import → v0.6 agent connectivity (reads shipped; writes + CLI next) → v1.0 distribution |
-| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…021: every load-bearing decision and its replacement trigger |
-| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-20 with severities and mitigations |
+| [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…026: every load-bearing decision and its replacement trigger |
+| [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-24 with severities and mitigations |
 | [V0.4-Porting-Plan.md](docs/V0.4-Porting-Plan.md) | Rust/WASM + WebGPU port: module inventory, API contracts, verification gates |
 | [Plugin-API.md](docs/Plugin-API.md) | Plugin dev preview API + post-1.0 sandbox design |
-| [schema.fbs](docs/schema.fbs) | Scene object model (schema v4) — FlatBuffers target & Rust struct reference |
+| [Releasing.md](docs/Releasing.md) | Cutting a release: tag → CI → smoke-tested installers → checksums → draft, and what is still unsigned |
+| [schema.fbs](docs/schema.fbs) | Scene object model (schema v5) — FlatBuffers target & Rust struct reference |
 | [Product-Overview.md](docs/Product-Overview.md) | Original product vision (historical) |
 | [Technical-Specification.md](docs/Technical-Specification.md) | Original architecture spec (historical) |
 

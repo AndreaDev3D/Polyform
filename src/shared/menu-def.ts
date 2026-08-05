@@ -142,6 +142,7 @@ export const MENU: MenuDef[] = [
     label: 'Help',
     items: [
       { id: 'help.about', label: 'About Polyform', action: 'help.about' },
+      { id: 'help.licenses', label: 'Third-Party Licences', action: 'help.licenses' },
       { id: 'help.github', label: 'GitHub Repository', url: 'https://github.com/polyform/polyform' },
     ],
   },

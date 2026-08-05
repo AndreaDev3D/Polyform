@@ -169,6 +169,7 @@ export type MenuActionId =
   | 'plugins.run'
   | 'agent.connection'
   | 'help.about'
+  | 'help.licenses'
 
 export interface PolyformApi {
   platform: string
@@ -182,6 +183,8 @@ export interface PolyformApi {
   /** A recent bundle's saved preview PNG; null when it has none. */
   recentsThumbnail: (path: string) => Promise<Uint8Array | null>
   appVersion: () => Promise<string>
+  /** Opens the shipped THIRD-PARTY-NOTICES.md in the OS default viewer. */
+  openLicenses: () => Promise<boolean>
   historyAppend: (label: string, opsJson: string) => Promise<number>
   historySetCursor: (cursor: number) => Promise<void>
   assetsImportDialog: (kind?: 'image' | 'model') => Promise<ImportedAsset[] | null>

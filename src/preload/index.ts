@@ -20,6 +20,7 @@ const api: PolyformApi = {
   recentsList: () => ipcRenderer.invoke('recents:list'),
   recentsThumbnail: (path: string) => ipcRenderer.invoke('recents:thumbnail', path),
   appVersion: () => ipcRenderer.invoke('app:version'),
+  openLicenses: () => ipcRenderer.invoke('app:licenses'),
   historyAppend: (label, opsJson) => ipcRenderer.invoke('history:append', label, opsJson),
   historySetCursor: (cursor) => ipcRenderer.invoke('history:setCursor', cursor),
   assetsImportDialog: (kind?: 'image' | 'model') => ipcRenderer.invoke('assets:importDialog', kind),

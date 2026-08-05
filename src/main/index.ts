@@ -296,6 +296,21 @@ function registerIpc(): void {
   // for why app.getVersion() is the wrong answer when run from source.
   ipcMain.handle('app:version', () => __APP_VERSION__)
 
+  // The MIT licences of everything we bundle have to travel with the binary,
+  // and a notice nobody can open is weak compliance — Help → Third-Party
+  // Licences opens the shipped file. One resolver, like the WASM assets
+  // (F-08): `extraResources` in the electron-builder config puts it beside the
+  // app when packaged; from source it sits at the repo root.
+  ipcMain.handle('app:licenses', async () => {
+    const candidates = app.isPackaged
+      ? [path.join(process.resourcesPath ?? '', 'THIRD-PARTY-NOTICES.md')]
+      : [path.join(import.meta.dirname, '../../THIRD-PARTY-NOTICES.md')]
+    for (const file of candidates) {
+      if (existsSync(file)) return (await shell.openPath(file)) === '' // '' means the OS opened it
+    }
+    return false
+  })
+
   ipcMain.handle('history:append', (_e, label: string, opsJson: string) => {
     return projects.history.append(label, opsJson)
   })

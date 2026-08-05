@@ -1837,7 +1837,21 @@ export function dispatchMenuAction(id: string): void {
       booleanSelection('EXCLUDE')
       break
     case 'help.about':
-      window.alert('Polyform 0.1.0 — a local-first, open-source vector design tool.\nhttps://github.com/polyform/polyform')
+      // The version is asked for, not written here: this dialog claimed 0.1.0
+      // through five releases. __APP_VERSION__ comes from package.json at build
+      // time, which is also what the title bar and the welcome screen show.
+      void window.polyform.appVersion().then((v) => {
+        window.alert(
+          `Polyform ${v} — a local-first, open-source vector design tool.\n\n` +
+            'MIT licensed. Third-party licences: Help → Third-Party Licences.\n' +
+            'https://github.com/polyform/polyform',
+        )
+      })
+      break
+    case 'help.licenses':
+      void window.polyform.openLicenses().then((ok) => {
+        if (!ok) window.alert('Could not open THIRD-PARTY-NOTICES.md — it should sit beside the app.')
+      })
       break
   }
 }

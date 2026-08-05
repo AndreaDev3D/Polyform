@@ -340,7 +340,7 @@ This document tracks Polyform's feature parity against Figma, section by section
 | UI themes | Light and dark editor themes | 🟡 | Dark Figma-like UI only for now |
 | Runs in the browser | Full editor available at figma.com | ❌ | Desktop-only by design |
 | Auto-update | Silent background updates | 📋 | Planned via GitHub Releases; CI groundwork ships now |
-| Installers | Signed installers per platform | 📋 | NSIS `.exe`, `.dmg`, `.AppImage`/`.deb` targets per spec §6 |
+| Installers | Signed installers per platform | 📋 | NSIS `.exe`, `.dmg`, `.AppImage`/`.deb` all build and are smoke-tested as packages in CI, and a tag opens a draft release with SHA-256 checksums ([Releasing.md](Releasing.md)) — but **nothing is signed yet** (Roadmap 5.2, F-10), so SmartScreen and Gatekeeper both object |
 | Multiple windows / tabs | Many files open in tabs | 📋 | One document window for now |
 
 ## Extensibility

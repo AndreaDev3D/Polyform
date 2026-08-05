@@ -18,6 +18,8 @@
     "test:e2e": "node scripts/e2e-text.mjs",
     "test:mcp": "node scripts/mcp-probe.mjs",
     "test:cli": "node scripts/cli-test.mjs",
+    "test:packaging": "node scripts/packaging-smoke.mjs",
+    "licenses": "node scripts/licenses.mjs",
     "cli": "electron out/main/index.js",
     "build:wasm": "node scripts/build-wasm.mjs",
     "bench": "vitest bench --run",
@@ -66,6 +68,10 @@
     },
     "files": [
       "out/**"
+    ],
+    "extraResources": [
+      "LICENSE",
+      "THIRD-PARTY-NOTICES.md"
     ],
     "asarUnpack": [
       "**/node_modules/sql.js/dist/sql-wasm.wasm"

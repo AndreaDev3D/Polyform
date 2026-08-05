@@ -248,6 +248,8 @@ Goal: an app you can confidently recommend to someone who has never heard of the
 
 **Exit criteria:** signed installers on all three platforms, one-click updates, and a documented import/export story.
 
+**Groundwork shipped 2026-08-05 (not any of 5.1–5.5, but everything under them).** A tag now runs the whole suite, builds and **smoke-tests the packaged app** on all three platforms, publishes **SHA-256 checksums**, and opens a **draft** release ([docs/Releasing.md](Releasing.md)); every Action is pinned to a commit SHA; the e2e / agent / CLI gates run in CI; and the third-party licences are generated into the installer with a CI freshness check. What remains for 5.1/5.2 is genuinely the certificates and the updater — in that order, because electron-updater verifies signatures and an unsigned package gives it nothing to verify.
+
 ### Post-1.0 candidates (not scheduled)
 
 Stable plugin API (from the 3.4 sketch), variable fonts & full OpenType feature UI, image adjustments beyond crop/basic, dev-mode/code inspect, additional import/export formats. These are intentionally unscheduled until v1.0 feedback exists.

@@ -23,8 +23,18 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { killElectronMatching } from './proc-cleanup.mjs'
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
-const ELECTRON = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron')
+/**
+ * POLYFORM_BIN points this gate at a PACKAGED app instead of the dev build, so
+ * scripts/packaging-smoke.mjs can run the whole chain against the artifact that
+ * actually ships (asar, unpacked WASM, real resource paths). Dev shape is
+ * `electron out/main/index.js <verb>`; packaged is `Polyform.exe <verb>` —
+ * `parseCliCommand` accepts both, and ARGS carries the difference.
+ */
+const PACKAGED = process.env.POLYFORM_BIN ?? null
+const ELECTRON = PACKAGED ?? path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron')
 const MAIN = path.join(ROOT, 'out', 'main', 'index.js')
+/** Leading args before the verb: none when the binary IS the app. */
+const ARGS = PACKAGED ? [] : [MAIN]
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'polyform-cli-gate-'))
 const BUNDLE = path.join(WORK, 'Gate.poly')
 const ENV = { ...process.env }
@@ -50,12 +60,17 @@ function killServeTree() {
   // serve chain (electron main + its relay grandchild) leaks — each leftover
   // then holds the userData cache lock and the port for the next run.
   const pid = servePid
-  if (pid) {
-    try {
+  if (!pid) return
+  try {
+    if (process.platform === 'win32') {
       spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', shell: true })
-    } catch {
-      /* already gone */
+    } else {
+      // No taskkill off Windows — and this now runs there too, via the
+      // packaging smoke test on the macOS and Linux CI legs.
+      process.kill(pid, 'SIGKILL')
     }
+  } catch {
+    /* already gone */
   }
 }
 
@@ -118,12 +133,12 @@ function decodePng(buf) {
 }
 
 function run(args, timeoutMs = 90_000) {
-  const r = spawnSync(ELECTRON, [MAIN, ...args], {
+  const r = spawnSync(ELECTRON, [...ARGS, ...args], {
     cwd: ROOT,
     env: ENV,
     encoding: 'utf-8',
     timeout: timeoutMs,
-    shell: process.platform === 'win32',
+    shell: process.platform === 'win32' && !PACKAGED,
     windowsHide: true,
   })
   return { code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
@@ -142,7 +157,7 @@ try {
   const client = new Client({ name: 'cli-gate', version: '1.0.0' })
   const transport = (serveTransport = new StdioClientTransport({
     command: ELECTRON,
-    args: [MAIN, 'mcp', 'serve', BUNDLE],
+    args: [...ARGS, 'mcp', 'serve', BUNDLE],
     env: ENV,
     stderr: 'pipe',
   }))
@@ -262,10 +277,16 @@ try {
   // alive forever — it wedged three runs before this teardown existed.
   killServeTree()
   killElectronMatching(WORK)
-  try {
-    fs.rmSync(WORK, { recursive: true, force: true })
-  } catch {
-    /* a live handle on Windows — swept next run */
+  if (process.env.POLYFORM_KEEP_BUNDLE) {
+    // The packaging smoke test reads the journal this run wrote, so it needs the
+    // bundle to outlive the gate. It deletes the directory itself afterwards.
+    console.log(`KEPT_BUNDLE=${BUNDLE}`)
+  } else {
+    try {
+      fs.rmSync(WORK, { recursive: true, force: true })
+    } catch {
+      /* a live handle on Windows — swept next run */
+    }
   }
   setTimeout(() => process.exit(failures === 0 ? 0 : 1), 500)
 }
