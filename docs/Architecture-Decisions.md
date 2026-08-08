@@ -609,7 +609,14 @@ Where a **native** type is an exact fit — frame, group, rectangle, ellipse, li
 
 **Consequences.** The container and Kiwi decoder live in `src/shared/fig/`, not the engine: main owns decompression (zlib and Zstandard are Node's, and the renderer is sandboxed) while the renderer owns mapping, so both processes import the same module. An import is **one undoable entry** however many layers it creates. Bitmaps are re-hashed from their SHA-1 into our SHA-256 content-addressed `assets/`, so the same image from two files lands once. Booleans arrive flattened, which means their operands are gone — reported, and the honest trade for shapes that are right.
 
-**Revisit when.** Gradient handles are worth decomposing out of their transform matrix (the data is there); auto layout is worth recreating rather than freezing into positions; and components could arrive as components rather than as copies, which needs their component-set model read as well.
+**Correction (v0.7, F-28).** Two of the assumptions above were wrong in ways the first release shipped with, and both are now decided explicitly.
+
+- *"Node-local coordinates — the same space our VectorNetwork uses"* is true of the **geometry** and false of the **placement**. Figma's per-node matrix maps that local space into the parent, and its origin is the box's **top-left corner** — so the translation positions a corner and the rotation turns the box about it, whereas our model stores an unrotated box and turns it about the **centre**. The two are reconciled exactly by `(x, y) = t + M·c − c` with `c` the half-size, and a mirror (`det < 0`) becomes `flipV` rather than being reduced to an angle. Because this cannot be validated from our own output, `mapFigDocument` returns `idByGuid` (and `pages[].dx`) so a check can hold each node against the matrix it came from.
+- *"`fillGeometry`, and `strokeGeometry` for open paths"* understates it: a shape with no fill still carries a `fillGeometry` **entry**, pointing at a zero-byte blob. The choice between the two lists is therefore made on whether geometry *parsed*, never on whether a list is non-empty. And a stroke outline is a region to **fill with the stroke paint**, not a path to stroke.
+
+Also decided here: a shape node's children are a boolean's **operands** and are dropped, because the flattened result already contains them — drawing both is drawing the answer twice. And Figma pages, which each have their own coordinates, are moved apart only when they would overlap; one Polyform page per Figma page needs a node-add op that can target a page and is still owed.
+
+**Revisit when.** Gradient handles are worth decomposing out of their transform matrix (the data is there); auto layout is worth recreating rather than freezing into positions; components could arrive as components rather than as copies, which needs their component-set model read as well; and pages should become pages.
 
 ---
 

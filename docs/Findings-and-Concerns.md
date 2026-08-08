@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.7 (F-01…F-27)
+**Project:** Polyform — current through v0.7 (F-01…F-28)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -36,6 +36,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-25](#f-25-ready-signalled-from-one-async-chain-while-the-listener-loaded-on-another) | "Ready" raced the listener that answers it (fixed v0.7) | Fixed |
 | [F-26](#f-26-a-wrong-ci-condition-fails-open-the-gate-skips-and-the-run-goes-green) | A wrong CI condition fails open (fixed v0.7) | Process |
 | [F-27](#f-27-synthetic-input-is-not-a-gesture-the-apps-time-windows-decide-not-the-events) | Synthetic input is not a gesture: time windows decide (fixed v0.7) | Process |
+| [F-28](#f-28-an-importer-can-only-be-checked-against-the-thing-it-imported) | An importer can only be checked against its source (fixed v0.7) | Fixed (High while live) |
 
 ---
 
@@ -624,6 +625,26 @@ Two checks in `npm run test:e2e` failed intermittently for months and were writt
 
 ---
 
+## F-28. An importer can only be checked against the thing it imported
+
+**Severity: High while live** — the first `.fig` import placed rotated layers wrongly and drew boolean operands over their own results, so an imported design arrived visibly scrambled. Fixed in v0.7; six defects, one root cause in how it was checked.
+
+The `.fig` importer shipped with a real-file test that asserted: every coordinate finite, no non-finite vector points, bounding box under 10⁶, and a plausible layer tree. All of it passed. All of it kept passing while **24 of Dipped.fig's 60 nodes were in the wrong place**, twenty booleans in OmniTecta.fig drew their operands on top of the flattened result (a black scribble where a logo should be), and 37 nodes in that same file came in as vector nodes with **zero vertices** — invisible holes.
+
+Every one of those checks is a property of *our output alone*. Nonsense has finite coordinates too. The importer's whole job is a relationship between two documents, and nothing was comparing them.
+
+**What the defects were.** Full detail in [Fig-Import-Spike.md](./research/Fig-Import-Spike.md); in one line each: Figma's matrix turns a box about its top-left corner and ours turns it about the centre (so the translation is not our x/y); a shape node's children are boolean operands already contained in the flattened result; a `fillGeometry` entry can point at a **zero-byte** blob, so "the array is non-empty" is not "there is geometry"; `strokeGeometry` is a region to *fill* with the stroke paint, not a path to stroke; `det < 0` is a mirror, which reducing the matrix to an angle throws away; and each Figma page has its own coordinates, so pages stack unless moved apart.
+
+**What replaced the checks.** For every node the mapper produced, take the four corners of its box, send them through Figma's own matrix, send them through our `nodeLocalMatrix`, and require the same four points. That is the *relationship*, so it cannot pass while the placement is wrong — 350 nodes across three files, 0 misplaced. It needed one small API addition (`idByGuid`, plus `pages[].dx` so a deliberate page offset is distinguishable from a misplaced node), which was worth it: a check that cannot see its input cannot verify an importer. Two blunter checks came with it — no vector may have zero vertices, and the comparison must have compared something (a silently-skipping matcher passes on an empty set).
+
+**The check was shown to fail before it was trusted** (F-22): restoring the old pivot turns Dipped's run red with `24 misplaced` and names the nodes.
+
+**And one test was asserting the bug.** `expect(node.x).toBe(10)` for a 90°-rotated frame encoded the wrong pivot as expected behaviour — the defect had a test *defending* it. When a test's expected value is copied from the code's current output rather than derived from the source of truth, it stops being a check and becomes a lock.
+
+**Standing obligation.** For anything that converts between two representations — importers, exporters, migrations, the Rust/TS twins — at least one check must be a **relation between input and output**, computed from the input independently of the code under test. Round-trip or differential comparison where possible (as `crates/polyform-core`'s differential fuzz already does); otherwise recompute the expected result from the source by hand, as the corner comparison does. And no test's expected value may be lifted from current output without deriving it independently first.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -635,4 +656,5 @@ Three themes run through every entry:
 5. **Input-layer bugs are invisible to unit and pixel tests.** F-18 and F-19 both survived multiple releases with a green suite, and both were found only by driving the built app with synthetic OS-level input. That is why `npm run test:e2e` exists and why it keeps growing.
 6. **A correct document is not a correct app.** F-21 was a stale cache over right data, F-23 was the right answer computed and then not applied, and F-22 is the reason both now have checks that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.
 7. **A green pipeline is not a running one.** F-26 removed a gate and reported success, and F-24/F-25 were both found by reading what actually happened rather than what the summary said. Ask of every check: if the thing it guards were broken right now, would this run be red? For a condition, the question is narrower and sharper — did the job I expected actually *run*?
-8. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+8. **A conversion is only verified against its source.** F-28's importer passed every check it had while placing a quarter of its nodes wrongly, because all of them examined our output alone — and one of them had frozen the bug as the expected value. Whenever code converts between representations, at least one check has to hold the output against the *input*, derived independently.
+9. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

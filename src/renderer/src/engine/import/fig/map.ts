@@ -34,6 +34,19 @@ export interface FigImportResult {
   bounds: { x: number; y: number; w: number; h: number }
   /** Human-readable, deduplicated, counted — shown after the import. */
   report: FigImportReport
+  /**
+   * Figma's `sessionID:localID` → the node we made from it. Exists so a test can
+   * hold a mapped node against the matrix it came from: the pivot bug (F-28) was
+   * invisible to every check that looked at our output alone.
+   */
+  idByGuid: Map<string, NodeId>
+  /**
+   * One entry per Figma page that had content, in file order. `dx` is how far this
+   * page had to be moved to stop it landing on a page already placed — 0 for a page
+   * whose coordinates are untouched. Kept because a caller (or a test) cannot tell
+   * a deliberate page offset from a misplaced node without it.
+   */
+  pages: { name: string; rootIds: NodeId[]; dx: number }[]
 }
 
 export interface FigImportReport {
@@ -49,6 +62,9 @@ export interface FigImportReport {
 
 interface Ctx {
   bundle: NodeBundle
+  idByGuid: Map<string, NodeId>
+  /** One entry per Figma CANVAS, in file order: its name and its root ids. */
+  pageBreaks: { name: string; ids: NodeId[] }[]
   blobs: Uint8Array[]
   report: FigImportReport
   /** Image hash (theirs) → asset hash (ours), filled in by the caller. */
@@ -266,42 +282,90 @@ function effectsFrom(list: unknown, report: FigImportReport): Effect[] {
 }
 
 /**
- * Figma keeps a 2×3 affine and the size separately, so in practice the matrix is
- * translation + rotation. Anything else (skew, mirrored scale) cannot be
- * expressed by x/y/rotation and is reported rather than silently flattened.
+ * Figma keeps a 2×3 affine and the size separately, so the matrix is a rotation
+ * (sometimes with a mirror) plus a translation.
+ *
+ * **The translation is not our x/y.** Figma's matrix maps the node's own local
+ * space, whose origin is the box's top-left corner, so `(m02, m12)` is where that
+ * CORNER lands — the rotation turns the box about it. Our model stores the
+ * unrotated box and turns it about its CENTRE (`nodeLocalMatrix`: T(x+c)·R·S·T(−c)).
+ * Copying the translation into x/y therefore offsets every rotated node by the
+ * difference between those two pivots, which is what scrambled the first imports:
+ * a 90°-rotated 183×338 bar landed ~260 units away from where Figma drew it.
+ *
+ * Equating the two matrices gives the conversion exactly. With M the linear part
+ * and c the half-size, Figma sends p ↦ M·p + t while we produce
+ * p ↦ M·(p − c) + (x,y) + c, so
+ *
+ *     (x, y) = t + M·c − c
+ *
+ * A mirror is not dropped either: any reflection is a rotation composed with one
+ * fixed flip, so `det < 0` becomes `flipV` — which our matrix applies inside the
+ * centred frame, exactly where Figma's belongs. What is left over after taking the
+ * rotation and the mirror out (a true skew, a non-unit scale) cannot be expressed
+ * by x/y/rotation/flip and is reported rather than silently flattened.
  */
-function transformFrom(raw: KiwiObject, report: FigImportReport): { x: number; y: number; rotation: number } {
+function transformFrom(
+  raw: KiwiObject,
+  width: number,
+  height: number,
+  report: FigImportReport,
+): { x: number; y: number; rotation: number; flipV: boolean } {
   const t = raw.transform as { m00?: number; m01?: number; m02?: number; m10?: number; m11?: number; m12?: number } | undefined
-  if (!t) return { x: 0, y: 0, rotation: 0 }
+  if (!t) return { x: 0, y: 0, rotation: 0, flipV: false }
   const m00 = t.m00 ?? 1
   const m01 = t.m01 ?? 0
   const m10 = t.m10 ?? 0
   const m11 = t.m11 ?? 1
+  const flipV = m00 * m11 - m01 * m10 < 0
   const rotation = (Math.atan2(m10, m00) * 180) / Math.PI
-  // A pure rotation has m00 = m11 and m01 = -m10, up to float noise.
-  const skewed = Math.abs(m00 - m11) > 1e-3 || Math.abs(m01 + m10) > 1e-3
-  if (skewed) note(report.approximations, 'skew or non-uniform scale reduced to rotation')
-  return { x: t.m02 ?? 0, y: t.m12 ?? 0, rotation: Math.abs(rotation) < 1e-6 ? 0 : rotation }
+  const rad = (rotation * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  // Compare against rotation-and-mirror WITH the scale each axis actually carries,
+  // otherwise a uniform 2× reads as a skew. R·diag(1,−1) negates the second column,
+  // which is the flip's whole effect on the expected m01/m11.
+  const scaleX = Math.hypot(m00, m10)
+  const scaleY = Math.hypot(m01, m11)
+  const wantM01 = (flipV ? sin : -sin) * scaleY
+  const wantM11 = (flipV ? -cos : cos) * scaleY
+  if (Math.abs(m01 - wantM01) > 1e-3 * Math.max(1, scaleY) || Math.abs(m11 - wantM11) > 1e-3 * Math.max(1, scaleY)) {
+    note(report.approximations, 'skew reduced to rotation')
+  } else if (Math.abs(scaleX - 1) > 1e-3 || Math.abs(scaleY - 1) > 1e-3) {
+    // Size travels separately in this format, so a scaled matrix would resize the
+    // node without resizing its geometry. Say so instead of drawing it wrong.
+    const worst = Math.abs(scaleX - 1) >= Math.abs(scaleY - 1) ? scaleX : scaleY
+    note(report.approximations, `transform scale ${worst.toFixed(3)}× not applied to geometry`)
+  }
+  // Rotate the half-size by the same linear part, then step back from centre to
+  // corner: the pivot conversion above.
+  const cx = width / 2
+  const cy = height / 2
+  return {
+    x: (t.m02 ?? 0) + (m00 * cx + m01 * cy) - cx,
+    y: (t.m12 ?? 0) + (m10 * cx + m11 * cy) - cy,
+    rotation: Math.abs(rotation) < 1e-6 ? 0 : rotation,
+    flipV,
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Nodes
 // ---------------------------------------------------------------------------
 
-function geometryOf(raw: KiwiObject, ctx: Ctx): ParsedGeometry[] {
-  // Fill geometry first, stroke geometry as the fallback: an open path — a
-  // signature, an arrow, a drawn line — has NO fill geometry at all, and reading
-  // only `fillGeometry` silently dropped nine such nodes per file. The stroke
-  // outline is the shape in that case.
-  const paths = Array.isArray(raw.fillGeometry) && (raw.fillGeometry as unknown[]).length > 0 ? raw.fillGeometry : raw.strokeGeometry
+/** Parse one of the two geometry lists, keeping only paths that actually draw. */
+function readPaths(paths: unknown, ctx: Ctx): ParsedGeometry[] {
   if (!Array.isArray(paths) || paths.length === 0) return []
   const out: ParsedGeometry[] = []
   for (const p of paths as KiwiObject[]) {
     const idx = typeof p.commandsBlob === 'number' ? p.commandsBlob : -1
     const blob = ctx.blobs[idx]
-    if (!blob) continue
+    // An entry pointing at a ZERO-BYTE blob is the format saying "no fill here",
+    // not a path. Taking it at face value built empty vector nodes — see below.
+    if (!blob || blob.length === 0) continue
     try {
       const parsed = parsePathCommands(blob)
+      if (parsed.commands.length === 0) continue
       if (parsed.usedInferredOp) note(ctx.report.approximations, 'quadratic curve (op 0x03, never seen in a real file) promoted to cubic')
       out.push(parsed)
     } catch (err) {
@@ -309,6 +373,28 @@ function geometryOf(raw: KiwiObject, ctx: Ctx): ParsedGeometry[] {
     }
   }
   return out
+}
+
+/**
+ * Fill geometry when there is any, the stroke outline when there is not: an open
+ * path — a signature, an arrow, a drawn line — has no fill geometry at all, and
+ * reading only `fillGeometry` silently dropped nine such nodes per file.
+ *
+ * The choice must be made on whether geometry PARSED, not on whether the list had
+ * entries. Figma writes a `fillGeometry` entry pointing at an **empty blob** for a
+ * shape with no fill, so a length check said "fill geometry present", produced zero
+ * commands, and built a vector node with no vertices at all — invisible, while a
+ * perfectly good 1537-byte stroke outline sat in the next field. That cost 4 nodes
+ * in Dipped.fig and **37** in OmniTecta.fig, every one of them a hole in the design.
+ */
+function geometryOf(
+  raw: KiwiObject,
+  ctx: Ctx,
+): { geometry: ParsedGeometry[]; paths: KiwiObject[] | undefined; strokeOnly: boolean } {
+  const fill = readPaths(raw.fillGeometry, ctx)
+  if (fill.length > 0) return { geometry: fill, paths: raw.fillGeometry as KiwiObject[] | undefined, strokeOnly: false }
+  const stroke = readPaths(raw.strokeGeometry, ctx)
+  return { geometry: stroke, paths: raw.strokeGeometry as KiwiObject[] | undefined, strokeOnly: stroke.length > 0 }
 }
 
 const CONTAINER_TYPES = new Set(['FRAME', 'GROUP', 'CANVAS', 'DOCUMENT', 'SECTION', 'COMPONENT_SET'])
@@ -330,13 +416,14 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
   const size = (raw.size ?? {}) as { x?: number; y?: number }
   const width = Math.max(0, size.x ?? 0)
   const height = Math.max(0, size.y ?? 0)
-  const { x, y, rotation } = transformFrom(raw, ctx.report)
+  const { x, y, rotation, flipV } = transformFrom(raw, width, height, ctx.report)
 
   const finish = (node: SceneNode): SceneNode => {
     node.name = name
     node.x = x
     node.y = y
     node.rotation = rotation
+    if (flipV) node.flipV = true
     node.visible = raw.visible !== false
     node.locked = raw.locked === true
     node.opacity = typeof raw.opacity === 'number' ? raw.opacity : 1
@@ -453,18 +540,12 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
   // Everything else that has geometry: VECTOR, BOOLEAN_OPERATION, STAR,
   // REGULAR_POLYGON, an ellipse with an arc, a flattened glyph. Their own
   // flattened path is the faithful answer and it stays editable here.
-  const geometry = geometryOf(raw, ctx)
+  const { geometry, paths: usedPaths, strokeOnly } = geometryOf(raw, ctx)
   if (geometry.length > 0) {
     const node = createNode('VECTOR', name)
     if (node.type !== 'VECTOR') return null
     node.network = networkFromPaths(geometry)
-    const usedPaths = (Array.isArray(raw.fillGeometry) && (raw.fillGeometry as unknown[]).length > 0
-      ? raw.fillGeometry
-      : raw.strokeGeometry) as KiwiObject[] | undefined
     node.windingRule = windingRuleFrom(usedPaths?.[0]?.windingRule)
-    // A shape that only had stroke geometry is an OPEN path: it has no fill in
-    // Figma either, so carrying one over would fill a signature solid black.
-    const strokeOnly = !(Array.isArray(raw.fillGeometry) && (raw.fillGeometry as unknown[]).length > 0)
     if (strokeOnly) note(ctx.report.approximations, 'open path imported from its stroke outline')
     node.width = width
     node.height = height
@@ -474,7 +555,16 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
       note(ctx.report.approximations, `${figType} imported as an editable path`)
     }
     const done = finish(node)
-    if (strokeOnly) done.fills = []
+    if (strokeOnly) {
+      // `strokeGeometry` is the OUTLINE of the stroke — the region the stroke
+      // covers, as a fillable shape. So it must be FILLED with the stroke paint:
+      // stroking it instead draws a line around the edge of a line, and carrying
+      // the node's own fill paint over would flood a signature solid black.
+      done.fills = paintsFrom(raw.strokePaints, ctx)
+      done.strokes = []
+      done.strokeWeight = 0
+      done.strokeDash = []
+    }
     return done
   }
 
@@ -493,10 +583,16 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
   // DOCUMENT and CANVAS are Figma's own wrappers, not design content: their
   // children are the pages and the top-level layers. Importing them as frames
   // would wrap everything in boxes nobody drew.
+  //
+  // `pageBreaks` records where one CANVAS's roots end and the next begins, so the
+  // caller can separate them. Every Figma page starts near its own origin, so
+  // laying them on top of each other put three pages of frames in one heap — the
+  // second thing that made the imports look scrambled.
   if (figType === 'DOCUMENT' || figType === 'CANVAS') {
     if (figType === 'CANVAS') ctx.report.pages += 1
     const out: NodeId[] = []
     for (const child of fig.children) out.push(...walk(child, ctx))
+    if (figType === 'CANVAS') ctx.pageBreaks.push({ name: String(fig.raw.name ?? ''), ids: out })
     return out
   }
 
@@ -511,6 +607,7 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
 
   node.id = newId()
   ctx.bundle.nodes[node.id] = node
+  ctx.idByGuid.set(fig.guid, node.id)
   ctx.report.nodesCreated += 1
 
   const childIds: NodeId[] = []
@@ -532,10 +629,23 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
         node.height = Math.max(node.height, maxY)
       }
     } else {
-      // A shape with children (a mask group, say): hoist them next to it rather
-      // than throw them away, and say so.
-      note(ctx.report.approximations, `children of a ${node.type} hoisted to its parent`)
-      return [node.id, ...childIds]
+      // A shape with children is a BOOLEAN OPERATION and its children are the
+      // OPERANDS. We already imported the flattened result, which *is* those
+      // operands combined — so hoisting them next to it drew the union AND both
+      // circles it was made from, one on top of the other. That is what turned the
+      // OmniTecta logo into a black scribble: twenty booleans, every operand drawn
+      // again over the answer. Figma does not draw them either.
+      note(ctx.report.approximations, `operands of a flattened boolean dropped (the result contains them)`)
+      // Whole subtrees: an operand can be a group, and leaving its descendants in
+      // the bundle would leave nodes nothing references.
+      const drop = (id: NodeId): void => {
+        const n = ctx.bundle.nodes[id]
+        if (!n) return
+        if (n.type === 'FRAME' || n.type === 'GROUP') for (const cid of n.children) drop(cid)
+        delete ctx.bundle.nodes[id]
+        ctx.report.nodesCreated -= 1
+      }
+      for (const id of childIds) drop(id)
     }
   }
   return [node.id]
@@ -566,12 +676,73 @@ export function mapFigDocument(root: KiwiObject, imageMap = new Map<string, stri
 
   const ctx: Ctx = {
     bundle: { nodes: {}, rootIds: [] },
+    idByGuid: new Map(),
+    pageBreaks: [],
     blobs,
     imageMap,
     report: { pages: 0, nodesRead: 0, nodesCreated: 0, skipped: {}, approximations: {}, images: imageMap.size },
   }
 
   for (const rootFig of buildFigTree(nodeChanges)) ctx.bundle.rootIds.push(...walk(rootFig, ctx))
+
+  // Separate the pages. Every Figma CANVAS starts near its own origin, so importing
+  // a three-page file dropped three pages of frames into one pile — overlapping
+  // artwork that reads as a broken importer even though every node was placed
+  // exactly where its own page put it. We do not create pages here (a node add
+  // targets the active page, and inventing pages mid-commit is a bigger change than
+  // this fix), so each page is laid out to the RIGHT of the one before it and the
+  // report says so.
+  const pageBoxOf = (ids: NodeId[]): { minX: number; minY: number; maxX: number; maxY: number } | null => {
+    let a = Infinity
+    let b = Infinity
+    let c = -Infinity
+    let d = -Infinity
+    for (const id of ids) {
+      const n = ctx.bundle.nodes[id]
+      if (!n) continue
+      a = Math.min(a, n.x)
+      b = Math.min(b, n.y)
+      c = Math.max(c, n.x + n.width)
+      d = Math.max(d, n.y + n.height)
+    }
+    return a === Infinity ? null : { minX: a, minY: b, maxX: c, maxY: d }
+  }
+  const withContent = ctx.pageBreaks.filter((p) => p.ids.length > 0)
+  const GAP = 400
+  const pages: { name: string; rootIds: NodeId[]; dx: number }[] = []
+  let placed: { minX: number; minY: number; maxX: number; maxY: number } | null = null
+  let moved = 0
+  for (const page of withContent) {
+    const box = pageBoxOf(page.ids)
+    if (!box) continue
+    // Move a page ONLY when it would land on top of one already placed. Figma pages
+    // have independent coordinates, so some files already sit apart — shifting those
+    // would throw away exact positions to solve a problem they do not have.
+    const collides =
+      placed !== null && box.minX < placed.maxX && box.maxX > placed.minX && box.minY < placed.maxY && box.maxY > placed.minY
+    let dx = 0
+    if (collides && placed) {
+      dx = placed.maxX + GAP - box.minX
+      for (const id of page.ids) {
+        const n = ctx.bundle.nodes[id]
+        if (n) n.x += dx
+      }
+      moved += 1
+    }
+    pages.push({ name: page.name, rootIds: page.ids, dx })
+    const b = { minX: box.minX + dx, minY: box.minY, maxX: box.maxX + dx, maxY: box.maxY }
+    placed = placed
+      ? {
+          minX: Math.min(placed.minX, b.minX),
+          minY: Math.min(placed.minY, b.minY),
+          maxX: Math.max(placed.maxX, b.maxX),
+          maxY: Math.max(placed.maxY, b.maxY),
+        }
+      : b
+  }
+  if (moved > 0) {
+    note(ctx.report.approximations, `${moved} Figma page(s) moved aside so pages do not overlap`, moved)
+  }
 
   let minX = Infinity
   let minY = Infinity
@@ -588,7 +759,7 @@ export function mapFigDocument(root: KiwiObject, imageMap = new Map<string, stri
     ? { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
     : { x: 0, y: 0, w: 0, h: 0 }
 
-  return { bundle: ctx.bundle, bounds, report: ctx.report }
+  return { bundle: ctx.bundle, bounds, report: ctx.report, idByGuid: ctx.idByGuid, pages }
 }
 
 /** One line per thing worth telling the user, most significant first. */

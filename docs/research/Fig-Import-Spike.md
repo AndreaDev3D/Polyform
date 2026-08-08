@@ -1,12 +1,18 @@
 # `.fig` import — spike and fidelity report
 
-**Status: shipped, experimental.** File → Import .fig… works, and this document
-is now the fidelity report the roadmap asked for. Verified against three real
-exports (v106): **155/158, 60/63 and 135/139 nodes imported** — the only nodes
-not turned into layers are Figma's own DOCUMENT and CANVAS wrappers, which are
-deliberately unwrapped.
+**Status: shipped, experimental. Corrected 2026-08-08 — the first version placed
+rotated layers wrongly; see "What the first version got wrong" below.** File →
+Import .fig… works, and this document is now the fidelity report the roadmap asked
+for.
+
+Verified against three real exports (v106) by a check that compares **every mapped
+node against the matrix it came from, corner for corner**: 350 nodes, 0 misplaced,
+0 empty. Layers created: **95/158, 60/63 and 108/139** — the difference from the
+node count is Figma's own DOCUMENT and CANVAS wrappers (deliberately unwrapped) and
+the operands of flattened booleans (deliberately dropped, because the flattened
+result already contains them).
 **Roadmap item:** 5.4 (v1.0, effort **L**).
-**Date:** 2026-08-05.
+**Date:** 2026-08-05, corrected 2026-08-08.
 
 The roadmap asks for "a research spike + best-effort importer for the
 reverse-engineered Figma file format, explicitly labeled experimental, with a
@@ -202,18 +208,64 @@ in a real file, so it is supported and **reported as inferred** when met.
 
 Nothing here is hidden from the user: this is the text the importer itself shows.
 
-- **OmniTecta** — 155 layers from 158 nodes across 2 pages. Approximated: ellipse
-  as editable path ×21; boolean flattened ×20; children of a vector hoisted ×20;
-  open path from stroke outline ×9; text re-shaped ×7; skew reduced ×5.
-- **Dipped** — 60 layers from 63 nodes, 2 images. Approximated: ellipse ×12; open
-  path ×12.
-- **OpenMods** — 135 layers from 139 nodes across 3 pages, 22 images.
-  Approximated: gradient angle reset ×11; boolean flattened ×9; children hoisted
-  ×9; open path ×9; skew ×9; text re-shaped ×8; mixed text styles ×2.
+- **OmniTecta** — 95 layers from 158 nodes across 2 pages. Approximated: open path
+  from stroke outline ×46; ellipse as editable path ×21; boolean flattened ×20;
+  boolean operands dropped ×20; text re-shaped ×7.
+- **Dipped** — 60 layers from 63 nodes, 2 images. Approximated: open path ×16;
+  ellipse ×12. Not imported: image fill whose bitmap was not in the archive ×4.
+- **OpenMods** — 108 layers from 139 nodes across 3 pages. Approximated: gradient
+  angle reset ×11; boolean flattened ×9; boolean operands dropped ×9; open path ×9;
+  text re-shaped ×8; mixed text styles ×2; 1 Figma page moved aside.
 
 Two things to improve next, in order: the **gradient transform** (it is a matrix
 we could decompose into our two handles), and **speed with many bitmaps** — 22
 images cost 5.6 s of the 5.8 s, one IPC round trip and one hash per image.
+
+## What the first version got wrong
+
+Every one of these produced a file that *looked* imported — finite coordinates,
+sane bounding box, plausible layer tree — and none of them could be caught by any
+check that only looked at our own output. They were found by rendering the three
+files and comparing with Figma, then measured.
+
+1. **Rotated layers landed elsewhere (the visible one).** Figma's per-node matrix
+   maps the node's LOCAL space, whose origin is the box's top-left corner, so its
+   translation says where that *corner* goes and the rotation turns the box about
+   it. We store an unrotated box and turn it about its *centre*. Copying the
+   translation straight into x/y therefore offset every rotated node by the gap
+   between those pivots: 24 of Dipped's 60 nodes, one 90° bar landing 260 units
+   from where it belonged. The conversion is exact — `(x, y) = t + M·c − c`, with
+   `c` the half-size — and it is now asserted corner-for-corner on every node of
+   every test file.
+2. **A boolean's operands were drawn on top of its result.** A shape node with
+   children is a boolean operation whose children are its *operands*, and we
+   already import the flattened result. Hoisting the operands next to it drew the
+   union AND both shapes it was made from: twenty of them turned the OmniTecta
+   logo into a black scribble. Figma does not draw them either; now neither do we.
+3. **A zero-byte fill blob was treated as geometry.** Figma writes a
+   `fillGeometry` *entry* pointing at an empty blob for a shape with no fill. The
+   old code chose fill-over-stroke on array length, so it took the empty entry,
+   produced no commands, and built a vector node with **no vertices** — invisible —
+   while a good 1537-byte stroke outline sat in the next field. 4 nodes in Dipped,
+   37 in OmniTecta. The choice is now made on whether geometry actually parsed.
+4. **Stroke outlines were stroked instead of filled.** `strokeGeometry` is the
+   region a stroke *covers*, as a fillable shape, so it must be filled with the
+   stroke paint. Stroking it draws a line around the edge of a line.
+5. **A mirror was silently unmirrored.** `det < 0` is a reflection; reducing the
+   matrix to an angle threw it away (9 nodes in one file, 5 in another). Any
+   reflection is a rotation composed with one fixed flip, so it now becomes
+   `flipV`, which our own matrix applies in the same centred frame — exact, not an
+   approximation.
+6. **Pages were stacked on each other.** Each Figma page has its own coordinates
+   near its own origin, so a three-page file arrived as three pages of frames in
+   one heap. Pages that would collide are now moved aside (and the amount is
+   reported, so a deliberate offset cannot be mistaken for a misplaced node); pages
+   that already sit apart keep their exact coordinates. Real pages — one Polyform
+   page per Figma page — need an op that can target a page and are still owed.
+
+The lesson generalised into F-28: **an importer can only be checked against the
+thing it imported.** Finite numbers and a sane bounding box are properties of
+nonsense too.
 
 ## Proposed shape of the work
 

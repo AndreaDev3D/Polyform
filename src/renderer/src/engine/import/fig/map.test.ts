@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest'
 import { networkFromPaths, parsePathCommands, FIG_PATH_OP } from './geometry'
 import { buildFigTree, describeFigReport, figImageHash, mapFigDocument } from './map'
 import type { KiwiObject } from '../../../../../shared/fig/kiwi'
+import { applyMat, nodeLocalMatrix } from '../../geometry'
+import type { SceneNode } from '../../types'
 
 /** Build a geometry blob the way Figma does: op byte then float32s, LE. */
 function blob(...cmds: [number, ...number[]][]): Uint8Array {
@@ -167,13 +169,109 @@ describe('fig document mapping', () => {
     ])
     const { bundle } = mapFigDocument(doc)
     const node = bundle.nodes[bundle.rootIds[0]]
-    expect(node.x).toBe(10)
-    expect(node.y).toBe(20)
+    // NOT (10, 20). This test used to assert exactly that — it copied the
+    // translation into x/y, which is the bug it should have caught (F-28). Figma's
+    // matrix turns the box about its own top-left corner, so (10, 20) is where that
+    // CORNER ends up; we store the unrotated box and turn it about its centre. The
+    // check that means something is corner-for-corner equality, below.
+    expect(node.x).toBeCloseTo(-1014, 6)
+    expect(node.y).toBeCloseTo(20, 6)
     expect(Math.round(node.rotation)).toBe(90)
     expect(node.width).toBe(1024)
     expect(node.opacity).toBe(0.5)
     expect(node.blendMode).toBe('MULTIPLY')
     expect(node.fills[0]).toMatchObject({ type: 'SOLID', color: { r: 1, g: 0, b: 0, a: 1 } })
+  })
+
+  /**
+   * The only claim worth making about a transform: our node covers the same four
+   * points of the parent's space that Figma's matrix sends its box to.
+   *
+   * Anything weaker passes while the design is scrambled — the first import got
+   * every number finite, every bounding box sane, and still put a 90°-rotated bar
+   * 260 units from where it belonged.
+   */
+  const cornersAgree = (fig: Record<string, number>, w: number, h: number, node: SceneNode): void => {
+    const local = [
+      { x: 0, y: 0 },
+      { x: w, y: 0 },
+      { x: w, y: h },
+      { x: 0, y: h },
+    ]
+    const theirs = local.map((p) => ({
+      x: fig.m00 * p.x + fig.m01 * p.y + fig.m02,
+      y: fig.m10 * p.x + fig.m11 * p.y + fig.m12,
+    }))
+    const m = nodeLocalMatrix(node.x, node.y, node.width, node.height, node.rotation, node.flipH, node.flipV)
+    const ours = local.map((p) => applyMat(m, p))
+    for (let i = 0; i < 4; i++) {
+      expect(ours[i].x).toBeCloseTo(theirs[i].x, 6)
+      expect(ours[i].y).toBeCloseTo(theirs[i].y, 6)
+    }
+  }
+
+  it('puts a rotated box exactly where Figma puts it, corner for corner', () => {
+    // The bar from Dipped.fig that gave the scrambling away: 183×338 at 90°.
+    const t = { m00: 0, m01: -1, m02: 1034, m10: 1, m11: 0, m12: 511 }
+    const doc = figDoc([frame({ size: { x: 183, y: 338 }, transform: t })])
+    const { bundle } = mapFigDocument(doc)
+    const node = bundle.nodes[bundle.rootIds[0]]
+    // Hand-computed from t + M·c − c, so a wrong sign cannot hide behind the loop.
+    expect(node.x).toBeCloseTo(773.5, 6)
+    expect(node.y).toBeCloseTo(433.5, 6)
+    cornersAgree(t, 183, 338, node)
+  })
+
+  it('keeps a mirror as a flip instead of dropping it', () => {
+    // det < 0: nine nodes in one real export, every one of them silently unmirrored
+    // before, because reducing the matrix to an angle throws the reflection away.
+    const t = { m00: 1, m01: 0, m02: 100, m10: 0, m11: -1, m12: 200 }
+    const doc = figDoc([frame({ size: { x: 60, y: 40 }, transform: t })])
+    const { bundle, report } = mapFigDocument(doc)
+    const node = bundle.nodes[bundle.rootIds[0]]
+    expect(node.flipV).toBe(true)
+    expect(node.rotation).toBe(0)
+    cornersAgree(t, 60, 40, node)
+    // A mirror is exact here, so it is not an approximation and must not claim to be.
+    expect(Object.keys(report.approximations).join(' ')).not.toMatch(/skew/)
+  })
+
+  it('reports a scaled matrix rather than resizing a node whose geometry cannot follow', () => {
+    const doc = figDoc([frame({ transform: { m00: 2, m01: 0, m02: 0, m10: 0, m11: 2, m12: 0 } })])
+    const { report } = mapFigDocument(doc)
+    expect(Object.keys(report.approximations).join(' ')).toMatch(/scale 2\.000× not applied/)
+  })
+
+  it('takes the stroke outline when the fill geometry points at an empty blob', () => {
+    // Figma writes a fillGeometry ENTRY with a zero-byte blob for a shape with no
+    // fill. Trusting the entry built a vector node with no vertices — invisible,
+    // 37 of them in one real file — while the stroke outline sat in the next field.
+    const doc = figDoc(
+      [
+        {
+          guid: guid(1, 1),
+          type: 'VECTOR',
+          name: 'Line 1',
+          size: { x: 1024, y: 1024 },
+          fillGeometry: [{ windingRule: 'NONZERO', commandsBlob: 0 }],
+          strokeGeometry: [{ windingRule: 'NONZERO', commandsBlob: 1 }],
+          strokePaints: [{ type: 'SOLID', color: { r: 0, g: 1, b: 0, a: 1 }, opacity: 1, visible: true }],
+          fillPaints: [{ type: 'SOLID', color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true }],
+          strokeWeight: 4,
+        },
+      ] as unknown as KiwiObject[],
+      [new Uint8Array(), RECT_1024],
+    )
+    const { bundle } = mapFigDocument(doc)
+    const node = bundle.nodes[bundle.rootIds[0]]
+    expect(node.type).toBe('VECTOR')
+    if (node.type === 'VECTOR') expect(node.network.vertices).toHaveLength(4)
+    // The outline is the region the stroke COVERS, so it is filled with the stroke
+    // paint — green here. Stroking it would outline a line, and using the node's own
+    // fill paint would flood the shape black.
+    expect(node.fills).toHaveLength(1)
+    expect(node.fills[0]).toMatchObject({ type: 'SOLID', color: { r: 0, g: 1, b: 0, a: 1 } })
+    expect(node.strokes).toEqual([])
   })
 
   it('keeps a rounded rectangle parametric rather than flattening it to a path', () => {
@@ -307,8 +405,68 @@ describe.skipIf(!REAL_FIG)('mapping a real .fig export', () => {
       inflateRaw: (b) => new Uint8Array(zlib.inflateRawSync(b)),
       zstd: (b) => new Uint8Array(zlib.zstdDecompressSync(b)),
     })
-    const { bundle, bounds, report } = mapFigDocument(doc.root)
+    const { bundle, bounds, report, idByGuid, pages } = mapFigDocument(doc.root)
     const nodes = Object.values(bundle.nodes)
+
+    // The check that would have caught the scrambling (F-28): hold every mapped
+    // node against the matrix it came from and demand the same four points of the
+    // parent's space. Runs over the whole file, so one wrong pivot fails it.
+    const walkFig = (list: ReturnType<typeof buildFigTree>, out: KiwiObject[] = []): KiwiObject[] => {
+      for (const n of list) {
+        out.push(n.raw)
+        walkFig(n.children, out)
+      }
+      return out
+    }
+    const raws = new Map<string, KiwiObject>()
+    for (const n of walkFig(buildFigTree((doc.root.nodeChanges ?? []) as KiwiObject[]))) {
+      const g = n.guid as { sessionID?: number; localID?: number } | undefined
+      if (g && typeof g.sessionID === 'number') raws.set(`${g.sessionID}:${g.localID}`, n)
+    }
+    let compared = 0
+    const misplaced: string[] = []
+    // A page that had to be moved aside is offset ON PURPOSE, and by a known amount.
+    const pageDx = new Map<string, number>()
+    for (const p of pages) for (const rid of p.rootIds) pageDx.set(rid, p.dx)
+    for (const [guidKey, id] of idByGuid) {
+      const raw = raws.get(guidKey)
+      const node = bundle.nodes[id]
+      const t = raw?.transform as Record<string, number> | undefined
+      if (!raw || !node || !t) continue
+      const m00 = t.m00 ?? 1
+      const m01 = t.m01 ?? 0
+      const m10 = t.m10 ?? 0
+      const m11 = t.m11 ?? 1
+      // Only nodes our model can express exactly: unit scale, no skew. A scaled or
+      // skewed one is reported as an approximation, and comparing it would be
+      // asserting the approximation rather than the placement.
+      if (Math.abs(Math.hypot(m00, m10) - 1) > 1e-3 || Math.abs(Math.hypot(m01, m11) - 1) > 1e-3) continue
+      const w = node.width
+      const h = node.height
+      const corners = [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: h },
+        { x: 0, y: h },
+      ]
+      const m = nodeLocalMatrix(node.x, node.y, w, h, node.rotation, node.flipH, node.flipV)
+      for (const p of corners) {
+        const theirs = {
+          x: m00 * p.x + m01 * p.y + (t.m02 ?? 0) + (pageDx.get(id) ?? 0),
+          y: m10 * p.x + m11 * p.y + (t.m12 ?? 0),
+        }
+        const ours = applyMat(m, p)
+        if (Math.abs(ours.x - theirs.x) > 0.01 || Math.abs(ours.y - theirs.y) > 0.01) {
+          misplaced.push(
+            `${node.type} "${node.name}" corner ${p.x},${p.y}: ours ${ours.x.toFixed(1)},${ours.y.toFixed(1)} vs theirs ${theirs.x.toFixed(1)},${theirs.y.toFixed(1)}`,
+          )
+          break
+        }
+      }
+      compared++
+    }
+    // A vector node with no vertices is an invisible hole where a shape was.
+    const emptyVectors = nodes.filter((n) => n.type === 'VECTOR' && n.network.vertices.length === 0)
     const bad = nodes.filter((n) => ![n.x, n.y, n.width, n.height, n.rotation].every(Number.isFinite))
     const vectors = nodes.filter((n) => n.type === 'VECTOR')
     const badPoints = vectors.filter((n) =>
@@ -324,11 +482,19 @@ describe.skipIf(!REAL_FIG)('mapping a real .fig export', () => {
         `  bounds:  x=${bounds.x.toFixed(0)} y=${bounds.y.toFixed(0)} w=${bounds.w.toFixed(0)} h=${bounds.h.toFixed(0)}`,
         `  vectors: ${vectors.length}, total vertices ${vectors.reduce((n, v) => n + (v.type === 'VECTOR' ? v.network.vertices.length : 0), 0)}`,
         `  bad:     ${bad.length} nodes with non-finite geometry, ${badPoints.length} vectors with non-finite points`,
+        `  placed:  ${compared} nodes compared corner-for-corner against Figma's matrix, ${misplaced.length} misplaced`,
+        `  empty:   ${emptyVectors.length} vector nodes with no vertices`,
         `  skipped: ${JSON.stringify(report.skipped)}`,
+        `  approx:  ${JSON.stringify(report.approximations)}`,
       ].join('\n'),
     )
     expect(bad).toEqual([])
     expect(badPoints).toEqual([])
+    expect(misplaced).toEqual([])
+    expect(emptyVectors.map((n) => n.name)).toEqual([])
+    // Worth asserting that the comparison had something to compare: a matcher that
+    // silently skipped every node would pass while the file arrived scrambled.
+    expect(compared).toBeGreaterThan(10)
     // A design is not 10 million units across; that would mean a transform was
     // misread and framing the import would show empty canvas.
     expect(bounds.w).toBeLessThan(1e6)
