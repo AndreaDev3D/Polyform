@@ -113,8 +113,16 @@ Gatekeeper. Keep it after signing lands — the two cover different attacks.
   arrives: the frameworks and the app then share a team, and the entitlement stops
   mattering.
 
-  **Still unverified: nobody has launched the macOS build.** There is no Mac here.
-  The signature and the entitlement are asserted by the pipeline; "it opens" is not.
+  **What CI now proves, and what it does not.** The arm64 app is launched and
+  exercised on an Apple Silicon runner — the packaging smoke test creates a bundle,
+  takes an agent edit over stdio, reopens it in a fresh process and exports a PNG
+  through the packaged binary — so the ad-hoc signature plus that entitlement do
+  load and run. What is still unverified is the **Gatekeeper path**: a dmg
+  downloaded from a release carries `com.apple.quarantine`, which a locally built
+  app does not, so "double-click the download and it opens after a right-click →
+  Open" remains a claim nobody here has tested. The x64 app is built but not
+  smoke-tested; the runner is arm64 and translating a 250 MB binary under Rosetta
+  once hung a whole job.
 - **Do not self-sign.** A self-signed certificate buys nothing with SmartScreen
   or Gatekeeper and dresses an unverified build as a verified one.
 - **Do not read "signing with signtool.exe" as signing.** electron-builder prints
