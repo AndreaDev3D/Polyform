@@ -15,6 +15,9 @@
 //   6. typing a value into the inspector is ONE undo step, and Escape
 //      discards it - Enter committed, then the blur it caused committed the
 //      same value again.
+//   Both the double-click and the hover checks reproduce a real input STREAM
+//   rather than one event, because the app reads timing (a 400ms double-click
+//   window, a 30ms hover throttle) — see F-27.
 //   7. the dropdown carries a caret and opens OUR menu, keys typed into it do
 //      not leak to the global shortcuts, and picking applies exactly once -
 //      Chromium's native popup is unstyleable and does not appear in the
@@ -172,6 +175,29 @@ try {
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: count })
     await sleep(90)
   }
+
+  /**
+   * A double-click as ONE gesture, and timed.
+   *
+   * The app decides "double" itself, from the gap between two pointerdowns
+   * (DOUBLE_CLICK_MS = 400 in ui/CanvasView.tsx — PointerEvent.detail is always 0,
+   * F-19). Sending it as two `clickAt` calls put two awaited WebSocket round trips
+   * and 130 ms of sleeps inside that window, so on a slow moment the app correctly
+   * saw two single clicks and the check failed for the harness's latency rather
+   * than for anything about the app. This sends the four events back to back and
+   * MEASURES the gap, so a too-slow environment reports itself instead of looking
+   * like a broken gesture.
+   */
+  const DOUBLE_CLICK_MS = 400
+  const doubleClickAt = async (x, y) => {
+    const t0 = Date.now()
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 2 })
+    const gap = Date.now() - t0
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 2 })
+    return gap
+  }
   const names = async () => JSON.parse(await evaluate(`JSON.stringify({
     sel: globalThis.__polyform.editor.get().selection.map(i => globalThis.__polyform.documentStore.scene.getNode(i)?.name),
     entered: globalThis.__polyform.documentStore.scene.getNode(globalThis.__polyform.editor.get().enteredContainer || '')?.name ?? null,
@@ -183,14 +209,32 @@ try {
   const singleSel = await names()
   if (singleSel.sel[0] !== 'G') fail(`single click inside a group should select the group, got ${JSON.stringify(singleSel)}`)
 
-  await clickAt(gp.x, gp.y, 1)
-  await clickAt(gp.x, gp.y, 2)
-  await sleep(350)
-  const drilled = await names()
+  // Retried ONCE, and only when the gesture itself was too slow to be a
+  // double-click: that is a statement about this machine, not about the app, and
+  // failing on it produced a red run with a misleading message. A drill that fails
+  // within the window is reported as the regression it would be.
+  let gap = await doubleClickAt(gp.x, gp.y)
+  let drilled = await (async () => {
+    await sleep(350)
+    return names()
+  })()
+  if ((drilled.entered !== 'G' || drilled.sel[0] !== 'Kid') && gap >= DOUBLE_CLICK_MS) {
+    console.log(`E2E NOTE: the synthetic double-click took ${gap}ms, past the app's ${DOUBLE_CLICK_MS}ms window — retrying once`)
+    await evaluate(`globalThis.__polyform.editor.set({ selection: [], enteredContainer: null })`)
+    await sleep(200)
+    await clickAt(gp.x, gp.y, 1)
+    await sleep(250)
+    gap = await doubleClickAt(gp.x, gp.y)
+    await sleep(350)
+    drilled = await names()
+  }
   if (drilled.entered !== 'G' || drilled.sel[0] !== 'Kid') {
-    fail(`double-click did not drill into the group (F-19 regression): ${JSON.stringify(drilled)}`)
+    fail(
+      `double-click did not drill into the group (F-19 regression): ${JSON.stringify(drilled)}` +
+        ` — gesture gap was ${gap}ms against the app's ${DOUBLE_CLICK_MS}ms window`,
+    )
   } else {
-    console.log('E2E PASS: double-click drills into a group')
+    console.log(`E2E PASS: double-click drills into a group (gesture gap ${gap}ms)`)
   }
 
   // Frame contents are clicked directly (frames are not selection units).
@@ -346,16 +390,122 @@ try {
     return JSON.stringify(out)
   })()`))
   if (!handles || !handles.rotate) throw new Error('no rotate knob in the selection handles')
-  const readCursor = async (p) => {
-    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y })
-    await sleep(220)
-    return await evaluate(`(document.querySelector('canvas').parentElement.style.cursor || '')`)
+  /**
+   * Move, then WAIT for the cursor the app decided on, rather than sampling once
+   * after a fixed sleep.
+   *
+   * The cursor is written once per animation frame (F-23 put it outside the
+   * repaint gate on purpose), so a single read 220 ms later is a bet that a frame
+   * ran in that window — and when Chromium throttles rAF, or the machine is busy,
+   * it did not. That produced a red run reporting "default on the knob" for a
+   * cursor the app had simply not written yet.
+   *
+   * `expect` is what we are waiting for; polling stops as soon as it appears, so
+   * the normal case is FASTER than the old fixed sleep, not slower.
+   */
+  /**
+   * Hover like a MOUSE, not like a teleport.
+   *
+   * The controller throttles hover updates to one per 30 ms (`lastHoverUpdate` in
+   * interactions/controller.ts) — correct for a real pointer, which streams moves
+   * continuously. A test that sends exactly ONE move per position loses that move
+   * whenever it lands inside the throttle window, and then nothing ever arrives to
+   * replace it: the cursor stays whatever it was, forever. That was the flake, and
+   * it was pure machine timing — one dropped move, no second chance.
+   *
+   * So the move is re-sent on every poll: 100 ms apart, comfortably outside the
+   * window, which is what hovering actually looks like.
+   */
+  const readCursor = async (p, expect = null, timeoutMs = 3000) => {
+    const move = () => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y })
+    await move()
+    // Both cursors: the one the CONTROLLER computed, and the one the DOM carries.
+    // When they disagree, a frame has not run yet; when the controller itself is
+    // wrong, the pointer is not where this test believes it is. Guessing between
+    // those two took a separate probe once, so the check now asks both.
+    const read = () =>
+      evaluate(`(() => {
+        const P = globalThis.__polyform
+        const dom = document.querySelector('canvas').parentElement.style.cursor || ''
+        return JSON.stringify({
+          dom,
+          ctl: P.interactionController.cursor || '',
+          // The MODE matters: while one is active, pointerMove drives the gesture
+          // and never touches the hover cursor at all.
+          mode: P.interactionController.mode?.kind ?? null,
+          override: P.interactionController.cursorOverride ?? null,
+        })
+      })()`)
+    const matches = (c) => (expect === null ? c !== '' : expect instanceof RegExp ? expect.test(c) : c === expect)
+    const start = Date.now()
+    let last = JSON.parse(await read())
+    while (Date.now() - start < timeoutMs) {
+      if (matches(last.dom)) break
+      await sleep(100)
+      await move()
+      last = JSON.parse(await read())
+    }
+    return { dom: last.dom, ctl: last.ctl, mode: last.mode, override: last.override, waited: Date.now() - start, at: p }
   }
-  const overNothing = await readCursor(handles.empty)
-  const overKnob = await readCursor(handles.rotate)
-  const overEdge = await readCursor(handles.n)
+  // Each hover says what it is waiting for, so a slow frame waits instead of
+  // failing, and a genuinely wrong cursor still fails after the timeout.
+  // The cursor is written once per animation frame, and Chromium THROTTLES
+  // requestAnimationFrame for an occluded window — so with the app behind a
+  // terminal, the controller computes the right cursor and no frame ever writes
+  // it. That is a property of the test environment, not of the app (a user cannot
+  // hover a window they have covered up), so raise the window before asking.
+  await send('Page.bringToFront')
+  await sleep(150)
+  const emptyRead = await readCursor(handles.empty, 'default')
+  const knobRead = await readCursor(handles.rotate, /svg/)
+  const edgeRead = await readCursor(handles.n, 'ns-resize')
+  const overNothing = emptyRead.dom
+  const overKnob = knobRead.dom
+  const overEdge = edgeRead.dom
+  const brief = (r) => ({ dom: r.dom.slice(0, 22), ctl: r.ctl.slice(0, 22), mode: r.mode, override: (r.override ?? '').slice(0, 12), waited: r.waited, at: r.at })
   if (!/svg/.test(overKnob)) {
-    fail(`hovering the rotate knob at ${JSON.stringify(handles.rotate)} gave no rotation cursor (was "${overNothing}" over empty space, "${overKnob}" on the knob)`)
+    // Say enough to tell "the app did not compute it" from "the frame did not
+    // write it" from "the app is in some other mode": the same three questions a
+    // probe would ask, asked automatically.
+    const why =
+      `reads: empty=${JSON.stringify(brief(emptyRead))} knob=${JSON.stringify(brief(knobRead))} | after: ` +
+      (await evaluate(`(() => {
+      const P = globalThis.__polyform
+      const st = P.editor.get()
+      // Ask the app to hit-test the very point the harness aimed at, in the
+      // canvas-local space the controller uses. If this finds the knob, the move
+      // never reached the controller; if it does not, the harness converted
+      // coordinates against a canvas rect that has since moved.
+      const c = document.querySelector('canvas')
+      const r = c.getBoundingClientRect()
+      const box = P.overlays.selectionScreenBox(P.documentStore.scene, st.selection, st.camera)
+      const local = { x: ${handles.rotate.x} - r.left, y: ${handles.rotate.y} - r.top }
+      const hs = box ? P.overlays.boxHandles(box, P.overlays.canRotate(P.documentStore.scene, st.selection)) : []
+      const hit = box ? P.overlays.hitHandle(hs, local) : null
+      return JSON.stringify({
+        canvasRect: { l: Math.round(r.left), t: Math.round(r.top) },
+        localPoint: { x: Math.round(local.x), y: Math.round(local.y) },
+        hitKind: hit ? hit.kind : null,
+        knobNow: hs.find((h) => h.kind === 'rotate') ? { x: Math.round(hs.find((h) => h.kind === 'rotate').x), y: Math.round(hs.find((h) => h.kind === 'rotate').y) } : null,
+        controllerCursor: (P.interactionController.cursor || '').slice(0, 24),
+        tool: st.tool, vectorEditId: st.vectorEditId, orbitingId: st.orbitingId,
+        selection: st.selection.length, rotating: st.rotating,
+        marquee: !!st.marquee, editingTextId: st.editingTextId,
+      })
+    })()`))
+    if (/svg/.test(knobRead.ctl)) {
+      // The distinction that took a probe to find once: the app decided
+      // correctly, and no frame wrote it.
+      fail(
+        `the rotation cursor was COMPUTED but never written to the DOM in ${knobRead.waited}ms` +
+          ` — the render loop is not running (an occluded window throttles rAF). state: ${why}`,
+      )
+    } else {
+      fail(
+        `hovering the rotate knob at ${JSON.stringify(handles.rotate)} gave no rotation cursor` +
+          ` (was "${overNothing}" over empty space, "${overKnob}" on the knob) — app state: ${why}`,
+      )
+    }
   } else if (overEdge !== 'ns-resize') {
     fail(`hovering the top edge should still resize, got "${overEdge}"`)
   } else {

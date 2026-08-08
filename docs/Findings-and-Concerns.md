@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.7 (F-01…F-26)
+**Project:** Polyform — current through v0.7 (F-01…F-27)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -35,6 +35,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-24](#f-24-a-react-portal-into-documentbody-does-not-stop-the-apps-own-key-handlers) | A body portal does not stop the app's key handlers (fixed v0.7) | Fixed |
 | [F-25](#f-25-ready-signalled-from-one-async-chain-while-the-listener-loaded-on-another) | "Ready" raced the listener that answers it (fixed v0.7) | Fixed |
 | [F-26](#f-26-a-wrong-ci-condition-fails-open-the-gate-skips-and-the-run-goes-green) | A wrong CI condition fails open (fixed v0.7) | Process |
+| [F-27](#f-27-synthetic-input-is-not-a-gesture-the-apps-time-windows-decide-not-the-events) | Synthetic input is not a gesture: time windows decide (fixed v0.7) | Process |
 
 ---
 
@@ -604,6 +605,22 @@ The common thread is direction. A wrong condition on a *test* skips it; a wrong 
 **How they were caught.** Not by the pipeline being green — it was. By reading what each run actually did: `success / test, success / gates, package SKIPPED` in one case, and a release run rebuilding everything on a push in the other (which the *user* spotted, from nine in-progress checks on a commit).
 
 **Standing obligation.** A CI condition is a claim about when a gate runs, and claims get tested: after adding or changing one, read the run and confirm the jobs you expected actually **ran** rather than that the run was green. For any check whose failure would let something proceed, make the failure explicit — never let "could not determine" fall through to "go ahead". And prefer truthiness over comparing against `false` in GitHub expressions, because absent, empty and `false` are the same value there.
+
+---
+
+## F-27. Synthetic input is not a gesture: the app's time windows decide, not the events
+
+**Severity: process — two long-lived e2e flakes, both with the same shape, both fixed.**
+
+Two checks in `npm run test:e2e` failed intermittently for months and were written off as "flaky". Neither was random. Each was a test sending **one event at one instant** to code whose semantics are **time-based**, so the verdict depended on how fast the machine happened to be.
+
+1. **Double-click drills into a group.** The app decides "double" itself from the gap between two `pointerdown`s (`DOUBLE_CLICK_MS = 400`, ui/CanvasView.tsx — `PointerEvent.detail` is always 0, F-19). The harness sent the two clicks as two separate helper calls, putting two awaited WebSocket round trips and 130 ms of sleeps *inside* that 400 ms window. On a slow moment the app correctly saw two single clicks. Fixed by sending the four events back to back — the gesture now measures **7–10 ms** — and by *reporting the measured gap*, so a genuinely slow environment says so instead of looking like a broken feature.
+
+2. **Hovering the rotate knob changes the cursor.** The controller throttles hover updates to one per 30 ms (`lastHoverUpdate`). That is right for a real pointer, which **streams** moves — and fatal for a test that sends exactly one move per position: if that single move lands inside the throttle window it is dropped, and no successor ever arrives, so the cursor stays whatever it was *forever*. Fixed by re-sending the move on every poll, 100 ms apart, which is what hovering actually looks like.
+
+**The diagnosis cost more than the fix**, because the failure said "no rotation cursor" — true, and useless. Three separate wrong theories (rAF throttling on an occluded window, a stale canvas rect, a leftover mode) were each disproved by adding an instrument: the cursor the **controller** computed versus the one the **DOM** carried, the app's own hit test at the exact point, the active mode, and finally a listener proving all three moves *did* arrive. Only then was the throttle visible. Those instruments stayed in the check, so the next failure names its own cause.
+
+**Standing obligation.** Where the product interprets input over *time* — double-click windows, hover throttles, long-press, drag thresholds, autosave debounces — a test must reproduce the **stream**, not a sample of it, and must measure the timing it depends on rather than assume it. And when a check fails, make it report the intermediate state that distinguishes the candidate causes; "the observable is wrong" is a starting point, not a finding.
 
 ---
 
