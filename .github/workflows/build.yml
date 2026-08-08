@@ -22,10 +22,10 @@ on:
   # own push trigger, once here, and once in the release build itself.
   workflow_call:
     inputs:
-      package:
-        description: Build and smoke-test installers (off for release runs, which do their own).
+      skip_package:
+        description: Skip the installer matrix. The release workflow sets this — it packages, smoke-tests and attests its own.
         type: boolean
-        default: true
+        default: false
 
 # Least privilege: nothing in this workflow writes to the repository. Only
 # release.yml needs contents: write, and it asks for it there.
@@ -98,9 +98,12 @@ jobs:
   # in the platform matrix.
   package:
     needs: test
-    # Null on a push or a pull request, so this runs; false only when a caller
-    # says it is doing the packaging itself.
-    if: ${{ inputs.package != false }}
+    # Truthiness, not a comparison against `false`. On a push there is no `inputs`
+    # context at all, and in GitHub expressions an absent value compares EQUAL to
+    # false — so `inputs.package != false` was false on ordinary pushes and this
+    # matrix silently stopped running, weakening CI while looking green. Phrased as
+    # a skip flag, the absent case is simply falsy and the job runs.
+    if: ${{ !inputs.skip_package }}
     strategy:
       fail-fast: false
       matrix:

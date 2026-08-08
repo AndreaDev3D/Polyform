@@ -118,7 +118,7 @@ jobs:
     with:
       # The tests and the input-layer gates, not the packaging: the build job
       # below packages, smoke-tests and attests the artifacts that actually ship.
-      package: false
+      skip_package: true
 
   build:
     needs: [decide, ci]
