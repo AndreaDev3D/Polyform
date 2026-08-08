@@ -116,6 +116,7 @@
     },
     "mac": {
       "icon": "resources/icon.png",
+      "identity": "-",
       "target": [
         {
           "target": "dmg",

@@ -94,11 +94,21 @@ Gatekeeper. Keep it after signing lands — the two cover different attacks.
 - **macOS: there is no free path.** Notarization requires the Apple Developer
   Programme (paid, annual), full stop. Until then the release notes tell people
   the exact override (right-click → Open, or `xattr -d com.apple.quarantine`).
-  Note for the first macOS build: Apple Silicon refuses to run a binary with *no*
-  signature at all, so confirm electron-builder's ad-hoc signature is applied —
-  ad-hoc is free and is not notarization, it just makes the binary loadable.
+  **Measured on the first macOS build: it was not applied.** electron-builder
+  reported `skipped macOS application code signing … 0 identities found`, which
+  means the arm64 dmg could not have launched at all — Apple Silicon refuses a
+  binary with *no* signature, quite apart from Gatekeeper. `mac.identity: "-"` now
+  forces ad-hoc signing, and the release job **asserts** it with
+  `codesign --verify` rather than trusting the log. Ad-hoc is free and is not
+  notarization: it makes the binary loadable, and Gatekeeper still asks for a
+  right-click → Open.
 - **Do not self-sign.** A self-signed certificate buys nothing with SmartScreen
   or Gatekeeper and dresses an unverified build as a verified one.
+- **Do not read "signing with signtool.exe" as signing.** electron-builder prints
+  that line on Windows even with no certificate configured, and the artifact comes
+  out `NotSigned` — verified with `Get-AuthenticodeSignature`. The release job now
+  prints the real status on every run, because a log that implies a signature is
+  worse than one that says nothing.
 - **Later, cheaper trust than a certificate:** publishing through **winget**,
   **Homebrew casks** or **Flathub** gives users an install path they already trust
   and needs no certificate of ours.

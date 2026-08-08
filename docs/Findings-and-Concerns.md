@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.6 (F-01…F-20)
+**Project:** Polyform — current through v0.7 (F-01…F-26)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -29,6 +29,12 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-18](#f-18) | Add-text deleted its own node via a mid-gesture focus bounce (≤v0.3, fixed v0.4) | Fixed (High while live) |
 | [F-19](#f-19) | Every double-click gesture was dead — `PointerEvent.detail` is always 0 (v0.1–v0.5, fixed v0.5) | Fixed (High while live) |
 | [F-20](#f-20) | The agent endpoint is a local network listener inside the app (v0.6) | Med (accepted, mitigations shipped with it) |
+| [F-21](#f-21-writing-a-nodes-fields-directly-leaves-the-derived-caches-stale) | Direct field writes leave derived caches stale (fixed v0.6) | Fixed |
+| [F-22](#f-22-a-regression-test-that-has-never-failed-is-a-guess) | A regression test that has never failed is a guess | Process |
+| [F-23](#f-23-pointer-derived-state-behind-a-repaint-gate-the-cursor-rarely-changed) | Pointer-derived state behind the repaint gate (fixed v0.6) | Fixed |
+| [F-24](#f-24-a-react-portal-into-documentbody-does-not-stop-the-apps-own-key-handlers) | A body portal does not stop the app's key handlers (fixed v0.7) | Fixed |
+| [F-25](#f-25-ready-signalled-from-one-async-chain-while-the-listener-loaded-on-another) | "Ready" raced the listener that answers it (fixed v0.7) | Fixed |
+| [F-26](#f-26-a-wrong-ci-condition-fails-open-the-gate-skips-and-the-run-goes-green) | A wrong CI condition fails open (fixed v0.7) | Process |
 
 ---
 
@@ -584,6 +590,23 @@ Fixed by making `cli:ready` depend on the bridge — the import that installs th
 
 ---
 
+## F-26. A wrong CI condition fails OPEN: the gate skips and the run goes green
+
+**Severity: process — it removed a gate and reported success, twice in one afternoon.**
+
+Cutting the first real release exposed two bugs of the same shape in the pipeline, both of which *looked* fine:
+
+1. **A skipped gate.** De-duplicating the packaging (nine platform builds per release, three of them redundant) added `if: ${{ inputs.package != false }}` to the installer matrix. On a `push` there is no `inputs` context, and **in GitHub expressions an absent value compares equal to `false`** — so the condition was false on every ordinary push, the packaging matrix skipped, and CI went green with the packaged-app smoke test silently not running. Fixed by inverting to a skip flag and testing truthiness (`if: ${{ !inputs.skip_package }}`), where an absent input is simply falsy.
+2. **A check that defaulted to "yes".** "Has this version been released?" was `gh api … | grep -qx "v$version"`. A failed API call makes the pipeline exit non-zero, which the `if` reads as *no match*, which means **release** — so a broken query would have built and published rather than stopped. Fixed by fetching into a variable and failing the job when the query cannot be answered.
+
+The common thread is direction. A wrong condition on a *test* skips it; a wrong condition on an *action* performs it. Both defaults are the dangerous one, and neither announces itself: the run is green either way.
+
+**How they were caught.** Not by the pipeline being green — it was. By reading what each run actually did: `success / test, success / gates, package SKIPPED` in one case, and a release run rebuilding everything on a push in the other (which the *user* spotted, from nine in-progress checks on a commit).
+
+**Standing obligation.** A CI condition is a claim about when a gate runs, and claims get tested: after adding or changing one, read the run and confirm the jobs you expected actually **ran** rather than that the run was green. For any check whose failure would let something proceed, make the failure explicit — never let "could not determine" fall through to "go ahead". And prefer truthiness over comparing against `false` in GitHub expressions, because absent, empty and `false` are the same value there.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -594,4 +617,5 @@ Three themes run through every entry:
 4. **Anything that lets outside code in gets its defences before its features.** F-15 (plugins) and F-20 (the agent endpoint) are the same shape: capability first draws a threat model, then ships the gate, then ships the capability. F-20's 401/403 checks were written in the same commit as the server, not after it.
 5. **Input-layer bugs are invisible to unit and pixel tests.** F-18 and F-19 both survived multiple releases with a green suite, and both were found only by driving the built app with synthetic OS-level input. That is why `npm run test:e2e` exists and why it keeps growing.
 6. **A correct document is not a correct app.** F-21 was a stale cache over right data, F-23 was the right answer computed and then not applied, and F-22 is the reason both now have checks that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.
-7. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+7. **A green pipeline is not a running one.** F-26 removed a gate and reported success, and F-24/F-25 were both found by reading what actually happened rather than what the summary said. Ask of every check: if the thing it guards were broken right now, would this run be red? For a condition, the question is narrower and sharper — did the job I expected actually *run*?
+8. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

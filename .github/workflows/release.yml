@@ -175,6 +175,35 @@ jobs:
         run: |
           sudo chown root:root release/linux-unpacked/chrome-sandbox
           sudo chmod 4755 release/linux-unpacked/chrome-sandbox
+      # electron-builder prints "signing with signtool.exe" even when there is no
+      # certificate and the result is unsigned — which reads as "we signed it" in a
+      # log and is how a maintainer ends up surprised by SmartScreen. So state the
+      # truth per platform.
+      #
+      # macOS is an ASSERTION, not a note: an arm64 binary with no signature at all
+      # will not launch on Apple Silicon, so ad-hoc signing is the difference
+      # between a dmg that opens with a right-click and one that cannot run.
+      - name: Signing status (truthful)
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "win" ]; then
+            powershell -NoProfile -Command '
+              Get-ChildItem release\*.exe | ForEach-Object {
+                $s = Get-AuthenticodeSignature $_.FullName
+                Write-Host ("{0}: {1}" -f $_.Name, $s.Status)
+              }'
+            echo "NOT Authenticode signed — expected until Roadmap 5.2 (F-10). SmartScreen will warn."
+          elif [ "${{ matrix.target }}" = "mac" ]; then
+            for app in release/mac*/Polyform.app; do
+              [ -d "$app" ] || continue
+              echo "--- $app"
+              codesign -dv --verbose=2 "$app" 2>&1 | sed -n '1,8p'
+              codesign --verify --deep --strict "$app" || { echo "unsigned: an arm64 build will not launch" >&2; exit 1; }
+            done
+            echo "Ad-hoc signed (not Developer ID, not notarized): Gatekeeper still needs a right-click → Open."
+          else
+            echo "Linux artifacts carry no code signature; the checksum and the attestation are the integrity signals."
+          fi
       - name: Packaging smoke test
         run: ${{ matrix.xvfb }} npm run test:packaging -- --expect-feed
       - name: SHA-256 checksums
