@@ -49,11 +49,21 @@ const fail = (m) => {
 function findPackaged() {
   const flag = process.argv.indexOf('--bin')
   if (flag >= 0 && process.argv[flag + 1]) return process.argv[flag + 1]
+  // NATIVE ARCHITECTURE FIRST. electron-builder writes the x64 app to `mac/` and
+  // the arm64 one to `mac-arm64/`, and taking `mac/` first meant an Apple Silicon
+  // runner launched the x64 build under Rosetta — translating a 250 MB binary,
+  // which on one CI run simply never finished and burnt the whole 10-minute
+  // timeout with no output at all. Running the build for the machine we are on is
+  // both faster and the honest test; the other architecture's app is not
+  // smoke-tested, which is the price of not having that machine.
+  const macApps = ['mac/Polyform.app/Contents/MacOS/Polyform', 'mac-arm64/Polyform.app/Contents/MacOS/Polyform']
   const candidates =
     process.platform === 'win32'
       ? ['win-unpacked/Polyform.exe', 'win-arm64-unpacked/Polyform.exe']
       : process.platform === 'darwin'
-        ? ['mac/Polyform.app/Contents/MacOS/Polyform', 'mac-arm64/Polyform.app/Contents/MacOS/Polyform']
+        ? process.arch === 'arm64'
+          ? [...macApps].reverse()
+          : macApps
         : ['linux-unpacked/polyform', 'linux-arm64-unpacked/polyform']
   for (const c of candidates) {
     const p = path.join(RELEASE, ...c.split('/'))
