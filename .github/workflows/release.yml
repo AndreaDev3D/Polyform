@@ -78,10 +78,16 @@ jobs:
             echo "releasing $version from tag ${GITHUB_REF_NAME}"
             exit 0
           fi
-          # On main: release only if this version has not been released yet.
-          if gh release view "v$version" >/dev/null 2>&1; then
+          # On main: release only if this version has no release yet.
+          #
+          # Listing releases, NOT `gh release view "v$version"`: the tags endpoint
+          # that backs `view` only matches PUBLISHED releases, so it cannot see a
+          # draft — and a draft is exactly the state this pipeline leaves behind.
+          # The blind check re-ran the whole release on every push and would have
+          # piled up duplicate drafts against the same tag, which GitHub permits.
+          if gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name' | grep -qx "v$version"; then
             echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "v$version is already released — nothing to do"
+            echo "v$version already has a release (draft or published) — nothing to do"
           elif git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "release=false" >> "$GITHUB_OUTPUT"
             echo "tag v$version already exists — push it, or bump the version"
