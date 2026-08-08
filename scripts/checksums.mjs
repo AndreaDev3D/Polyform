@@ -22,8 +22,18 @@ const outFlag = args.indexOf('--out')
 const outName = outFlag >= 0 ? args[outFlag + 1] : 'SHA256SUMS.txt'
 const dir = args.find((a) => !a.startsWith('--') && a !== outName) ?? 'release'
 
-/** What we publish. Not the unpacked directories, not the builder metadata. */
-const ARTIFACT = /\.(exe|msi|dmg|zip|AppImage|deb|rpm|snap|blockmap)$/
+/**
+ * What we publish, and NOTHING else.
+ *
+ * `.blockmap` used to be in this list: electron-builder writes one per installer
+ * for electron-updater's differential downloads. It is not published (this app
+ * does not download updates — ADR-028), so listing it produced checksums for
+ * files that never reached the release and `sha256sum -c` failed on them in the
+ * publish job. Two lists that can disagree will: never checksum a file you do not
+ * ship. Add blockmaps back here and to the upload paths together, on the day
+ * downloads are turned on.
+ */
+const ARTIFACT = /\.(exe|msi|dmg|zip|AppImage|deb|rpm|snap)$/
 
 if (!fs.existsSync(dir)) {
   console.error(`checksums: no ${dir}/ directory — build the artifacts first`)
