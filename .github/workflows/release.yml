@@ -181,8 +181,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # ONLY this workflow's artifacts. Without the pattern it also downloads the
+      # `polyform-*` set that the CI workflow we call uploads for the same commit —
+      # two independent builds of identically-named installers, landing on top of
+      # each other, after which the merged checksums describe files that were
+      # overwritten by their twins and `sha256sum -c` fails. (The duplicate build
+      # is known and tolerated: a release re-runs the full suite on purpose.)
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
+          pattern: release-*
           path: incoming
       # Flatten, and merge the three per-platform checksum files into the one
       # file a downloader actually wants: `sha256sum -c SHA256SUMS.txt`.
