@@ -4,6 +4,10 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.7.0 — "Distribution & .fig Import" — 2026-08-05
+
 ### Added
 
 - **`.fig` import — File → Import .fig…, experimental and honest about it** (ADR-029). Reads a Figma export on your machine, offline, and turns it into ordinary editable layers in **one undoable entry**. On three real v106 exports it imported **155/158, 60/63 and 135/139 nodes** — the only ones it does not turn into layers are Figma's own DOCUMENT and CANVAS wrappers, which are deliberately unwrapped so nothing arrives inside boxes nobody drew.

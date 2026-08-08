@@ -5,25 +5,35 @@ deliberately still missing.
 
 ## Cutting one
 
-```sh
-# 1. version, changelog, notices
-npm version 0.7.0 --no-git-tag-version   # or edit package.json
-npm run licenses                          # regenerate THIRD-PARTY-NOTICES.md
-# ...move the CHANGELOG's "Unreleased" section under the new heading...
-git commit -am "0.7.0"
+**Bump the version. That is the release.**
 
-# 2. tag and push
-git tag v0.7.0
-git push origin main v0.7.0
+```sh
+npm version 0.8.0 --no-git-tag-version   # or edit package.json
+npm run licenses                          # regenerate THIRD-PARTY-NOTICES.md if deps changed
+# ...move the CHANGELOG's "Unreleased" section under a new heading...
+git commit -am '0.8.0 — "Name"' && git push
 ```
 
-The tag triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml):
+There is no tag to remember: [`release.yml`](../.github/workflows/release.yml)
+runs on every push to `main`, asks whether `package.json`'s version has been
+released yet, and stops in ten seconds if it has. When it has not, it releases —
+and `gh release create` makes the tag itself from the commit being released.
+
+Pushing a `v*` tag by hand still works, for re-cutting one; the tag then has to
+match `package.json` or the run fails rather than shipping mislabelled files.
+
+*Why not have CI push the tag? A tag created with the default token does not
+trigger workflows (GitHub's recursion guard), so that route needs a stored PAT.
+Letting `gh release create` make the tag needs no secret and has one fewer moving
+part.*
+
+Either way, the run:
 
 1. **The whole CI suite runs first** — `release.yml` calls `build.yml`, so a
    release cannot skip the Rust tests, the TS↔WASM parity fuzz, typecheck, the
-   190 vitest cases, the notices freshness check, or the input-layer gates.
-2. **The tag is checked against `package.json`.** A `v0.7.0` tag on a `0.6.0`
-   package produces installers named `0.6.0`; the job fails instead.
+   vitest suite, the notices freshness check, or the input-layer gates.
+2. **The version is resolved once and asserted on every runner**, so the
+   artifacts cannot be labelled with a version nobody asked for.
 3. **Installers are built on all three platforms** and each one is
    **smoke tested** — the packaged app, not the source tree, has to create a
    document, take an agent edit, reopen it in a fresh process, export a PNG, and
@@ -32,9 +42,11 @@ The tag triggers [`.github/workflows/release.yml`](../.github/workflows/release.
    `SHA256SUMS.txt` and verified with `sha256sum -c` before publication.
 5. **A draft release is created** with every artifact and the checksums.
 
+6. **A Sigstore build-provenance attestation** is recorded for each artifact.
+
 The draft is the last gate, and it is a human one: open it, read the notes,
-download one installer, run it, then press **Publish**. A tag should be able to
-produce a release without announcing one.
+download one installer, run it, then press **Publish**. Bumping a version should
+be able to produce a release without announcing one.
 
 ## Verifying a download
 
@@ -102,7 +114,7 @@ Gatekeeper. Keep it after signing lands — the two cover different attacks.
 | Piece | Where |
 | :--- | :--- |
 | CI: unit gates, input-layer gates, packaged build + smoke test | [`.github/workflows/build.yml`](../.github/workflows/build.yml) |
-| Tag → draft release with checksums | [`.github/workflows/release.yml`](../.github/workflows/release.yml) |
+| Version bump (or a `v*` tag) → draft release with checksums + attestations | [`.github/workflows/release.yml`](../.github/workflows/release.yml) |
 | Packaging smoke test | `npm run test:packaging` → `scripts/packaging-smoke.mjs` |
 | Third-party notices (generated; CI fails if stale) | `npm run licenses` → `THIRD-PARTY-NOTICES.md` |
 | Checksums, identical on every platform | `node scripts/checksums.mjs release` |
