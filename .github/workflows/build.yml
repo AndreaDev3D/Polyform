@@ -168,6 +168,12 @@ jobs:
               echo "--- $app"
               codesign -dv --verbose=2 "$app" 2>&1 | sed -n '1,8p'
               codesign --verify --deep --strict "$app" || { echo "unsigned: an arm64 build will not launch" >&2; exit 1; }
+              # An ad-hoc signature plus the hardened runtime means library
+              # validation refuses Electron's own frameworks unless this
+              # entitlement is present — and the symptom is an app that simply
+              # does not start. Assert it is in the SIGNATURE, not merely in a
+              # plist we hoped was used.
+              codesign -d --entitlements :- "$app" 2>/dev/null | grep -q 'disable-library-validation'                 || { echo "ad-hoc signed without disable-library-validation: the app will not launch" >&2; exit 1; }
             done
             echo "Ad-hoc signed (not Developer ID, not notarized): Gatekeeper still needs a right-click → Open."
           else

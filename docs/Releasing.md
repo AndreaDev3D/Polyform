@@ -102,6 +102,19 @@ Gatekeeper. Keep it after signing lands — the two cover different attacks.
   `codesign --verify` rather than trusting the log. Ad-hoc is free and is not
   notarization: it makes the binary loadable, and Gatekeeper still asks for a
   right-click → Open.
+
+  Ad-hoc alone was not enough. Under the hardened runtime, library validation
+  refuses to load Electron's own frameworks when the signature is ad-hoc — they
+  carry no matching team identifier — and the symptom is an app that never starts,
+  with nothing readable to explain why. `resources/entitlements.mac.plist` grants
+  `com.apple.security.cs.disable-library-validation` (with the two JIT entitlements
+  V8 needs), and the release job asserts the entitlement is **in the signature**,
+  not merely in a file it hoped was used. All of it stays valid when a Developer ID
+  arrives: the frameworks and the app then share a team, and the entitlement stops
+  mattering.
+
+  **Still unverified: nobody has launched the macOS build.** There is no Mac here.
+  The signature and the entitlement are asserted by the pipeline; "it opens" is not.
 - **Do not self-sign.** A self-signed certificate buys nothing with SmartScreen
   or Gatekeeper and dresses an unverified build as a verified one.
 - **Do not read "signing with signtool.exe" as signing.** electron-builder prints

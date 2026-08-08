@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS entitlements.
+
+  The first two are what V8 needs under the hardened runtime: it compiles
+  JavaScript at runtime and writes into pages it then executes.
+
+  The third is what an AD-HOC signature needs. Without a Developer ID (Roadmap
+  5.2) the app is signed ad-hoc so that Apple Silicon will load it at all — but
+  library validation then refuses to load Electron's own frameworks, because they
+  are not signed by the same team identifier. electron-builder warns about exactly
+  this, and the symptom is an app that does not start rather than an error anyone
+  can read. It stays valid once a real certificate arrives: with a Developer ID the
+  frameworks and the app share a team, so the entitlement simply stops mattering.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
