@@ -91,6 +91,34 @@ Gatekeeper. Keep it after signing lands — the two cover different attacks.
   That is an application with eligibility criteria, not a checkout — worth
   starting early, because the pipeline it wants is the one we already have (public
   repo, CI-only builds, pinned actions, a smoke-tested artifact).
+
+  Two honest caveats before anyone counts on it. **First, maturity is a criterion.**
+  The Foundation is lending its own reputation, so it looks for a project with users
+  and a history, not a repository that appeared last week — which is what Polyform
+  is today. The application is still worth making early, because the answer is
+  information either way and the technical requirements are already met; it just
+  should not be planned around for the next release.
+  **Second, a signature and a quiet SmartScreen are not the same thing.** Signing
+  replaces "Unknown publisher" with a name, which is the dialog the user saw. It does
+  not by itself stop the "Windows protected your PC" screen: that one is driven by
+  *reputation*, which accrues to the signing identity across downloads. The reason
+  this matters more than it sounds is that reputation on an **unsigned** file is
+  keyed to the file's hash, so every release starts from zero forever. A stable
+  signing identity is what lets trust accumulate at all — that, not the wording of
+  one dialog, is the argument for signing.
+
+- **The one nearly-free Windows path that skips SmartScreen entirely is the
+  Microsoft Store.** Store submissions are signed by Microsoft, and a Store install
+  raises no reputation prompt. It is not zero — an individual developer account is a
+  small one-time registration fee — and it costs something else: an MSIX package,
+  Store review, and the Store's own update mechanism rather than the one built here.
+  Worth knowing it exists; not a v0.7 job.
+  Package managers (`winget`, Scoop, Chocolatey) are a lesser version of the same
+  trick: they change the *path* by which the file arrives, so the double-click dialog
+  never happens, while the binary stays exactly as unsigned as it was.
+- **Self-signing is worse than not signing.** A certificate no one trusts still shows
+  a warning, and the only way to make it trusted is to ask users to install a root
+  certificate — which teaches exactly the habit an attacker needs. We do not ship one.
 - **macOS: there is no free path.** Notarization requires the Apple Developer
   Programme (paid, annual), full stop. Until then the release notes tell people
   the exact override (right-click → Open, or `xattr -d com.apple.quarantine`).
@@ -112,6 +140,15 @@ Gatekeeper. Keep it after signing lands — the two cover different attacks.
   not merely in a file it hoped was used. All of it stays valid when a Developer ID
   arrives: the frameworks and the app then share a team, and the entitlement stops
   mattering.
+
+  **Ignore one warning in that job's log.** electron-builder prints
+  *"ad-hoc signing with hardenedRuntime enabled requires the
+  com.apple.security.cs.disable-library-validation entitlement"* on every macOS
+  build, including builds where the entitlement **is** granted — it is a
+  configuration heuristic, not a reading of the finished binary. The gate two lines
+  later reads the entitlement out of the actual signature with
+  `codesign -d --entitlements`, twice, once per architecture. Trust that, not the
+  warning; it is the reason the check was written to interrogate the artifact.
 
   **What CI now proves, and what it does not.** The arm64 app is launched and
   exercised on an Apple Silicon runner — the packaging smoke test creates a bundle,
