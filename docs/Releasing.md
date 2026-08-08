@@ -55,8 +55,13 @@ Every release carries `SHA256SUMS.txt`:
 ```sh
 sha256sum -c SHA256SUMS.txt              # Linux
 shasum -a 256 -c SHA256SUMS.txt          # macOS
-Get-FileHash .\Polyform-Setup-0.7.0.exe -Algorithm SHA256   # Windows, compare by eye
+Get-FileHash .\Polyform-Setup-0.7.0-x64.exe -Algorithm SHA256   # Windows, compare by eye
 ```
+
+Artifact names deliberately contain **no spaces**: GitHub rewrites spaces to dots
+on upload, so a `SHA256SUMS.txt` naming `Polyform Setup 0.7.0.exe` could never
+verify the `Polyform.Setup.0.7.0.exe` that a browser actually downloads — the one
+check we ask people to run, defeated by a filename.
 
 Until the artifacts are signed this is the **only** integrity signal a downloader
 has, which is why [F-10](Findings-and-Concerns.md#f-10-future-auto-update-security--code-signing-and-artifact-integrity)
@@ -69,7 +74,7 @@ Every artifact also carries a **Sigstore build-provenance attestation**, created
 by the release workflow under its own OIDC identity:
 
 ```sh
-gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/Polyform
+gh attestation verify Polyform-Setup-0.7.0-x64.exe --repo AndreaDev3D/Polyform
 ```
 
 That proves the file came out of *this repository's release workflow at that

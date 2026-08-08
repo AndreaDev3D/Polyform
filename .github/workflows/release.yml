@@ -17,7 +17,7 @@
 # integrity: anyone can prove a file came out of this repo's release workflow
 # from this commit, rather than out of somebody's laptop.
 #
-#   gh attestation verify "Polyform Setup 0.7.0.exe" --repo AndreaDev3D/Polyform
+#   gh attestation verify Polyform-Setup-0.7.0-x64.exe --repo AndreaDev3D/Polyform
 #
 # It only works on public repositories, which this is.
 
@@ -39,6 +39,14 @@ on:
 
 permissions:
   contents: read
+
+# One release run at a time. Two pushes in quick succession would otherwise both
+# see "not released yet" and race to create the same release — the loser fails on
+# a name that already exists, having burnt three platform builds to get there.
+# Queued rather than cancelled: a run that is already uploading should finish.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   # Is there a release to make? Cheap, and it gates everything below.
