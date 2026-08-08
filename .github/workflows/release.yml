@@ -1,10 +1,9 @@
-# Cutting a release: push a tag, get a DRAFT GitHub Release with installers for
-# all three platforms and a SHA256SUMS.txt covering every file.
+# Cutting a release: BUMP THE VERSION in package.json. That is all — this runs on
+# the push, builds installers for all three platforms, and opens a DRAFT GitHub
+# Release with a SHA256SUMS.txt covering every file.
 #
-#   git tag v0.7.0 && git push origin v0.7.0
-#
-# Draft on purpose. A tag should be able to produce a release without also
-# announcing one: someone opens the draft, reads the notes, downloads one
+# Draft on purpose. Bumping a version should be able to produce a release without
+# also announcing one: someone opens the draft, reads the notes, downloads one
 # artifact, checks it runs, and presses Publish. See docs/Releasing.md.
 #
 # What this does NOT do yet: Authenticode / Developer ID signing (Roadmap 5.2,
@@ -53,6 +52,13 @@ jobs:
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      # `write` for a READ, which needs saying: GitHub lists DRAFT releases only
+      # to callers with push access, so a `contents: read` token sees nothing but
+      # published ones. With read, this job could not see the draft it had just
+      # produced, decided "not released yet", and rebuilt everything on every
+      # push. Nothing here writes.
+      contents: write
     outputs:
       version: ${{ steps.check.outputs.version }}
       release: ${{ steps.check.outputs.release }}
@@ -85,7 +91,14 @@ jobs:
           # draft — and a draft is exactly the state this pipeline leaves behind.
           # The blind check re-ran the whole release on every push and would have
           # piled up duplicate drafts against the same tag, which GitHub permits.
-          if gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name' | grep -qx "v$version"; then
+          # Fetched into a variable first: piping straight into grep hides an API
+          # failure as "no match", and "no match" here means RELEASE — the one
+          # default a broken query must not have.
+          if ! existing="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')"; then
+            echo "could not list releases — refusing to guess whether v$version is released" >&2
+            exit 1
+          fi
+          if grep -qx "v$version" <<<"$existing"; then
             echo "release=false" >> "$GITHUB_OUTPUT"
             echo "v$version already has a release (draft or published) — nothing to do"
           elif git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
@@ -102,6 +115,10 @@ jobs:
     needs: decide
     if: needs.decide.outputs.release == 'true'
     uses: ./.github/workflows/build.yml
+    with:
+      # The tests and the input-layer gates, not the packaging: the build job
+      # below packages, smoke-tests and attests the artifacts that actually ship.
+      package: false
 
   build:
     needs: [decide, ci]

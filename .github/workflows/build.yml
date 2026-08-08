@@ -16,7 +16,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Called by release.yml, which builds and smoke-tests its OWN installers with
+  # attestations — so it asks for the tests and the gates and not the packaging,
+  # which would otherwise run three times per release: once for this workflow's
+  # own push trigger, once here, and once in the release build itself.
   workflow_call:
+    inputs:
+      package:
+        description: Build and smoke-test installers (off for release runs, which do their own).
+        type: boolean
+        default: true
 
 # Least privilege: nothing in this workflow writes to the repository. Only
 # release.yml needs contents: write, and it asks for it there.
@@ -89,6 +98,9 @@ jobs:
   # in the platform matrix.
   package:
     needs: test
+    # Null on a push or a pull request, so this runs; false only when a caller
+    # says it is doing the packaging itself.
+    if: ${{ inputs.package != false }}
     strategy:
       fail-fast: false
       matrix:
