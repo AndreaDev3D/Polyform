@@ -13,6 +13,7 @@ import type {
 } from '../engine/types'
 import { createNode, isContainer, newId } from '../engine/types'
 import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, type AABB } from '../engine/geometry'
+import { clampZoom } from '../engine/zoom'
 import { documentStore } from '../state/document'
 import { editor, type Tool } from '../state/editor'
 import { OpRecorder, guidesChanged, setSelection, topSelection } from '../state/actions'
@@ -1744,7 +1745,7 @@ export class InteractionController {
     if (ctrl) {
       const factor = Math.pow(1.0018, -deltaY)
       const worldBefore = screenToWorld(state.camera, screen)
-      const zoom = clamp(state.camera.zoom * factor, 0.02, 64)
+      const zoom = clampZoom(state.camera.zoom * factor)
       editor.set({
         camera: { zoom, x: worldBefore.x - screen.x / zoom, y: worldBefore.y - screen.y / zoom },
       })

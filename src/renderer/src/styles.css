@@ -408,6 +408,19 @@ textarea {
   -webkit-backdrop-filter: blur(12px) saturate(140%);
 }
 
+/* Opens upward, right-aligned: the zoom menu hangs off a control in the bottom
+ * bar, where there is no room below and the window edge is to the right. The
+ * height cap is for short windows — a menu taller than the app cannot be read. */
+.pf-menu-panel-up {
+  top: auto;
+  bottom: 100%;
+  left: auto;
+  right: 0;
+  margin-bottom: 5px;
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+
 .pf-menu-item {
   @apply flex items-center gap-6 w-full px-3 py-1 text-left text-[12px] cursor-default;
   color: var(--pf-text);

@@ -46,7 +46,7 @@ Then: **New Project…**, pick where to save the `.poly` folder, and draw. Press
 | `npm test`          | Engine unit tests + TS↔WASM parity fuzz (vitest)|
 | `npm run typecheck` | Strict TypeScript across main/preload/renderer  |
 | `npm run test:rust` | Rust engine-core unit tests (cargo)             |
-| `npm run test:e2e`  | Drives the built app with synthetic OS input: 16 checks no unit test can reach (F-18/F-19/F-21/F-23/F-24/F-31) |
+| `npm run test:e2e`  | Drives the built app with synthetic OS input: 18 checks no unit test can reach (F-18/F-19/F-21/F-23/F-24/F-31) |
 | `npm run test:mcp`  | Agent-connectivity probe: 53 checks — a real MCP client vs the built app, driving the consent panel |
 | `npm run test:cli`  | Headless CLI gate: new → stdio-MCP edit → persistence → pixel-checked export |
 | `npm run test:packaging` | Drives the **packaged** app (after `electron-builder`): asar layout, the whole CLI gate against the installed binary, and history read back out of the journal it wrote |
@@ -86,7 +86,7 @@ were found in; nothing is rewritten behind your back.
 | Doc | Contents |
 | --- | -------- |
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release |
-| [Feature-Matrix.md](docs/Feature-Matrix.md) | 242-row feature matrix with honest statuses, compared against the tool most readers know (recounted each release) |
+| [Feature-Matrix.md](docs/Feature-Matrix.md) | 243-row feature matrix with honest statuses, compared against the tool most readers know (recounted each release) |
 | [Roadmap.md](docs/Roadmap.md) | Phased plan with shipped-status notes: v0.2 ✓ → v0.3 ✓ → v0.4 performance core → v0.4.1 background removal → v0.5 3D model import → v0.6 agent connectivity (reads shipped; writes + CLI next) → v1.0 distribution |
 | [Architecture-Decisions.md](docs/Architecture-Decisions.md) | ADR-001…026: every load-bearing decision and its replacement trigger |
 | [Findings-and-Concerns.md](docs/Findings-and-Concerns.md) | Risk register F-01…F-24 with severities and mitigations |

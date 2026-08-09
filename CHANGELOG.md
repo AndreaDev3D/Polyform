@@ -66,6 +66,34 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     betas beyond the newest ten are deleted with their tags, so the release list stays
     readable.
 
+### Added
+
+- **The zoom control is a menu, not a −/+ box.** Click the percentage and you get a
+  field with the current zoom in it, already selected — type `250`, press Enter — over
+  rows for zoom in/out, fit, focus on selection, and 50/100/200%, then the view
+  toggles with a tick beside the ones that are on: grid, rulers, GPU rendering. The
+  old box could do three things and hid the rest: "zoom to 200%" meant right-clicking
+  a button whose tooltip mentioned presets, and there was no way to ask for an exact
+  number at all.
+  - **The command rows are built from the shared menu definition**, so their labels and
+    shortcuts come from the same place the menu bar and the native accelerators do,
+    and they run through the same `menuInvoke` — one implementation per command. The
+    percentage and the two presets have no menu item behind them and set the camera
+    directly, through a new `zoomTo` that keeps the middle of the viewport where it is
+    (a factor cannot: 1.25 × 0.8 does not return to where it started).
+  - **The zoom limits now live in one place** (`engine/zoom.ts`) instead of three
+    copies of `0.02`/`64` — the typed field cannot offer a zoom the camera would
+    refuse. A bare number is a percentage, a comma decimal is accepted, and anything
+    that is not a number leaves the camera alone rather than moving it to NaN.
+
+### Changed
+
+- **The bottom bar's controls are one height.** The agent button was 21px, the focus
+  button 30px, and the zoom box 21px in a 40px row — three heights on one line. All of
+  them, and the vector-edit buttons, are now 30px, matching the tool buttons in the
+  middle. It is an `npm run test:e2e` check, because this is the kind of thing that
+  drifts one utility class at a time.
+
 ### Fixed
 
 - **Frame names no longer pile into each other when you zoom out.** They were drawn

@@ -26,6 +26,8 @@
 //      handler called window.prompt, which Electron throws on, so the only
 //      door into the whole styles feature was shut in every shipped build
 //      while everything below it stayed correct (F-31).
+//   9. the zoom menu: a typed percentage lands exactly and closes the menu,
+//      and the three bottom-bar controls share one height.
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -791,6 +793,81 @@ try {
       if (kept !== '["e2e-rot"]') fail(`Escape closed the menu but also reached the canvas: selection is ${kept}`)
       else console.log('E2E PASS: Escape closes the menu without clearing the selection')
       await send('Emulation.clearDeviceMetricsOverride')
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 9. The zoom control: a typed percentage lands exactly, and the three
+  //    controls in the bar are the same height.
+  //
+  //    The percentage field is the only way to reach an exact zoom now that the
+  //    -/+ box is gone, and the heights are the kind of thing that drifts one
+  //    utility class at a time until someone notices the row looks ragged.
+  // ---------------------------------------------------------------------
+  {
+    const clickAt = async (x, y) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+      await sleep(320)
+    }
+    const heights = JSON.parse(await evaluate(`(() => {
+      // Scope to the BAR: the title bar has an "Agent" menu too.
+      const tool = document.querySelector('button[aria-label="Move"]')
+      const bar = tool?.closest('div.border-t')
+      if (!bar) return 'null'
+      const h = (label) => {
+        const b = [...bar.querySelectorAll('button')].find((x) => (x.getAttribute('aria-label') || x.textContent || '').trim().startsWith(label))
+        return b ? Math.round(b.getBoundingClientRect().height) : null
+      }
+      return JSON.stringify({ agent: h('Agent'), focus: h('Focus on selection'), zoom: h('Zoom and view options'), tool: Math.round(tool.getBoundingClientRect().height) })
+    })()`))
+    if (!heights) {
+      fail('no bottom bar found to measure')
+    } else if (new Set(Object.values(heights)).size !== 1) {
+      fail(`the bottom bar controls should share one height, got ${JSON.stringify(heights)}`)
+    } else {
+      console.log(`E2E PASS: the bottom bar controls are all ${heights.zoom}px tall`)
+    }
+
+    const at = JSON.parse(await evaluate(`(() => {
+      const b = document.querySelector('button[aria-label="Zoom and view options"]')
+      if (!b) return 'null'
+      const r = b.getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+    })()`))
+    if (!at) {
+      fail('no zoom control in the bottom bar')
+    } else {
+      await clickAt(at.x, at.y)
+      const ready = await evaluate(
+        `(() => { const i = document.querySelector('.pf-menu-panel-up input'); return JSON.stringify({ open: !!i, focused: document.activeElement === i }) })()`,
+      )
+      const state = JSON.parse(ready)
+      if (!state.open) {
+        fail('clicking the zoom percentage did not open the menu')
+      } else if (!state.focused) {
+        fail('the zoom field should have focus when the menu opens')
+      } else {
+        for (const ch of '250') {
+          await send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch })
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch })
+          await sleep(25)
+        }
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+        await sleep(400)
+        const after = JSON.parse(await evaluate(`(() => {
+          const b = document.querySelector('button[aria-label="Zoom and view options"]')
+          return JSON.stringify({ zoom: globalThis.__polyform.editor.get().camera.zoom, open: !!document.querySelector('.pf-menu-panel-up'), reads: b.textContent.trim() })
+        })()`))
+        if (Math.abs(after.zoom - 2.5) > 1e-9) fail(`typing 250 should zoom to 250%, camera is at ${after.zoom}`)
+        else if (after.open) fail('the menu stayed open after applying a zoom')
+        else if (after.reads !== '250%') fail(`the control should read 250%, reads ${after.reads}`)
+        else console.log('E2E PASS: a typed zoom percentage applies exactly and closes the menu')
+        await evaluate(`globalThis.__polyform.actions.zoomActual()`)
+        await sleep(200)
+      }
     }
   }
 

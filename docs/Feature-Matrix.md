@@ -25,7 +25,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 | Section | ✅ Implemented | 🟡 Partial | 📋 Planned | ❌ Out of scope | Rows |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| [Canvas & Viewport](#canvas--viewport) | 16 | 1 | 1 | 0 | 18 |
+| [Canvas & Viewport](#canvas--viewport) | 17 | 1 | 1 | 0 | 19 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
 | [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **142** | **28** | **49** | **23** | **242** |
+| **Total** | **143** | **28** | **49** | **23** | **243** |
 
 ---
 
@@ -56,6 +56,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Zoom to cursor | Ctrl/Cmd + wheel zooms toward the pointer | ✅ | |
 | Zoom to fit | Shift+1 frames all content in view | ✅ | |
 | Zoom to 100% | Shift+0 / Ctrl+0 resets to actual size | ✅ | |
+| Zoom menu with typed percentage | Click the zoom readout for a field, presets and view toggles | ✅ | Bottom bar: type a percentage, presets 50/100/200%, and the grid / rulers / GPU-rendering toggles with their current state ticked |
 | Zoom to selection | Shift+2 frames the current selection | ✅ | Shift+2, View → Focus on Selection, and the focus button on the bottom bar; falls back to fitting the page |
 | Pixel grid at high zoom | Pixel lattice appears when zoomed far in | ✅ | |
 | Pixel grid toggle | Show/hide pixel grid preference | ✅ | |

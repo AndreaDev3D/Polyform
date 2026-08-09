@@ -12,10 +12,13 @@
 // hovering over the drawing.
 
 import { useEditor, type Tool, type VectorMode } from '../state/editor'
-import { booleanSelection, carveSelection, topSelection, zoomAt, zoomToFit, zoomToSelection } from '../state/actions'
+import { booleanSelection, carveSelection, topSelection, zoomTo, zoomToSelection } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { READING_WINDOW_MS, isReading, useMcpStatus } from '../agent/status'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { MENU, formatAccelerator } from '../../../shared/menu-def'
+import type { MenuItemDef } from '../../../shared/menu-def'
+import { formatZoom, parseZoomText } from '../engine/zoom'
 import {
   BendIcon,
   BoolExcludeIcon,
@@ -23,6 +26,8 @@ import {
   BoolSubtractIcon,
   BoolUnionIcon,
   CarveIcon,
+  CheckIcon,
+  ChevronDownIcon,
   CircleIcon,
   CloseIcon,
   CursorIcon,
@@ -30,9 +35,7 @@ import {
   FrameIcon,
   HandIcon,
   LineIcon,
-  MinusIcon,
   PenIcon,
-  PlusIcon,
   PointDeleteIcon,
   PointMoveIcon,
   PolygonIcon,
@@ -76,7 +79,168 @@ const BOOLEANS = [
   { op: 'EXCLUDE' as const, title: 'Exclude', icon: <BoolExcludeIcon /> },
 ]
 
-const ZOOM_PRESETS = [0.5, 1, 2]
+/**
+ * The zoom control: a percentage that opens a menu, in place of the −/+/readout
+ * box. That box could only do three things and hid the rest of them, so "zoom to
+ * 200%" meant right-clicking a button whose tooltip mentioned presets.
+ *
+ * The rows for commands are built from the SHARED menu definition, so their
+ * labels and shortcuts come from the same place the menu bar and the native
+ * accelerators do, and they run through `menuInvoke` — one implementation per
+ * command (see MenuBar). The presets and the typed percentage have no menu item
+ * behind them and call the camera directly.
+ */
+const VIEW_MENU = MENU.find((m) => m.label === 'View')
+const viewItem = (id: string): MenuItemDef | undefined => VIEW_MENU?.items.find((i) => i.id === id)
+
+function ZoomMenu() {
+  const zoom = useEditor((s) => s.camera.zoom)
+  const showGrid = useEditor((s) => s.showGrid)
+  const showRulers = useEditor((s) => s.showRulers)
+  const gpuRender = useEditor((s) => s.gpuRender)
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const platform = window.polyform.platform
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    const onDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) close()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', close)
+    }
+  }, [open])
+
+  const accel = (id: string): string | null => {
+    const item = viewItem(id)
+    return item?.accelerator ? formatAccelerator(item.accelerator, platform) : null
+  }
+  const run = (id: string) => {
+    setOpen(false)
+    void window.polyform.menuInvoke(id).then((ok) => {
+      if (!ok) console.warn(`[polyform] no native menu item "${id}"`)
+    })
+  }
+  const jump = (level: number) => {
+    setOpen(false)
+    zoomTo(level)
+  }
+
+  /** One row. `checked === undefined` means it is a command, not a toggle. */
+  const Row = ({
+    label,
+    shortcut,
+    checked,
+    title,
+    onSelect,
+  }: {
+    label: string
+    shortcut?: string | null
+    checked?: boolean
+    title?: string
+    onSelect: () => void
+  }) => (
+    <button
+      className="pf-menu-item"
+      role={checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+      aria-checked={checked === undefined ? undefined : checked}
+      title={title}
+      onClick={onSelect}
+    >
+      {/* The gutter is reserved on every row, ticked or not, so the labels line
+          up instead of stepping in and out as things are switched on. */}
+      <span className="flex items-center gap-1.5 min-w-0">
+        <span className="pf-menu-check">{checked ? <CheckIcon width={11} height={11} /> : null}</span>
+        <span className="truncate">{label}</span>
+      </span>
+      {shortcut ? <span className="pf-menu-accel">{shortcut}</span> : null}
+    </button>
+  )
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        className={`pf-select h-[30px] w-[4.75rem] justify-between tabular-nums ${open ? 'is-open' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Zoom and view options"
+        title="Zoom and view options"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="pf-select-value">{formatZoom(zoom)}</span>
+        <ChevronDownIcon className="pf-select-caret" width={10} height={10} />
+      </button>
+      {open && (
+        <div className="pf-menu-panel pf-menu-panel-up pf-fade-in" role="menu">
+          {/* Typing a percentage is the fast path, so it is focused on open and
+              its text is selected: open, type, Enter. */}
+          <div className="px-2 pb-1.5 pt-1">
+            <input
+              className="pf-input h-[26px] text-[12px] tabular-nums"
+              autoFocus
+              defaultValue={formatZoom(zoom)}
+              aria-label="Zoom level"
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => {
+                // The global shortcuts already ignore fields; Escape and Enter
+                // are ours, and must not also reach the canvas behind us.
+                e.stopPropagation()
+                if (e.key === 'Enter') {
+                  const parsed = parseZoomText((e.target as HTMLInputElement).value)
+                  if (parsed !== null) jump(parsed)
+                  else setOpen(false)
+                }
+                if (e.key === 'Escape') setOpen(false)
+              }}
+            />
+          </div>
+          <Row label="Zoom in" shortcut={accel('view.zoomIn')} onSelect={() => run('view.zoomIn')} />
+          <Row label="Zoom out" shortcut={accel('view.zoomOut')} onSelect={() => run('view.zoomOut')} />
+          <Row label="Zoom to fit" shortcut={accel('view.zoomFit')} onSelect={() => run('view.zoomFit')} />
+          <Row
+            label="Focus on selection"
+            shortcut={accel('view.zoomSelection')}
+            title="With nothing selected this fits the whole page"
+            onSelect={() => run('view.zoomSelection')}
+          />
+          <Row label="Zoom to 50%" onSelect={() => jump(0.5)} />
+          <Row label="Zoom to 100%" shortcut={accel('view.zoomActual')} onSelect={() => run('view.zoomActual')} />
+          <Row label="Zoom to 200%" onSelect={() => jump(2)} />
+          <div className="pf-menu-sep" />
+          <Row
+            label="Grid"
+            shortcut={accel('view.toggleGrid')}
+            checked={showGrid}
+            title="An 8 px grid. The 1 px pixel grid appears on its own past 800%."
+            onSelect={() => run('view.toggleGrid')}
+          />
+          <Row
+            label="Rulers"
+            shortcut={accel('view.toggleRulers')}
+            checked={showRulers}
+            onSelect={() => run('view.toggleRulers')}
+          />
+          <Row
+            label="GPU rendering"
+            checked={gpuRender}
+            title="Beta: falls back to the CPU renderer where WebGPU is unavailable"
+            onSelect={() => run('view.toggleGpu')}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * The agent button. Always present, so "let an agent in" is a thing you can
@@ -112,7 +276,7 @@ function AgentButton() {
 
   return (
     <button
-      className={`pf-btn h-7 pl-1.5 pr-2.5 gap-1.5 ${status.running ? 'bg-[var(--pf-bg-2)]' : ''}`}
+      className={`pf-btn h-[30px] pl-1.5 pr-2.5 gap-1.5 ${status.running ? 'bg-[var(--pf-bg-2)]' : ''}`}
       title={
         status.running
           ? 'An agent can reach this document — click to review or revoke what it can read'
@@ -154,7 +318,7 @@ function VectorModes() {
       {VECTOR_MODES.map((m) => (
         <button
           key={m.mode}
-          className={`pf-btn h-7 px-2 gap-1.5 ${mode === m.mode ? 'bg-[var(--pf-accent-solid)] text-white' : ''}`}
+          className={`pf-btn h-[30px] px-2 gap-1.5 ${mode === m.mode ? 'bg-[var(--pf-accent-solid)] text-white' : ''}`}
           title={`${m.title} — ${m.hint}`}
           aria-pressed={mode === m.mode}
           onClick={() => setMode(m.mode)}
@@ -183,7 +347,6 @@ export function BottomBar() {
   const tool = useEditor((s) => s.tool)
   const setTool = useEditor((s) => s.setTool)
   const selection = useEditor((s) => s.selection)
-  const zoom = useEditor((s) => s.camera.zoom)
   const vectorEditId = useEditor((s) => s.vectorEditId)
   const canBool = selection.length >= 2 && topSelection().length >= 2
 
@@ -270,28 +433,7 @@ export function BottomBar() {
         >
           <FocusIcon />
         </button>
-        <div className="flex items-center gap-0.5 rounded-md bg-[var(--pf-bg-2)] p-0.5">
-          <button className="pf-tool-btn h-6 w-6" title="Zoom out — Ctrl+−" aria-label="Zoom out" onClick={() => zoomAt(null, 0.8)}>
-            <MinusIcon />
-          </button>
-          <button
-            className="pf-btn h-6 px-2 text-[11px] tabular-nums min-w-[3.25rem]"
-            // The readout fits the whole page; the focus button beside it is
-            // the one that goes to the selection.
-            title="Zoom to fit the page — Shift+1 (right-click for presets)"
-            onClick={() => zoomToFit()}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              const next = ZOOM_PRESETS.find((z) => z > zoom + 0.01) ?? ZOOM_PRESETS[0]
-              zoomAt(null, next / zoom)
-            }}
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <button className="pf-tool-btn h-6 w-6" title="Zoom in — Ctrl+=" aria-label="Zoom in" onClick={() => zoomAt(null, 1.25)}>
-            <PlusIcon />
-          </button>
-        </div>
+        <ZoomMenu />
       </div>
     </div>
   )

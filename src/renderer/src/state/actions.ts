@@ -22,6 +22,7 @@ import type { PatchOp, NodeBundle } from '../engine/commands'
 import { applyOp, extractBundle, makeUpdateOp, reIdBundle, removeSubtreeOps, undoOps } from '../engine/commands'
 import { constrainFrameChildren, type ChildRect } from '../engine/constraints'
 import { applyMat, matInvert, matMultiply, aabbIsEmpty, aabbUnion, emptyAABB, type AABB } from '../engine/geometry'
+import { MIN_ZOOM, clampZoom } from '../engine/zoom'
 import { documentStore } from './document'
 import { editor } from './editor'
 import { assetCache } from '../engine/assets'
@@ -1033,15 +1034,25 @@ export function zoomAt(screenPt: Vec2 | null, factor: number): void {
   const { camera, viewportSize } = editor.get()
   const pt = screenPt ?? { x: viewportSize.w / 2, y: viewportSize.h / 2 }
   const worldBefore = { x: pt.x / camera.zoom + camera.x, y: pt.y / camera.zoom + camera.y }
-  const zoom = Math.max(0.02, Math.min(64, camera.zoom * factor))
+  const zoom = clampZoom(camera.zoom * factor)
   editor.set({ camera: { zoom, x: worldBefore.x - pt.x / zoom, y: worldBefore.y - pt.y / zoom } })
 }
 
-export function zoomActual(): void {
+/**
+ * Zoom to an exact level, keeping the middle of the viewport where it is — what
+ * a typed percentage and the preset rows mean. A factor would have to be derived
+ * from the current zoom, and 1.25 × 0.8 does not come back to where it started.
+ */
+export function zoomTo(level: number): void {
   const { camera, viewportSize } = editor.get()
+  const zoom = clampZoom(level)
   const cx = camera.x + viewportSize.w / (2 * camera.zoom)
   const cy = camera.y + viewportSize.h / (2 * camera.zoom)
-  editor.set({ camera: { zoom: 1, x: cx - viewportSize.w / 2, y: cy - viewportSize.h / 2 } })
+  editor.set({ camera: { zoom, x: cx - viewportSize.w / (2 * zoom), y: cy - viewportSize.h / (2 * zoom) } })
+}
+
+export function zoomActual(): void {
+  zoomTo(1)
 }
 
 /** Centre a world box in the viewport with room to breathe around it. */
@@ -1053,7 +1064,9 @@ function zoomToBox(box: AABB, margin = 60): void {
   }
   const w = box.maxX - box.minX
   const h = box.maxY - box.minY
-  const zoom = Math.max(0.02, Math.min(4, Math.min((viewportSize.w - margin * 2) / w, (viewportSize.h - margin * 2) / h)))
+  // Its own ceiling, deliberately lower than MAX_ZOOM: fitting a 4px dot should
+  // not land you at 6400%.
+  const zoom = Math.max(MIN_ZOOM, Math.min(4, Math.min((viewportSize.w - margin * 2) / w, (viewportSize.h - margin * 2) / h)))
   editor.set({
     camera: {
       zoom,
