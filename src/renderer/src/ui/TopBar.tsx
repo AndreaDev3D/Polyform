@@ -16,6 +16,7 @@ import { documentStore, useDocVersion } from '../state/document'
 import { PolyformMark } from './icons'
 import { MenuBar } from './MenuBar'
 import { useTitlebarGeometry } from './titlebar'
+import { UpdateBadge, useUpdate } from './Updates'
 
 /** "Is my work safe?" — the whole reason a Save button can be taken away. */
 function SaveState() {
@@ -57,6 +58,7 @@ export function TopBar() {
   const selection = useEditor((s) => s.selection)
   const title = documentStore.projectInfo?.manifest.title ?? 'Untitled'
   const { inset, height } = useTitlebarGeometry()
+  const update = useUpdate()
   const isMac = window.polyform.platform === 'darwin'
 
   return (
@@ -85,6 +87,11 @@ export function TopBar() {
             {selection.length} selected
           </span>
         )}
+
+        {/* Right-most, next to the window buttons, and absent unless there is
+            something to do about an update. The same component and the same state
+            as the welcome screen's panel. */}
+        <UpdateBadge model={update} />
       </div>
       {/* The divider is its own row, not a border on the bar above. The OS paints
           the window buttons over the whole titlebar area it reports — the full

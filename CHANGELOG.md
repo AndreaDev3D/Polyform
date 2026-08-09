@@ -6,6 +6,23 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Updates download and install themselves now, and the UI says what is happening.**
+  A badge appears in the title bar the moment an update is found — *Update
+  v0.8.0-beta.21*, then a progress fill while it downloads, then a green *Restart to
+  update* — and it is absent the rest of the time, because a permanent "up to date"
+  chip is noise. The welcome screen's cramped line became a panel: the state in a
+  sentence, one primary action, release notes, and three preferences (check on launch ·
+  include betas · install automatically).
+  - **Installing is user-initiated, or opted into, and never silent by default.**
+    Nothing is code signed yet, so electron-updater still has no signature to verify
+    (F-10, ADR-028). What changed from v0.7 is who decides, and with what in front of
+    them: the words *"not code signed yet"* sit beside the button.
+  - **macOS says so instead of pretending.** Squirrel.Mac applies an update only if it
+    is signed by the running app's team and wants a `zip` feed rather than a dmg, so
+    there the button opens the release page. The renderer learns that from `canInstall`
+    rather than repeating a platform check.
+  - Verified end to end on a packaged build: a real 137 MB download from the release,
+    through *available* → *downloading* → *Restart to update*.
 - **A beta channel you can opt into, and a branch layout that feeds it.** `staging`
   and `production` now mean two different kinds of release: every push to `staging`
   publishes `0.8.0-beta.<run>` as a GitHub **pre-release**, and a version bump on
@@ -95,6 +112,23 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **A gradient stroke on a line painted nothing, and "Align" was a control that
+  lied** (F-30, reported from an imported file). Both come from one fact that is not
+  an edge case: a LINE has height 0 — that is what a line *is* here.
+  - A paint's start/end are unit coordinates mapped through the node's box, so on a
+    line the vertical axis collapses and the default vertical gradient's two ends
+    land on the *same point*. Canvas2D paints a zero-length gradient as transparent
+    and the GPU shader has no axis to project onto: weight 65, colours set, nothing
+    on screen, no error. Strokes now map through the box the **stroke covers** — half
+    its weight either side of the path — from one shared function, so Canvas2D and
+    WebGPU cannot drift (`engine/paintbox.ts`).
+  - "Inside" and "Outside" need an interior. Both renderers already forced Center for
+    open geometry, while the inspector let you pick Outside, stored it, and displayed
+    it as current. The control is now disabled for lines and open paths, shows Center,
+    and says why in its hint.
+  - Verified by sampling canvas pixels across the band — red → purple → blue — not by
+    reading the model back, which was correct all along and is exactly why no test
+    caught it.
 - **`.fig` import placed rotated layers wrongly, and five other things** (F-28). Found by rendering the three test files next to Figma rather than by any test — every check the importer had passed while a quarter of one file sat in the wrong place, because all of them examined our output alone. Nonsense also has finite coordinates.
   - **Rotation pivot (the visible one).** Figma's per-node matrix maps the node's local space, whose origin is the box's **top-left corner**, so its translation says where that corner goes and the rotation turns the box about it. We store an unrotated box and turn it about its **centre**. Copying the translation into x/y offset every rotated node by the gap between those pivots — **24 of Dipped.fig's 60 nodes**, one 90° bar landing 260 units away. The conversion is exact: `(x, y) = t + M·c − c`.
   - **A boolean's operands were drawn on top of its result.** A shape node with children is a boolean operation and its children are the operands, which the flattened result already contains; hoisting them next to it drew the union *and* both shapes it was made from. Twenty of those turned a logo into a black scribble.

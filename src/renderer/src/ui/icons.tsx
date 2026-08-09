@@ -96,6 +96,23 @@ export const CheckIcon = (p: P) => (
     <path d="M3.5 8.5l3 3 6-7" strokeWidth="1.6" />
   </I>
 )
+/** Update available: an arrow into a tray. */
+export const DownloadIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 2v7.5" />
+    <path d="M5 7l3 3 3-3" />
+    <path d="M3 12.5h10" />
+  </I>
+)
+
+/** Restart to install: a circular arrow. */
+export const RestartIcon = (p: P) => (
+  <I {...p}>
+    <path d="M13 8a5 5 0 1 1-1.6-3.7" />
+    <path d="M13 2.5V5h-2.5" />
+  </I>
+)
+
 export const PlusIcon = (p: P) => (
   <I {...p}>
     <path d="M8 3v10M3 8h10" />

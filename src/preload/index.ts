@@ -31,6 +31,10 @@ const api: PolyformApi = {
   openReleases: () => ipcRenderer.invoke('update:openReleases'),
   updateOnLaunch: (enabled) => ipcRenderer.invoke('update:onLaunch', enabled),
   updateBeta: (enabled) => ipcRenderer.invoke('update:beta', enabled),
+  updateAutoInstall: (enabled) => ipcRenderer.invoke('update:autoInstall', enabled),
+  updateStatusNow: () => ipcRenderer.invoke('update:statusNow'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
   onUpdateStatus: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, status: UpdateStatus) => cb(status)
     ipcRenderer.on('update:status', listener)

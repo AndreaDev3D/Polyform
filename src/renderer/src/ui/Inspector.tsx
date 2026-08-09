@@ -27,6 +27,7 @@ import type {
   VectorNode,
 } from '../engine/types'
 import { defaultPose, solid } from '../engine/types'
+import { strokeAlignApplies } from '../engine/paintbox'
 import { isFullEllipse } from '../engine/shapes'
 import { setVertexMirror } from '../engine/vector-edit'
 import { isSplatFormat } from '../render3d/island'
@@ -176,6 +177,11 @@ export function Inspector() {
   const showCorners = cornersExpanded ?? cornersDiffer
 
   const first = nodes[0]
+
+  // Every selected node must be able to carry an alignment for the control to mean
+  // anything: with a line in the selection, "Outside" would apply to some and be
+  // silently ignored on the rest.
+  const alignApplies = nodes.every((n) => strokeAlignApplies(n))
 
   const common = <T,>(get: (n: SceneNode) => T): T | null => {
     const v = get(first)
@@ -728,9 +734,24 @@ export function Inspector() {
                 onCommit={(v) => commit(() => ({ strokeWeight: v }), 'Set Stroke Weight')}
               />
             </Field>
-            <Field label="Align" hint="Which side of the path the stroke sits on">
+            {/* Alignment needs an interior. A line has none, and neither does an
+                open path, so both renderers draw those centred whatever is stored —
+                which made this control a place to pick a value nothing read, and
+                then see it displayed as if it had taken effect. Disabled, showing
+                Center, with the reason in the hint. */}
+            <Field
+              label="Align"
+              hint={
+                alignApplies
+                  ? 'Which side of the path the stroke sits on'
+                  : 'Only closed shapes have an inside — an open path is always centred'
+              }
+            >
               <Select
-                value={(common((n) => n.strokeAlign) ?? '') as 'CENTER' | 'INSIDE' | 'OUTSIDE' | ''}
+                value={
+                  alignApplies ? ((common((n) => n.strokeAlign) ?? '') as 'CENTER' | 'INSIDE' | 'OUTSIDE' | '') : 'CENTER'
+                }
+                disabled={!alignApplies}
                 options={[
                   { value: 'INSIDE', label: 'Inside' },
                   { value: 'CENTER', label: 'Center' },

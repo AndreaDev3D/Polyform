@@ -5,10 +5,11 @@
 // answered by a picture far faster than by a filename.
 
 import { useEffect, useRef, useState } from 'react'
-import type { RecentEntry, UpdateStatus } from '../../../shared/types'
+import type { RecentEntry } from '../../../shared/types'
 import { newProjectFlow, openProjectFlow } from '../state/actions'
 import { FolderIcon, PlusIcon, PolyformMark } from './icons'
 import { useTitlebarGeometry } from './titlebar'
+import { UpdateBadge, UpdatePanel, useUpdate } from './Updates'
 
 /** Blob URLs for the previews, loaded lazily and revoked on unmount. */
 function useThumbnails(recents: RecentEntry[]): Map<string, string> {
@@ -72,33 +73,31 @@ function parentDir(bundlePath: string): string {
 export function WelcomeScreen() {
   const [recents, setRecents] = useState<RecentEntry[]>([])
   const [version, setVersion] = useState('')
-  const [update, setUpdate] = useState<UpdateStatus | null>(null)
-  const [onLaunch, setOnLaunch] = useState(false)
-  const [beta, setBeta] = useState(false)
+  const update = useUpdate()
   const thumbs = useThumbnails(recents)
-  const { height: titlebarHeight } = useTitlebarGeometry()
+  const { height: titlebarHeight, inset: titlebarInset } = useTitlebarGeometry()
   const mod = window.polyform.platform === 'darwin' ? '⌘' : 'Ctrl'
 
   useEffect(() => {
     void window.polyform.recentsList().then(setRecents)
     void window.polyform.appVersion().then(setVersion)
-    void window.polyform.updateOnLaunch().then(setOnLaunch)
-    void window.polyform.updateBeta().then(setBeta)
-    // A launch check reports through the same line this button writes to.
-    return window.polyform.onUpdateStatus(setUpdate)
   }, [])
-
-  const runCheck = async () => {
-    setUpdate({ state: 'checking' })
-    setUpdate(await window.polyform.checkUpdates())
-  }
 
   return (
     <div className="pf-welcome h-full flex flex-col">
       {/* This screen has no title bar of its own, and a frameless window with
           no drag region cannot be moved at all. Reserve the same strip the
           title bar occupies elsewhere. */}
-      <div className="pf-drag shrink-0" style={{ height: titlebarHeight }} />
+      {/* The reserved strip is not decoration any more: the badge lives here, to
+          the left of the OS window buttons, exactly where it sits once a project
+          is open (TopBar). Padded by the OS-reported inset so it never lands
+          under the controls. */}
+      <div
+        className="pf-drag shrink-0 flex items-center justify-end"
+        style={{ height: titlebarHeight, paddingRight: titlebarInset + 8 }}
+      >
+        <UpdateBadge model={update} />
+      </div>
       <div className="flex-1 overflow-y-auto">
       {/* Centred vertically while the content is short, top-aligned and
           scrolling once the recents grid outgrows the window. */}
@@ -142,68 +141,11 @@ export function WelcomeScreen() {
           </div>
 
           {/* Updates live here rather than in a settings panel, because this is
-              the screen you are on just after installing. The launch check is
-              off until asked for: the paragraph above promises nothing phones
-              home, and that has to stay true by default. */}
-          <div className="mt-4 text-[11px] text-[var(--pf-text-dim)]">
-            <div className="flex items-center gap-2">
-              <button
-                className="text-[var(--pf-accent)] hover:underline disabled:opacity-50"
-                disabled={update?.state === 'checking'}
-                onClick={() => void runCheck()}
-              >
-                {update?.state === 'checking' ? 'Checking…' : 'Check for updates'}
-              </button>
-              <label className="flex items-center gap-1.5 ml-auto cursor-default">
-                <input
-                  type="checkbox"
-                  className="accent-[var(--pf-accent-solid)]"
-                  checked={onLaunch}
-                  onChange={(e) => {
-                    setOnLaunch(e.target.checked)
-                    void window.polyform.updateOnLaunch(e.target.checked)
-                  }}
-                />
-                on launch
-              </label>
-              {/* Beta opt-in. Named "pre-release" in the tooltip rather than
-                  "unstable": these builds pass the same gates a release does —
-                  what they have not had is a human reading the release. */}
-              <label
-                className="flex items-center gap-1.5 cursor-default"
-                title="Offer pre-release builds (0.8.0-beta.N) from the staging branch. Polyform still only tells you — it never installs."
-              >
-                <input
-                  type="checkbox"
-                  className="accent-[var(--pf-accent-solid)]"
-                  checked={beta}
-                  onChange={(e) => {
-                    setBeta(e.target.checked)
-                    void window.polyform.updateBeta(e.target.checked)
-                    // Re-check straight away: the point of ticking this is to find
-                    // out whether there IS a beta, and making someone press the
-                    // button again to learn that is a worse answer than an answer.
-                    if (e.target.checked) void runCheck()
-                  }}
-                />
-                betas
-              </label>
-            </div>
-            {update && update.state !== 'checking' && (
-              <div className="mt-1.5">
-                {update.state === 'available' ? (
-                  <button className="text-left text-[var(--pf-accent)] hover:underline" onClick={() => void window.polyform.openReleases()}>
-                    {update.message ?? `Polyform ${update.version} is available.`}
-                  </button>
-                ) : (
-                  <span>
-                    {update.state === 'current'
-                      ? `You have the latest version (${update.version}).`
-                      : (update.message ?? 'Could not check for updates.')}
-                  </span>
-                )}
-              </div>
-            )}
+              the screen you are on just after installing. The panel owns its own
+              state and preferences (ui/Updates.tsx) so the title-bar badge and
+              this cannot disagree about what was found. */}
+          <div className="mt-4">
+            <UpdatePanel model={update} version={version ? `v${version}` : ''} />
           </div>
         </div>
 

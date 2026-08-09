@@ -9,6 +9,7 @@ import type { SpatialIndex } from '../spatial-index'
 import type { AABB } from '../geometry'
 import { aabbIntersects, matInvert } from '../geometry'
 import type { SubPath } from '../shapes'
+import { fillPaintBox, paintPoint, strokePaintBox, type PaintBox } from '../paintbox'
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { layoutText } from '../text'
@@ -96,25 +97,33 @@ function ringsToPath2D(rings: { x: number; y: number }[][]): Path2D {
   return path
 }
 
+/**
+ * A paint as a Canvas2D style, with the gradient mapped through `box` rather than
+ * through the node's size. The box matters: a stroke on a LINE has to use the box
+ * the STROKE covers, because the node's own height is 0 and a gradient mapped
+ * through it collapses to a zero-length one, which Canvas2D paints as fully
+ * transparent (see engine/paintbox.ts).
+ */
 function paintStyle(
   ctx: CanvasRenderingContext2D,
   paint: Paint,
-  w: number,
-  h: number,
+  box: PaintBox,
 ): string | CanvasGradient | null {
   if (paint.type === 'SOLID') return rgbaToCss(paint.color, paint.opacity)
   if (paint.type === 'GRADIENT_LINEAR') {
-    const g = ctx.createLinearGradient(paint.start.x * w, paint.start.y * h, paint.end.x * w, paint.end.y * h)
+    const from = paintPoint(box, paint.start)
+    const to = paintPoint(box, paint.end)
+    const g = ctx.createLinearGradient(from.x, from.y, to.x, to.y)
     for (const stop of paint.stops) {
       g.addColorStop(Math.max(0, Math.min(1, stop.position)), rgbaToCss(stop.color, paint.opacity))
     }
     return g
   }
   if (paint.type === 'GRADIENT_RADIAL') {
-    const cx = paint.start.x * w
-    const cy = paint.start.y * h
-    const r = Math.max(1e-3, Math.hypot((paint.end.x - paint.start.x) * w, (paint.end.y - paint.start.y) * h))
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
+    const from = paintPoint(box, paint.start)
+    const to = paintPoint(box, paint.end)
+    const r = Math.max(1e-3, Math.hypot(to.x - from.x, to.y - from.y))
+    const g = ctx.createRadialGradient(from.x, from.y, 0, from.x, from.y, r)
     for (const stop of paint.stops) {
       g.addColorStop(Math.max(0, Math.min(1, stop.position)), rgbaToCss(stop.color, paint.opacity))
     }
@@ -191,7 +200,7 @@ function fillPath(
     if (paint.type === 'IMAGE') {
       drawImagePaint(ctx, paint, path, node.width, node.height, fillRule, assets)
     } else {
-      const style = paintStyle(ctx, paint, node.width, node.height)
+      const style = paintStyle(ctx, paint, fillPaintBox(node))
       if (!style) continue
       ctx.fillStyle = style
       ctx.fill(path, fillRule)
@@ -209,10 +218,14 @@ function strokePath(
 ): void {
   const weight = node.strokeWeight
   if (weight <= 0) return
+  // Open geometry has no inside, so alignment cannot mean anything (paintbox.ts:
+  // strokeAlignApplies is the same rule, and the inspector disables the control on
+  // the strength of it instead of storing a value nothing reads).
   const align = hasClosedGeometry ? node.strokeAlign : 'CENTER'
   for (const paint of node.strokes) {
     if (!paint.visible || paint.type === 'IMAGE') continue
-    const style = paintStyle(ctx, paint, node.width, node.height)
+    // The stroke's own box, not the node's: on a line the node has no height.
+    const style = paintStyle(ctx, paint, strokePaintBox(node))
     if (!style) continue
     ctx.strokeStyle = style
     if (node.strokeDash.length > 0) ctx.setLineDash(node.strokeDash)
@@ -338,7 +351,7 @@ function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type
   const paint = node.fills.find((f) => f.visible)
   if (!paint) return
   const style =
-    paint.type === 'IMAGE' ? 'rgba(0,0,0,1)' : (paintStyle(ctx, paint, node.width, node.height) ?? 'rgba(0,0,0,1)')
+    paint.type === 'IMAGE' ? 'rgba(0,0,0,1)' : (paintStyle(ctx, paint, fillPaintBox(node)) ?? 'rgba(0,0,0,1)')
   if (layout.shaped) {
     // Shaped path: fill the actual glyph outlines. One combined Path2D per
     // node keeps gradient fills aligned to node space.

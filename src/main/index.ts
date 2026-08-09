@@ -10,7 +10,7 @@ import { parseCliCommand, runCli } from './cli'
 import { bgModelEnsure, bgModelRead, bgModelStatus, bgOrtRuntimeRead } from './bgmodel'
 import { mcpStart, mcpStop, mcpStatus, mcpSetGrants, onMcpStatus } from './mcp'
 import { readSettings, writeSettings } from './settings'
-import { checkForUpdates, openReleasesPage } from './updater'
+import { checkForUpdates, downloadUpdate, installUpdate, openReleasesPage, updateStatus } from './updater'
 import { listRecents, pushRecent, readRecentThumbnail } from './recents'
 import { clickMenuItem, installMenu } from './menu'
 
@@ -389,6 +389,15 @@ function registerIpc(): void {
     if (typeof enabled === 'boolean') return (await writeSettings({ betaUpdates: enabled })).betaUpdates
     return (await readSettings()).betaUpdates
   })
+  ipcMain.handle('update:autoInstall', async (_e, enabled?: boolean) => {
+    if (typeof enabled === 'boolean') return (await writeSettings({ autoInstallUpdates: enabled })).autoInstallUpdates
+    return (await readSettings()).autoInstallUpdates
+  })
+  // The current status, for a window that opened after a check already ran: the
+  // header badge cannot learn about a launch check from an event it missed.
+  ipcMain.handle('update:statusNow', () => updateStatus())
+  ipcMain.handle('update:download', () => downloadUpdate())
+  ipcMain.handle('update:install', () => installUpdate())
 
   ipcMain.handle('app:licenses', async () => {
     const candidates = app.isPackaged

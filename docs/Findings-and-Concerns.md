@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.8 (F-01…F-29)
+**Project:** Polyform — current through v0.8 (F-01…F-30)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -38,6 +38,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-27](#f-27-synthetic-input-is-not-a-gesture-the-apps-time-windows-decide-not-the-events) | Synthetic input is not a gesture: time windows decide (fixed v0.7) | Process |
 | [F-28](#f-28-an-importer-can-only-be-checked-against-the-thing-it-imported) | An importer can only be checked against its source (fixed v0.7) | Fixed (High while live) |
 | [F-29](#f-29-the-update-feed-was-never-published-so-the-feature-could-only-ever-have-failed) | Update checking was never run in a packaged app — three defects (fixed v0.8) | Fixed (High while live) |
+| [F-30](#f-30-a-degenerate-box-is-normal-geometry-and-a-setting-nothing-reads-is-a-lie) | Zero-extent geometry ate gradients; the inspector offered a no-op (fixed v0.8) | Fixed |
 
 ---
 
@@ -706,6 +707,22 @@ Two things fell out of that. The library reports "no published stable release" a
 
 ---
 
+## F-30. A degenerate box is normal geometry, and a setting nothing reads is a lie
+
+**Severity: Med** — a gradient stroke on a LINE painted nothing at all, in both renderers; and the inspector let you choose a stroke alignment that both renderers discard. Reported by a user on an imported file, fixed in v0.8.
+
+Both bugs come from the same fact, and it is not an edge case: **a LINE has height 0.** That *is* what a line is in this model — a segment along its own x-axis, with a stroke and no interior.
+
+**The gradient.** A paint's `start`/`end` are unit coordinates mapped through the node's box. On a line the vertical axis collapses, so the default vertical gradient's start and end land on the *same point*. Canvas2D paints a zero-length linear gradient as fully transparent; the GPU shader has a zero-length axis to project onto. Weight 65, colour set, stops correct — nothing on screen, no error anywhere. The box that means something for a stroke is the box the **stroke covers**: half its weight either side of the path, which is now what both renderers use (`engine/paintbox.ts`, one arithmetic shared by Canvas2D and WebGPU so the two cannot drift).
+
+**The setting.** "Inside" and "Outside" need an interior. Both renderers already forced CENTER for open geometry — correctly — while the inspector let you pick Outside, stored it, and then *displayed Outside as the current value*. Every layer of that is defensible alone; together they are a control that lies. The rule now lives beside the paint box (`strokeAlignApplies`), the inspector disables the control and shows Center with the reason in its hint, and the renderer's comment points at the same function.
+
+**Why no test saw either.** The unit tests build documents and assert on the *model*, which was perfectly correct: `strokeAlign: 'OUTSIDE'` was stored and read back. The pixels were never asked. The new tests assert the thing that actually failed — that mapping a vertical gradient across a line yields **two different points** — and pin the old behaviour beside it (`paintPoint` through the node box returns the same point twice) so the regression cannot come back quietly. Verified live by sampling canvas pixels across the band: `[232,56,73]` through `[150,77,155]` to `[68,97,237]`, red through purple to blue.
+
+**Standing obligation.** Zero, one-dimensional and empty are *values*, not exceptions: a line has no height, an empty group has no box, a single-vertex path has no direction. Any arithmetic that divides by an extent, normalises by a size, or maps a unit coordinate through a box needs to say what it does when that quantity is zero — at the point of use, not in a guard clause somewhere upstream. And when a renderer normalises a stored value away, the editor must stop offering it; a setting that is stored, shown, and ignored is worse than one that is missing, because it reads as a feature that does not work.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -719,4 +736,5 @@ Three themes run through every entry:
 7. **A green pipeline is not a running one.** F-26 removed a gate and reported success, and F-24/F-25 were both found by reading what actually happened rather than what the summary said. Ask of every check: if the thing it guards were broken right now, would this run be red? For a condition, the question is narrower and sharper — did the job I expected actually *run*?
 8. **A conversion is only verified against its source.** F-28's importer passed every check it had while placing a quarter of its nodes wrongly, because all of them examined our output alone — and one of them had frozen the bug as the expected value. Whenever code converts between representations, at least one check has to hold the output against the *input*, derived independently.
 9. **Two halves built by different tools will disagree.** F-29's publisher wrote `latest.yml` while the client asked for `beta.yml`, and each side was self-consistent. Wherever a boundary is crossed by convention rather than by a shared type — file names, wire formats, IPC channel strings, CLI flags — the only test that means anything crosses it too.
-10. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+10. **The model can be right while the picture is wrong.** F-30 stored a stroke alignment faithfully, read it back faithfully, and drew something else; the gradient had correct stops and painted nothing. Tests that assert on documents cannot see either. Where the output is pixels, something has to look at pixels.
+11. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

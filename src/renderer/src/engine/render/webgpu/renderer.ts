@@ -31,6 +31,7 @@
 // renders NORMAL).
 
 import type { NodeId, Paint, SceneNode, BlendMode, DropShadowEffect, Model3dNode } from '../../types'
+import { fillPaintBox, paintPoint, strokePaintBox, type PaintBox } from '../../paintbox'
 import { isFrameLike } from '../../types'
 import {
   getSnapshot,
@@ -855,6 +856,13 @@ export class WebGPURenderer {
     return offset
   }
 
+  /**
+   * @param box Where the paint's unit coordinates land. The node's own box for a
+   *   fill; the box the STROKE covers for a stroke, because a LINE has height 0 and
+   *   a gradient mapped through that has a zero-length axis — the shader then has
+   *   nothing to project onto and the stroke vanishes. Same rule as Canvas2D, from
+   *   the same module, so the two backends stay pixel-comparable (ADR-016).
+   */
   private bakeGradient(
     node: SceneNode,
     paint: Extract<Paint, { type: 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' }>,
@@ -862,19 +870,20 @@ export class WebGPURenderer {
     m: Mat,
     opacity: number,
     blend: number,
+    box: PaintBox,
   ): void {
     if (mesh.indices.length === 0 || paint.stops.length === 0) return
     this.endBatch()
     const loc = this.appendLocalMesh(mesh.positions, mesh.indices)
     const offset = this.allocUniform(GRADIENT_UNIFORM_SIZE)
     const f = new Float32Array(this.uniformData.buffer, offset, GRADIENT_UNIFORM_SIZE / 4)
-    const w = node.width
-    const h = node.height
-    f.set([m.a, m.b, m.c, m.d, m.e, m.f, w, h], 0)
-    const sx = paint.start.x * w
-    const sy = paint.start.y * h
-    const ex = paint.end.x * w
-    const ey = paint.end.y * h
+    f.set([m.a, m.b, m.c, m.d, m.e, m.f, box.w, box.h], 0)
+    const from = paintPoint(box, paint.start)
+    const to = paintPoint(box, paint.end)
+    const sx = from.x
+    const sy = from.y
+    const ex = to.x
+    const ey = to.y
     f.set([sx, sy, ex, ey], 8)
     const radial = paint.type === 'GRADIENT_RADIAL'
     const radius = Math.max(1e-3, Math.hypot(ex - sx, ey - sy))
@@ -1226,7 +1235,7 @@ export class WebGPURenderer {
     } else if (paint.type === 'IMAGE') {
       this.bakeImage(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity, blend)
     } else {
-      this.bakeGradient(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity, blend)
+      this.bakeGradient(node, paint, { positions: mesh.fillPositions, indices: mesh.fillIndices }, m, opacity, blend, fillPaintBox(node))
     }
   }
 
@@ -1253,7 +1262,7 @@ export class WebGPURenderer {
       if (paint.type === 'SOLID') {
         this.appendSolid(mesh.strokePositions, mesh.strokeIndices, m, this.paintColor(paint, opacity), blend)
       } else {
-        this.bakeGradient(node, paint, { positions: mesh.strokePositions, indices: mesh.strokeIndices }, m, opacity, blend)
+        this.bakeGradient(node, paint, { positions: mesh.strokePositions, indices: mesh.strokeIndices }, m, opacity, blend, strokePaintBox(node))
       }
     }
     if (needsClip) {

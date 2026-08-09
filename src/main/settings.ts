@@ -28,9 +28,19 @@ export interface Settings {
    * whose gates passed and whose *release* nobody read.
    */
   betaUpdates: boolean
+  /**
+   * Download an update as soon as one is found and apply it on quit.
+   *
+   * OFF by default and that is deliberate rather than shy: nothing is signed yet, so
+   * electron-updater has no signature to verify (F-10, ADR-028). Ticking this is a
+   * decision to run bytes from a GitHub release without that check — reasonable for
+   * someone following their own dev builds, not a default to give strangers. With it
+   * off, downloading still happens, but only because someone pressed the button.
+   */
+  autoInstallUpdates: boolean
 }
 
-const DEFAULTS: Settings = { checkUpdatesOnLaunch: false, betaUpdates: false }
+const DEFAULTS: Settings = { checkUpdatesOnLaunch: false, betaUpdates: false, autoInstallUpdates: false }
 
 let cache: Settings | null = null
 

@@ -90,10 +90,22 @@ export type McpGrants = Record<McpCapability, boolean>
  * integrity check is signature verification (F-10) — see main/updater.ts.
  */
 export interface UpdateStatus {
-  state: 'idle' | 'checking' | 'available' | 'current' | 'error' | 'unsupported'
+  state: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'current' | 'error' | 'unsupported'
   version?: string
   url?: string
   message?: string
+  /** 0–100 while downloading. */
+  percent?: number
+  /** Download rate, for the line under the bar. */
+  bytesPerSecond?: number
+  /** The version named is a pre-release, so the UI can say "beta" out loud. */
+  beta?: boolean
+  /**
+   * Whether this platform can apply an update at all. False on macOS, where
+   * Squirrel.Mac refuses an update that is not signed by the running app's team —
+   * so the button opens the release page instead of promising an install.
+   */
+  canInstall?: boolean
 }
 
 export interface McpStatus {
@@ -218,6 +230,14 @@ export interface PolyformApi {
   updateOnLaunch: (enabled?: boolean) => Promise<boolean>
   /** Read (no argument) or set the beta/pre-release opt-in. */
   updateBeta: (enabled?: boolean) => Promise<boolean>
+  /** Read (no argument) or set "download and install automatically". */
+  updateAutoInstall: (enabled?: boolean) => Promise<boolean>
+  /** The status right now, for a window that missed the event. */
+  updateStatusNow: () => Promise<UpdateStatus>
+  /** Fetch the update the last check found; progress arrives on update:status. */
+  downloadUpdate: () => Promise<UpdateStatus>
+  /** Quit and apply what was downloaded. */
+  installUpdate: () => Promise<UpdateStatus>
   onUpdateStatus: (cb: (status: UpdateStatus) => void) => () => void
   historyAppend: (label: string, opsJson: string) => Promise<number>
   historySetCursor: (cursor: number) => Promise<void>

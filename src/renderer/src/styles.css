@@ -572,3 +572,122 @@ textarea {
   color: var(--pf-text);
   margin-bottom: 6px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Updates: a title-bar badge and a welcome-screen panel.
+ *
+ * The badge is the only thing in the app that appears on its own initiative, so
+ * it is styled to be noticed and then to stop being interesting: accent while
+ * there is something to fetch, neutral-with-a-fill while fetching, green once it
+ * is ready to apply. It sits inside the window's drag region, which is why every
+ * interactive one carries .pf-nodrag in the markup.
+ * ------------------------------------------------------------------------ */
+.pf-update-badge {
+  @apply relative inline-flex items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium cursor-default overflow-hidden shrink-0;
+  height: 22px;
+  color: #fff;
+  background: var(--pf-accent-solid);
+  transition: background var(--pf-dur-fast) var(--pf-ease);
+}
+.pf-update-badge:hover {
+  background: var(--pf-accent-solid-hover);
+}
+.pf-update-badge:focus-visible {
+  outline: 2px solid var(--pf-accent);
+  outline-offset: 2px;
+}
+/* Downloading: not a button — nothing to press — so no hover response. */
+.pf-update-badge--progress,
+.pf-update-badge--progress:hover {
+  background: var(--pf-bg-3);
+  color: var(--pf-text);
+  cursor: default;
+}
+.pf-update-badge-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--pf-accent-solid) 70%, transparent);
+  transition: width 160ms var(--pf-ease);
+}
+.pf-update-badge--ready,
+.pf-update-badge--ready:hover {
+  background: #2e7d4f;
+}
+.pf-update-badge--ready:hover {
+  background: #35915b;
+}
+
+.pf-update-panel {
+  @apply flex flex-col gap-2 rounded-lg p-3;
+  background: color-mix(in srgb, var(--pf-bg-2) 70%, transparent);
+  border: 1px solid var(--pf-border-soft);
+}
+.pf-update-panel-head {
+  @apply flex items-center justify-between text-[11px];
+  color: var(--pf-text-dim);
+}
+.pf-update-line {
+  @apply text-[11px] leading-snug;
+  color: var(--pf-text-dim);
+}
+.pf-update-line--warn {
+  color: var(--pf-danger);
+}
+.pf-update-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pf-bg-3);
+  overflow: hidden;
+}
+.pf-update-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--pf-accent-solid);
+  transition: width 160ms var(--pf-ease);
+}
+.pf-update-actions {
+  @apply flex items-center gap-2.5 flex-wrap;
+}
+.pf-update-primary {
+  @apply inline-flex items-center rounded px-2.5 text-[11px] font-medium cursor-default;
+  height: 26px;
+  color: #fff;
+  background: var(--pf-accent-solid);
+}
+.pf-update-primary:hover {
+  background: var(--pf-accent-solid-hover);
+}
+.pf-update-secondary {
+  @apply inline-flex items-center rounded px-2.5 text-[11px] cursor-default;
+  height: 26px;
+  color: var(--pf-text);
+  background: var(--pf-bg-3);
+}
+.pf-update-secondary:hover {
+  background: color-mix(in srgb, var(--pf-bg-3) 70%, #fff 8%);
+}
+.pf-update-primary:disabled,
+.pf-update-secondary:disabled {
+  opacity: 0.5;
+}
+.pf-update-link {
+  @apply text-[11px] cursor-default;
+  color: var(--pf-accent);
+}
+.pf-update-link:hover {
+  text-decoration: underline;
+}
+.pf-update-caveat {
+  @apply text-[10px];
+  color: var(--pf-text-dim);
+}
+.pf-update-toggles {
+  @apply flex flex-col gap-1 pt-0.5;
+}
+.pf-update-toggle {
+  @apply flex items-center gap-1.5 text-[11px] cursor-default;
+  color: var(--pf-text-dim);
+}
+.pf-update-toggle:hover {
+  color: var(--pf-text);
+}
