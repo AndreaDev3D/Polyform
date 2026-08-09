@@ -213,6 +213,85 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // A GROUP used as a mask clips to the UNION OF WHAT IS INSIDE IT. Clipping to
+    // its box instead shows the whole rectangle, which is what an imported logo
+    // did (F-33). Three fixtures rather than one, so the gate names the mask that
+    // broke instead of just the subject.
+    name: 'mask-group-coverage',
+    badLimit: 0.03,
+    build: (s) => {
+      const letters = make(s, 'GROUP', null, { x: 40, y: 60, width: 320, height: 320, isMask: true })
+      make(s, 'ELLIPSE', letters.id, {
+        x: 0, y: 0, width: 120, height: 120,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+      })
+      make(s, 'RECTANGLE', letters.id, {
+        x: 180, y: 180, width: 140, height: 140, cornerRadius: { tl: 30, tr: 0, br: 30, bl: 0 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 40, y: 60, width: 320, height: 320,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.95, g: 0.55, b: 0.2, a: 1 } }],
+      })
+    },
+  },
+  {
+    // Two contours wound the SAME way: the inner square is a hole under even-odd
+    // and solid under nonzero. A subtracted shape used as a mask is exactly this,
+    // and it is what arrives from a `.fig`. Canvas2D clipped every non-boolean
+    // mask NONZERO while the GPU tessellated the same node EVEN-ODD — a
+    // divergence that sat inside a renderer with a parity gate, because no
+    // fixture used a mask that was not a plain shape (F-22).
+    name: 'mask-evenodd-vector',
+    badLimit: 0.03,
+    build: (s) => {
+      const holed = make(s, 'GROUP', null, { x: 120, y: 60, width: 360, height: 360 })
+      make(s, 'VECTOR', holed.id, {
+        x: 0, y: 0, width: 360, height: 360, isMask: true, windingRule: 'EVENODD',
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+        network: {
+          vertices: [
+            { id: 1, x: 0, y: 0 }, { id: 2, x: 360, y: 0 }, { id: 3, x: 360, y: 360 }, { id: 4, x: 0, y: 360 },
+            { id: 5, x: 90, y: 90 }, { id: 6, x: 270, y: 90 }, { id: 7, x: 270, y: 270 }, { id: 8, x: 90, y: 270 },
+          ],
+          edges: [
+            { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+            { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+            { id: 3, v0: 3, v1: 4, cp0: null, cp1: null },
+            { id: 4, v0: 4, v1: 1, cp0: null, cp1: null },
+            { id: 5, v0: 5, v1: 6, cp0: null, cp1: null },
+            { id: 6, v0: 6, v1: 7, cp0: null, cp1: null },
+            { id: 7, v0: 7, v1: 8, cp0: null, cp1: null },
+            { id: 8, v0: 8, v1: 5, cp0: null, cp1: null },
+          ],
+        },
+      })
+      make(s, 'RECTANGLE', holed.id, {
+        x: 0, y: 0, width: 360, height: 360,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.3, g: 0.75, b: 0.95, a: 1 } }],
+      })
+    },
+  },
+  {
+    // TEXT as a mask clips to its GLYPHS, from the same outlines the Canvas2D
+    // path fills — the GPU tessellates them where it would normally draw atlas
+    // quads, so this is the one place the two text paths meet on the same curves.
+    name: 'mask-text-glyphs',
+    badLimit: 0.05,
+    build: (s) => {
+      const titled = make(s, 'GROUP', null, { x: 30, y: 150, width: 580, height: 140 })
+      make(s, 'TEXT', titled.id, {
+        x: 0, y: 0, width: 580, height: 120, characters: 'MASKED', isMask: true,
+        fontSize: 96, fontFamily: 'Arial', fontWeight: 700,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+      })
+      make(s, 'RECTANGLE', titled.id, {
+        x: 0, y: 0, width: 580, height: 130,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.55, g: 0.9, b: 0.5, a: 1 } }],
+      })
+    },
+  },
+  {
     // Flips ride in the node matrix, and the GPU backend bakes its own copy of
     // every transform — so a mirrored node is exactly the sort of thing that can
     // come out right on one rasterizer and backwards on the other. Every shape

@@ -6,7 +6,7 @@
 //   - SVG export (path data strings)
 
 import type { CornerRadius, SceneNode, Vec2, VectorNetwork } from './types'
-import { flattenCubic } from './geometry'
+import { applyMat, flattenCubic, type Mat } from './geometry'
 import { useWasm, wasmHandle } from './backend'
 import { decodeRings, decodeSubPaths, encodeNetwork, encodeSubPaths } from './wasm/codec'
 
@@ -445,6 +445,34 @@ function wasmNodeOutline(node: SceneNode): SubPath[] {
 // ---------------------------------------------------------------------------
 // Flattening & path strings
 // ---------------------------------------------------------------------------
+
+/**
+ * The same subpath in another space.
+ *
+ * Control points move with the anchors and nothing is re-fitted, because the
+ * affine image of a cubic bezier IS the cubic through the transformed control
+ * points — exact, not an approximation.
+ */
+export function transformSubPath(sp: SubPath, m: Mat): SubPath {
+  return {
+    closed: sp.closed,
+    anchors: sp.anchors.map((a) => ({
+      p: applyMat(m, a.p),
+      cpIn: a.cpIn ? applyMat(m, a.cpIn) : null,
+      cpOut: a.cpOut ? applyMat(m, a.cpOut) : null,
+    })),
+  }
+}
+
+/** Closed polyline rings as subpaths — how boolean and mask coverage arrive. */
+export function ringsToSubPaths(rings: readonly Vec2[][]): SubPath[] {
+  const out: SubPath[] = []
+  for (const ring of rings) {
+    if (ring.length < 3) continue
+    out.push({ closed: true, anchors: ring.map((p) => ({ p: { ...p }, cpIn: null, cpOut: null })) })
+  }
+  return out
+}
 
 /** Flatten a subpath to a polyline of points (closed rings do not repeat the first point). */
 export function flattenSubPath(sp: SubPath, tolerance = 0.25): Vec2[] {

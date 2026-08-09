@@ -9,6 +9,7 @@ import type { SceneGraph } from '../../scene'
 import { nodeOutline, type SubPath } from '../../shapes'
 import { openStrokeOffset } from '../../paintbox'
 import { booleanRings } from '../../booleans'
+import { maskShape } from '../../mask'
 import { encodeSubPaths } from '../../wasm/codec'
 import { wasmHandle } from '../../backend'
 
@@ -23,6 +24,16 @@ export interface NodeMesh {
 
 const EMPTY = new Float32Array(0)
 const EMPTY_IDX = new Uint32Array(0)
+
+function emptyMesh(): NodeMesh {
+  return {
+    fillPositions: EMPTY,
+    fillIndices: EMPTY_IDX,
+    strokePositions: EMPTY,
+    strokeIndices: EMPTY_IDX,
+    strokeAlignCode: 0,
+  }
+}
 
 export function zoomBucket(zoom: number): number {
   const clamped = Math.max(0.125, Math.min(16, zoom))
@@ -86,6 +97,50 @@ export class MeshCache {
     return mesh
   }
 
+  /**
+   * Fill mesh for a node acting as a MASK, which is not the same geometry as the
+   * node's own fill: a group masks with the union of its contents and a text node
+   * with its glyphs (engine/mask.ts). Asking for the node's own mesh instead gave
+   * the GPU a group's bounding box, so masked artwork was not clipped at all.
+   *
+   * Keyed on identity plus scene version for the reason a BOOLEAN is: the shape
+   * comes from a whole subtree, which is not worth hashing every frame.
+   */
+  getMask(scene: SceneGraph, node: SceneNode, zoom: number): NodeMesh {
+    const bucket = zoomBucket(zoom)
+    const key = `mask|${node.id}|${scene.version}|${bucket}`
+    const cached = this.entries.get(key)
+    if (cached) return cached
+    const shape = maskShape(scene, node)
+    const mesh = MeshCache.tessellateFill(shape.subpaths, shape.evenOdd, bucket)
+    this.entries.set(key, mesh)
+    return mesh
+  }
+
+  /** Fill-only tessellation of arbitrary subpaths (no stroke, no node props). */
+  private static tessellateFill(subpaths: SubPath[], evenOdd: boolean, bucket: number): NodeMesh {
+    if (subpaths.length === 0) return emptyMesh()
+    const mesh = wasmHandle().tessellateNode(
+      encodeSubPaths(subpaths),
+      evenOdd,
+      0,
+      0,
+      new Float64Array(0),
+      0.25 / bucket,
+      true,
+      false,
+    )
+    const out: NodeMesh = {
+      fillPositions: mesh.fillPositions(),
+      fillIndices: mesh.fillIndices(),
+      strokePositions: EMPTY,
+      strokeIndices: EMPTY_IDX,
+      strokeAlignCode: 0,
+    }
+    mesh.free()
+    return out
+  }
+
   /** Sharp rectangles skip the WASM tessellator entirely (the dominant node
    * population in large documents). */
   private static sharpRect(node: SceneNode, wantStroke: boolean): NodeMesh | null {
@@ -140,15 +195,7 @@ export class MeshCache {
       subpaths = nodeOutline(node)
       evenOdd = node.type === 'VECTOR' && node.windingRule === 'EVENODD'
     }
-    if (subpaths.length === 0) {
-      return {
-        fillPositions: EMPTY,
-        fillIndices: EMPTY_IDX,
-        strokePositions: EMPTY,
-        strokeIndices: EMPTY_IDX,
-        strokeAlignCode: 0,
-      }
-    }
+    if (subpaths.length === 0) return emptyMesh()
     const hasClosed = subpaths.some((sp) => sp.closed)
     // Open geometry always strokes CENTER (canvas2d strokePath rule).
     const alignCode = !hasClosed

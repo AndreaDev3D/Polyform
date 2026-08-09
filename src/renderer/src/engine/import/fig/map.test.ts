@@ -344,6 +344,47 @@ describe('fig document mapping', () => {
       expect(Object.keys(report.approximations)).toContain('alpha mask imported as a clipping path')
     })
 
+    it('imports a Figma GROUP as a group, which is a FRAME that resizes to fit', () => {
+      // The type `GROUP` is in their schema and does not appear in a real file:
+      // Digborn.fig has 750 FRAMEs and no GROUP at all. `resizeToFit` is the
+      // group — every frame still named "Group N" carries it (258 of 258, no
+      // counterexamples) and none of the 44 auto-layout frames does.
+      const doc = figDoc([
+        { guid: guid(1, 1), type: 'FRAME', name: 'Mask group', resizeToFit: true, size: { x: 948, y: 155 } },
+        {
+          guid: guid(1, 2),
+          type: 'FRAME',
+          name: 'Text',
+          resizeToFit: true,
+          mask: true,
+          size: { x: 948, y: 155 },
+          parentIndex: { guid: guid(1, 1), position: '!' },
+        },
+        {
+          guid: guid(1, 3),
+          type: 'FRAME',
+          name: 'Shop_1',
+          size: { x: 1000, y: 1000 },
+          frameMaskDisabled: false,
+          parentIndex: { guid: guid(1, 1), position: '"' },
+        },
+      ] as unknown as KiwiObject[])
+      const { bundle } = mapFigDocument(doc)
+      const byName = new Map(Object.values(bundle.nodes).map((n) => [n.name, n]))
+
+      // A group. It matters twice: a group does not clip its children, and a
+      // group used as a MASK clips to the union of what is inside it while a
+      // frame clips to its own rectangle — which is why the DIGBORN logo, seven
+      // letterform shapes grouped as a mask, arrived as a solid brown bar.
+      expect(byName.get('Mask group')?.type).toBe('GROUP')
+      expect(byName.get('Text')?.type).toBe('GROUP')
+      expect(byName.get('Text')?.isMask).toBe(true)
+      // A frame without the flag is a frame, and still clips.
+      const frame = byName.get('Shop_1')
+      expect(frame?.type).toBe('FRAME')
+      if (frame?.type === 'FRAME') expect(frame.clipsContent).toBe(true)
+    })
+
     it('keeps what is inside a component instead of deleting it as boolean operands', () => {
       const doc = figDoc([
         { guid: guid(1, 1), type: 'SYMBOL', name: 'Bark_Tilemap', size: { x: 400, y: 400 } },

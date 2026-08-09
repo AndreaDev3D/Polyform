@@ -13,7 +13,7 @@ import { isContainer } from './types'
 import type { SceneGraph } from './scene'
 import type { Mat } from './geometry'
 import { IDENTITY, applyMat, matMultiply } from './geometry'
-import { flattenSubPath, nodeOutline, type SubPath } from './shapes'
+import { flattenSubPath, nodeOutline, transformSubPath, type SubPath } from './shapes'
 import { poisonWasmEngine, useWasm, wasmHandle } from './backend'
 import { decodeRings, encodeSubPaths } from './wasm/codec'
 
@@ -58,17 +58,6 @@ function ringsToMultiPolygon(rings: Vec2[][]): MultiPolygon {
 // applied to anchors AND control points (affine images of beziers are exact),
 // then run the CSG in Rust.
 // ---------------------------------------------------------------------------
-
-function transformSubPath(sp: SubPath, m: Mat): SubPath {
-  return {
-    closed: sp.closed,
-    anchors: sp.anchors.map((a) => ({
-      p: applyMat(m, a.p),
-      cpIn: a.cpIn ? applyMat(m, a.cpIn) : null,
-      cpOut: a.cpOut ? applyMat(m, a.cpOut) : null,
-    })),
-  }
-}
 
 /** Closed subpaths of a subtree in `space` coordinates (curves preserved). */
 function collectSubPaths(scene: SceneGraph, node: SceneNode, space: Mat, out: SubPath[]): void {

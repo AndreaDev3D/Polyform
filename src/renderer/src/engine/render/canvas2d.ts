@@ -12,6 +12,7 @@ import type { SubPath } from '../shapes'
 import { fillPaintBox, openStrokeOffset, paintPoint, strokePaintBox, type PaintBox } from '../paintbox'
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
+import { maskShape } from '../mask'
 import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
@@ -456,10 +457,10 @@ function drawModelPlaceholder(
   ctx.restore()
 }
 
-/** Node-local Path2D used when this node acts as a mask. */
-function maskPathFor(scene: SceneGraph, node: SceneNode): Path2D {
-  if (node.type === 'BOOLEAN') return ringsToPath2D(booleanRings(scene, node))
-  return subPathsToPath2D(nodeOutline(node))
+/** Node-local clip used when this node acts as a mask — see engine/mask.ts. */
+function maskPathFor(scene: SceneGraph, node: SceneNode): { path: Path2D; rule: CanvasFillRule } {
+  const shape = maskShape(scene, node)
+  return { path: subPathsToPath2D(shape.subpaths), rule: shape.evenOdd ? 'evenodd' : 'nonzero' }
 }
 
 /**
@@ -479,10 +480,11 @@ function drawChildren(
     if (!child) continue
     if (child.isMask && child.visible) {
       const lm = scene.localMatrix(child)
+      const { path, rule } = maskPathFor(scene, child)
       const clipPath = new Path2D()
-      clipPath.addPath(maskPathFor(scene, child), new DOMMatrix([lm.a, lm.b, lm.c, lm.d, lm.e, lm.f]))
+      clipPath.addPath(path, new DOMMatrix([lm.a, lm.b, lm.c, lm.d, lm.e, lm.f]))
       ctx.save()
-      ctx.clip(clipPath, child.type === 'BOOLEAN' ? 'evenodd' : 'nonzero')
+      ctx.clip(clipPath, rule)
       maskDepth++
       continue
     }

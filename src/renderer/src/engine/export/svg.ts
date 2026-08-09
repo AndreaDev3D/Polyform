@@ -8,6 +8,7 @@ import type { SceneGraph } from '../scene'
 import { aabbIsEmpty, aabbUnion, emptyAABB } from '../geometry'
 import { nodeOutline, subPathsToSvg } from '../shapes'
 import { booleanRings } from '../booleans'
+import { maskShape } from '../mask'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
@@ -160,6 +161,43 @@ async function fillElements(ctx: SvgCtx, node: SceneNode, d: string, fillRule: s
   return out
 }
 
+/**
+ * A sibling list with mask semantics: a mask is not painted, it clips every
+ * sibling drawn after it. SVG has no such rule, so each mask opens a clipped
+ * `<g>` that stays open for the rest of the list — which nests correctly when one
+ * scope holds several masks, the same way both renderers' clip stacks do.
+ *
+ * This was missing entirely: `isMask` never appeared in the exporter, so a mask
+ * was written out as an ordinary filled shape ON TOP of the artwork it was meant
+ * to cut out. Every masked design exported wrong, and the export looked plausible
+ * enough — a solid shape where a logo belonged — to pass for a design decision.
+ */
+async function childrenToSvg(ctx: SvgCtx, children: readonly NodeId[]): Promise<string> {
+  let out = ''
+  let open = 0
+  for (const cid of children) {
+    const child = ctx.scene.getNode(cid)
+    if (!child) continue
+    if (child.isMask && child.visible) {
+      const shape = maskShape(ctx.scene, child)
+      // A mask that covers nothing hides everything, which is what an empty clip
+      // path does here and what both renderers already do with an empty path.
+      const d = subPathsToSvg(shape.subpaths) || 'M 0 0 Z'
+      const clipId = `mask${++defsCounter}`
+      // The coverage is in the MASK's own space while the group being clipped is
+      // in the parent's, so the mask's transform has to travel with the path.
+      ctx.defs.push(
+        `<clipPath id="${clipId}"><path${transformAttr(child)} d="${d}" clip-rule="${shape.evenOdd ? 'evenodd' : 'nonzero'}"/></clipPath>`,
+      )
+      out += `<g clip-path="url(#${clipId})">`
+      open++
+      continue
+    }
+    out += await nodeToSvg(ctx, cid)
+  }
+  return out + '</g>'.repeat(open)
+}
+
 async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promise<string> {
   const scene = ctx.scene
   const node = scene.getNode(id)
@@ -168,9 +206,7 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
   const tf = skipTransform ? '' : transformAttr(node)
 
   if (node.type === 'GROUP') {
-    let inner = ''
-    for (const cid of node.children) inner += await nodeToSvg(ctx, cid)
-    return `<g${tf}${common}>${inner}</g>`
+    return `<g${tf}${common}>${await childrenToSvg(ctx, node.children)}</g>`
   }
 
   if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE') {
@@ -182,8 +218,7 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
       ctx.defs.push(`<clipPath id="${clipId}"><path d="${d}"/></clipPath>`)
       clipAttr = ` clip-path="url(#${clipId})"`
     }
-    let children = ''
-    for (const cid of node.children) children += await nodeToSvg(ctx, cid)
+    const children = await childrenToSvg(ctx, node.children)
     const stroke = strokeAttrs(ctx, node)
     const border = stroke ? `<path d="${d}" fill="none"${stroke}/>` : ''
     return `<g${tf}${common}><g${clipAttr}>${inner}${children}</g>${border}</g>`

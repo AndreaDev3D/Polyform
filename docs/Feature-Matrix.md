@@ -29,7 +29,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
 | [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
-| [Layers & Hierarchy](#layers--hierarchy) | 14 | 0 | 2 | 0 | 16 |
+| [Layers & Hierarchy](#layers--hierarchy) | 15 | 0 | 2 | 0 | 17 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **143** | **28** | **49** | **23** | **243** |
+| **Total** | **144** | **28** | **49** | **23** | **244** |
 
 ---
 
@@ -110,7 +110,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Carve holes | Enclosed shapes cut through the one beneath | ✅ | Ctrl+Shift+H; contours wound by nesting depth (font-glyph rule) so a shape inside a hole fills again; result is one editable path, not a live boolean; refuses text |
 | Flatten selection | Bake selection into a single vector layer | ✅ | Ctrl+E; concatenates contours as subpaths so curves survive; opens the vector editor when one shape went in |
 | Outline stroke | Convert a stroke into filled geometry | 📋 | |
-| Masks | Layer masks clip sibling content | 🟡 | Vector/shape clipping of siblings above (Ctrl+Alt+M); no luminance masks |
+| Masks | Layer masks clip sibling content | 🟡 | Clips the siblings above (Ctrl+Alt+M). The mask's shape comes from what it actually covers (`engine/mask.ts`), asked by all three back ends: a **group** masks with the union of its contents, **text** with its glyph outlines, a **boolean** and an even-odd vector with their own fill rule — three parity fixtures (`mask-group-coverage`, `mask-evenodd-vector`, `mask-text-glyphs`) hold the GPU to the CPU on each. Hard-edged: no luminance masks, and no soft alpha (a semi-transparent mask clips rather than fades). A descendant of a group mask that needs even-odd with same-wound contours has its holes filled — one clip cannot carry two rules (F-34) |
 | Rounded corners on vector paths | Corner radius applies to arbitrary vertices | 🟡 | Per-point radius on any selection of points, capped at half the shorter segment; generated in `nodeOutline` so render, hit-test, SVG export, booleans and the GPU tessellator all agree (Rust twin, `vector-corner-radius` parity fixture). A point whose neighbour is a **curve** stays sharp — filleting into a curve means splitting it, which is its own change |
 
 ## Selection & Transform
@@ -148,6 +148,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
 | Layers panel tree | Hierarchical layer list of the document | ✅ | |
+| Shape thumbnails as layer icons | Geometry-bearing layers show their own silhouette | ✅ | Rectangles, ellipses, polygons, stars, vectors and booleans draw their own outline as the row icon, from the same `nodeOutline`/`booleanRings` the renderers use, so an icon cannot drift from its layer; cached per scene version, and past 600 anchors (more detail than 12 px can show) the type icon comes back. Frames, groups, components, text and models keep their type icon, and an image-filled rectangle keeps the image icon |
 | Expand / collapse | Disclosure triangles on containers | ✅ | |
 | Rename layers | Double-click a layer name to rename | ✅ | |
 | Hide / show layers | Eye toggle per layer | ✅ | |
@@ -273,12 +274,12 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | PNG export | Raster export of nodes/frames | ✅ | Selection or frames |
 | Export scales | 0.5x–4x multiplier presets | ✅ | 1x–4x |
 | JPG export | Lossy raster export | 📋 | |
-| SVG export | Vector export of nodes/frames | ✅ | Selection or frames |
+| SVG export | Vector export of nodes/frames | ✅ | Selection or frames. Masks became `<clipPath>` in v0.8 — before that `isMask` appeared nowhere in the exporter, so a mask was written out as a filled shape on top of the artwork it should have cut out (F-34) |
 | PDF export | Per-frame PDF output | 📋 | |
 | Per-node export settings | Persisted export presets on layers | 📋 | Export is invoked ad hoc for now |
 | Slice export | Export arbitrary canvas regions | 📋 | Blocked on slice tool |
 | SVG import | Paste or place SVG as editable vectors | 🟡 | File > Import SVG: paths/shapes/groups/text, full d-grammar incl. arcs; gradients fall back to solid |
-| .fig import | Open its own native files | 🟡 | **Shipped, experimental** (File → Import .fig…): reads the container and the schema the file carries for itself, rebuilds the tree from GUIDs and fractional indices, and takes shape from Figma's own flattened geometry so booleans, stars, arcs and glyph outlines arrive as editable paths. Placement is verified **corner for corner against Figma's own matrix** on three real v106 exports (350 nodes, 0 misplaced, F-28), giving 95/158, 60/63 and 108/139 layers — the rest are Figma's DOCUMENT/CANVAS wrappers and boolean operands, both dropped on purpose. Images become content-addressed assets; one undoable entry; and it **reports** everything it approximated or dropped. **One Figma page becomes one Polyform page**, named the same and at the file's own coordinates; Figma's `internalOnly` holding canvas is left out. Masks arrive as masks (a mask that is a *container of shapes* or a text layer still clips by its box, F-33), **a component becomes a component and an instance a linked instance** that materialises from it — overrides not carried — and even-odd paths arrive even-odd — verified on a 4,825-node file: 4 pages, 13/13 masks, 183 images, 4,587 layers (F-32). Gaps are listed in [Fig-Import-Spike.md](research/Fig-Import-Spike.md) — gradient angle, auto layout, per-range text styles, prototyping, variables, components-as-components; a file this size takes about 90 s to import, 65 s of which is writing its 183 images one IPC round-trip at a time |
+| .fig import | Open its own native files | 🟡 | **Shipped, experimental** (File → Import .fig…): reads the container and the schema the file carries for itself, rebuilds the tree from GUIDs and fractional indices, and takes shape from Figma's own flattened geometry so booleans, stars, arcs and glyph outlines arrive as editable paths. Placement is verified **corner for corner against Figma's own matrix** on three real v106 exports (350 nodes, 0 misplaced, F-28), giving 95/158, 60/63 and 108/139 layers — the rest are Figma's DOCUMENT/CANVAS wrappers and boolean operands, both dropped on purpose. Images become content-addressed assets; one undoable entry; and it **reports** everything it approximated or dropped. **One Figma page becomes one Polyform page**, named the same and at the file's own coordinates; Figma's `internalOnly` holding canvas is left out. **A Figma group arrives as a group** — the type `GROUP` never appears in a real file, a group is a `FRAME` with `resizeToFit`, measured against the naming on all 750 frames in one file (258/258, no counterexamples, and none of its 44 auto-layout frames) — so 538 nodes stopped importing as clipping frames and a mask made of letterforms clips by its letterforms (F-34). Masks arrive as masks, **a component becomes a component and an instance a linked instance** that materialises from it — overrides not carried — and even-odd paths arrive even-odd — verified on a 4,825-node file: 4 pages, 13/13 masks, 183 images, 4,587 layers (F-32) — 4,653 nodes after the group fix, of which 530 groups, 189 clipping frames and 15 masks (4 group, 4 text, 5 vector, 2 rectangle). Gaps are listed in [Fig-Import-Spike.md](research/Fig-Import-Spike.md) — gradient angle, auto layout, per-range text styles, prototyping, variables, components-as-components; a file this size takes about 90 s to import, 65 s of which is writing its 183 images one IPC round-trip at a time |
 | Image import | Place PNG/JPEG assets | ✅ | SHA-256 content-addressed, deduplicated |
 | 3D model import (GLB, PLY/SPZ) | — (beyond Figma; Spline-territory) | 🟡 | v0.5 (ADR-020): GLB meshes and gaussian splats place as MODEL3D nodes, double-click to orbit, procedural lighting presets, PNG/SVG export bake the render — all through an offscreen three.js+Spark island. Partial: SPZ v3 only (v4 pending upstream), no perf/memory gates on real multi-million-splat captures, menu-only import |
 | Copy as PNG / SVG | Copy rendered output to clipboard | 📋 | |
@@ -329,7 +330,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **14/14** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017) and shaped text from the glyph atlas (ADR-018). **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **17/17** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018) and three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page). **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
 | 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) on the WebGPU renderer, which is the default from v0.8; the Canvas2D fallback targets typical documents |
@@ -370,4 +371,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-02: 134 ✅ / 22 🟡 / 57 📋 / 23 ❌ = 236). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, shape-clip masks, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-09: 144 ✅ / 28 🟡 / 49 📋 / 23 ❌ = 244, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

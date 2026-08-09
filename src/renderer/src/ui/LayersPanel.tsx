@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { NodeId, SceneNode } from '../engine/types'
 import { isContainer } from '../engine/types'
+import type { SceneGraph } from '../engine/scene'
 import { documentStore, useDocVersion } from '../state/document'
 import { editor, useEditor } from '../state/editor'
 import { OpRecorder, addPage, deletePage, renamePage, renameNode, setSelection, switchPage } from '../state/actions'
@@ -41,6 +42,7 @@ import type { DropTarget } from '../engine/layer-drop'
 import { ResizeHandle, usePanelWidth } from './panel-resize'
 import { dropAtEnd, dropOnRow, instanceRefusal } from '../engine/layer-drop'
 import { AssetsPanel } from './AssetsPanel'
+import { ShapeIcon, hasShapeIcon } from './ShapeIcon'
 
 /** Row indent, in px per level — shared by the rows and the drop line. */
 const INDENT = 14
@@ -114,7 +116,10 @@ function PagesSection() {
   )
 }
 
-function typeIcon(node: SceneNode) {
+function typeIcon(scene: SceneGraph, node: SceneNode) {
+  // Its own silhouette, wherever the shape is the useful thing to say. Four rows
+  // of "Vector" name nothing; four letterforms name themselves.
+  if (hasShapeIcon(scene, node)) return <ShapeIcon scene={scene} node={node} />
   switch (node.type) {
     case 'FRAME':
       return <FrameIcon width={12} height={12} />
@@ -561,7 +566,7 @@ export function LayersPanel() {
                 {container &&
                   (collapsed.has(id) ? <ChevronRightIcon width={10} height={10} /> : <ChevronDownIcon width={10} height={10} />)}
               </span>
-              <span className={`shrink-0 ${selected ? 'text-white' : 'text-[var(--pf-text-dim)]'}`}>{typeIcon(node)}</span>
+              <span className={`shrink-0 ${selected ? 'text-white' : 'text-[var(--pf-text-dim)]'}`}>{typeIcon(scene, node)}</span>
               {renaming === id ? (
                 <input
                   className="pf-input h-5 py-0 text-[11px]"
@@ -665,7 +670,7 @@ function DragChip({ drag }: { drag: DragState }) {
   return (
     <div className="pf-drag-chip" style={{ transform: `translate3d(${x}, ${drag.pointer.y + 8}px, 0)` }}>
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="text-[var(--pf-text-dim)] shrink-0">{first && typeIcon(first)}</span>
+        <span className="text-[var(--pf-text-dim)] shrink-0">{first && typeIcon(scene, first)}</span>
         <span className="truncate">{label}</span>
       </div>
       {/* Its own line: a layer name and a refusal both want the full width,

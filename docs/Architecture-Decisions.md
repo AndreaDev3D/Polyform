@@ -633,9 +633,13 @@ Also decided here: a shape node's children are a boolean's **operands** and are 
 - **Ask the foreign type, not our own.** Dropping a node's children on the grounds that *our* node was not a container made "unsupported type" mean "delete the subtree": `SYMBOL` and `INSTANCE` were missing from the container list, so components arrived empty. Operand-dropping keys off `BOOLEAN_OPERATION`.
 - **`internalOnly` is theirs; use it.** Figma's holding canvas — component definitions moved aside, deleted nodes, brushes — is flagged in the file and absent from its Pages list. It was importing as the largest page in the document.
 
-Masks are also read now (`mask: true` → `isMask`), which the renderer has always honoured; ours is a clipping path, so an alpha or luminance mask is declared as an approximation rather than assumed equivalent.
+Masks are also read now (`mask: true` → `isMask`).
 
-**Revisit when.** Gradient handles are worth decomposing out of their transform matrix (the data is there); auto layout is worth recreating rather than freezing into positions; components could arrive as components rather than as copies, which needs their component-set model read as well; and pages should become pages.
+**Correction (v0.8, F-34).** *"which the renderer has always honoured"* was written in the same release that proved it wrong, and it is the kind of claim worth flagging rather than quietly replacing. The renderer honoured the flag and then asked the wrong question for the shape: `nodeOutline`, which is a rectangle for a frame and a box for text, so a group of letterforms and a text layer both masked with a box. Canvas2D also clipped every non-boolean mask nonzero while the GPU tessellated the same node even-odd; the GPU read `isMask` only inside containers, never at the top level of a page; and SVG export did not read it at all. What is honoured now is a mask's **coverage** — `engine/mask.ts`, one answer shared by Canvas2D, the GPU stencil and the SVG `<clipPath>`. A group's coverage is the union of its descendants, text's is its glyph outlines, a frame's is still its own rectangle (a frame has a shape and already clips to it), and a vector's own winding rule decides its holes. Ours remains a hard clip, so an alpha or luminance mask is still declared as an approximation rather than assumed equivalent.
+
+**And a Figma group is a `FRAME` with `resizeToFit`** — their `GROUP` type appears in no real file. That distinction is what makes the mask rule above decidable at all, and reading it wrongly also clipped 538 nodes' contents that Figma draws in full.
+
+**Revisit when.** Gradient handles are worth decomposing out of their transform matrix (the data is there); auto layout is worth recreating rather than freezing into positions; and an instance's own overrides are not carried yet, so a copy shows the component as designed. *Pages became pages and components became components in v0.8 (F-32, F-33).*
 
 ---
 

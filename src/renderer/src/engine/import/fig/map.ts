@@ -500,7 +500,23 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
 
   // Containers keep the hierarchy, which is most of what a design IS.
   if (CONTAINER_TYPES.has(figType)) {
-    const isGroup = figType === 'GROUP'
+    const isGroup = figType === 'GROUP' || (figType === 'FRAME' && raw.resizeToFit === true)
+    // A FIGMA GROUP IS A FRAME THAT RESIZES TO FIT ITS CHILDREN. The type `GROUP`
+    // exists in their schema and does not appear in a real file: Digborn.fig has
+    // 750 FRAMEs and no GROUP at all, and 538 of those frames carry
+    // `resizeToFit`. Three measurements say that flag is the group:
+    //   - every frame still named "Group N"/"Mask group" has it — 258 of 258, and
+    //     zero frames named that way lack it, which is the check that would sink
+    //     the theory;
+    //   - none of the 44 auto-layout frames has it, so it is not "hug contents";
+    //   - the rest are renamed groups ("left arm", "Head", "WoodPlank").
+    //
+    // It matters twice. A group does not clip its children, so importing 538 of
+    // them as frames clipped content Figma draws in full. And a group used as a
+    // MASK clips to the union of what is inside it, where a frame clips to its own
+    // rectangle — which is why the DIGBORN logo, seven letterform shapes grouped
+    // as a mask, arrived as a solid brown bar (F-33).
+    //
     // A Figma SYMBOL is a component and an INSTANCE is a copy of one, so they map
     // to ours. This matters more than it sounds: **an instance in a `.fig` has no
     // children at all** — it is a reference to its symbol plus overrides — so

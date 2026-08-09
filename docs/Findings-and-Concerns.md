@@ -809,9 +809,52 @@ So `SYMBOL` maps to `COMPONENT` and `INSTANCE` to `INSTANCE`, with `componentId`
 
 **A third instance of the same mistake, found by fixing the second.** `walk` assigned children only when the node it built was a `FRAME` or a `GROUP` — a hand-written pair of type names where the predicate `isContainer` already existed. So components linked correctly and still arrived empty, because their contents were dropped one line earlier. Both places now ask `isContainer`.
 
-**Not fixed, and it is what the screenshot mostly shows.** The same picture had the DIGBORN logo as brown bars. That is not the importer: the logo is built as a **mask whose shape is a container of letterforms** — `FRAME "Text" [MASK]` holding seven `VECTOR` glyph outlines — and in one variant a `TEXT [MASK]` over an image. Our renderer takes a mask's shape from `nodeOutline`, which for a frame is its rectangle and for text is its box, so the mask covers everything and clips nothing: the brown wave that should show only inside the letters shows as a bar. Container and text masks need real coverage — the union of a mask's descendants' outlines, and glyph outlines for text — in both renderers and in SVG export. Recorded because it is a renderer capability, not an import bug, and the import is now faithful to the file either way.
+**What the same screenshot also showed, now fixed in [F-34](#f-34).** The DIGBORN logo arrived as brown bars, which was not the importer: the logo is a **mask whose shape is a container of letterforms**, and both renderers took a mask's shape from `nodeOutline` — a rectangle for a frame, a box for text — so it clipped nothing. Recorded here as a renderer capability rather than an import bug, and fixed as one.
 
 **Standing obligation.** When a format stores something **by reference**, the reference *is* the content, and an importer that carries the node without resolving the reference has imported nothing. Ask of every foreign container: does this hold its children, or name them? And when a check on our node type stands in for a decision about the foreign one, spell the predicate out once and use it everywhere — three separate defects in this file and [F-32](#f-32) came from lists of type names written by hand.
+
+---
+
+## F-34. A mask's shape is not the mask node's outline
+
+**Severity: Med** — masks clipped to bounding boxes in both renderers, were ignored outright by SVG export, and were ignored by the GPU renderer entirely at the top level of a page. Reported by the same user, on the same file: "the operations are still not coming through… I still can't see the subtraction working." Fixed in v0.8.
+
+The subtraction was in fact correct. What was wrong sat one layer above it: the shape of the mask over it.
+
+**Thirteen masks in the reported file, and they are three different things.** Read from the file, not assumed:
+
+```
+ROUNDED_RECTANGLE "Rectangle 139" x2   children=0   a plain shape
+VECTOR            "Rectangle 299" x5   children=0   a plain shape
+FRAME             "Text"          x3   children=7   resizeToFit=true - a GROUP of letterforms
+TEXT              "DIGBORN"       x3   children=0   glyphs
+```
+
+Only the first kind is its own outline. Both renderers asked `nodeOutline` for all three, and `nodeOutline` answers "what box is this in" — the right answer for selection and the wrong one for a mask. So a group of seven letterform shapes clipped to a 948x155 rectangle and the text clipped to its text box: in both cases the mask covered everything and cut out nothing, and the brown wave that should show only inside the letters showed as a bar.
+
+**Five defects, one question never asked.** All of them follow from never asking what a mask *covers*:
+
+1. A **group** mask clipped to its bounding box instead of to the union of what is inside it.
+2. A **text** mask clipped to its box instead of to its glyphs — though the shaped-text stack already produces glyph outlines, which the Canvas2D fill path was drawing two functions away.
+3. Canvas2D clipped every non-boolean mask **NONZERO** while the WebGPU backend tessellated the same node **EVEN-ODD**. An imported subtracted shape used as a mask rendered differently depending on which renderer was drawing — and the GPU became the default in this same release.
+4. **SVG export ignored `isMask` completely.** The word appeared nowhere in the exporter, so a mask was written out as an ordinary filled shape *on top of* the artwork it was meant to cut out. Every masked design exported wrong, and it exported as a plausible solid shape rather than as an error.
+5. The GPU renderer honoured masks **only inside containers**. Its bake walked the page's roots in a bare loop, while `bakeChildren` — the only place `isMask` was read — handled every other sibling list. A mask applied to a top-level layer did nothing on the GPU and worked on the CPU.
+
+The fix is one function, `engine/mask.ts`, asked by all three back ends: Canvas2D clips with it, the GPU tessellates it into a stencil mesh, SVG writes it into a `<clipPath>`. A group's coverage is the union of its descendants filled nonzero — a union for shapes wound the same way, and a hole stays a hole when it is wound against its outer contour, which is the convention in every font and in Figma's own flattened geometry. A frame keeps its rectangle, because a frame has a shape of its own and already clips its children to it. That is why telling a Figma group from a Figma frame matters here at all.
+
+**The import half: a Figma group is a FRAME that resizes to fit.** The type `GROUP` is in their schema and appears nowhere in a real file — this one has 750 `FRAME`s and no `GROUP`. Three measurements identify the flag rather than guessing at it:
+
+- every frame still named `Group N` / `Mask group` carries `resizeToFit` — **258 of 258**, and no frame named that way lacks it, which is the check that would have sunk the theory;
+- **none** of the 44 auto-layout frames carries it, so it is not "hug contents";
+- the remaining 280 are renamed groups — `left arm`, `Head`, `WoodPlank`.
+
+So 538 nodes stopped being clipping frames, and the logo's mask became a group. The file now imports as 4,653 nodes: 530 groups, 189 clipping frames, and 15 masks — 4 group, 4 text, 5 vector, 2 rectangle — with the logo rendering as brown letters and the subtracted wave visible through them.
+
+**Why every gate missed it.** The parity harness *had* a mask fixture. Its mask was an ellipse inside a group: a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while two renderers disagreed and a third path was missing entirely. Three fixtures replaced it — `mask-group-coverage`, `mask-evenodd-vector`, `mask-text-glyphs` — and the first thing they did was fail at **23.46% differing pixels**, which is exactly the area of the un-clipped rectangle, naming defects 3 and 5 on the way.
+
+**Known limits, stated rather than left to be discovered.** Ours is a hard clip: Figma's ALPHA and LUMINANCE masks fade where the mask is semi-transparent, which is identical for the solid shapes that make up nearly every mask and hard-edged where theirs would be soft (the importer says so per file). And a descendant of a group mask that needs the even-odd rule with its contours wound the same way has its holes filled, because one clip cannot carry two fill rules; combining those exactly would mean re-winding every ring by nesting depth on every frame.
+
+**Standing obligation.** When a node's geometry is used for something other than *drawing that node*, ask what the new use needs before reaching for the nearest existing accessor. `nodeOutline` was correct, well-tested, and the wrong question. And a fixture covers the case it contains, not the feature it is named after: "we have a mask fixture" was not "masks are checked".
 
 ---
 
@@ -833,3 +876,4 @@ Three themes run through every entry:
 12. **The model can be right while the picture is wrong.** F-30 stored a stroke alignment faithfully, read it back faithfully, and drew something else; the gradient had correct stops and painted nothing. Tests that assert on documents cannot see either. Where the output is pixels, something has to look at pixels.
 13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
 14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+15. **A fixture covers the case it contains, not the feature it is named after.** F-34's mask fixture used an ellipse inside a group — a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while the two renderers disagreed about even-odd masks and the GPU ignored masks at the top level of a page. Name the *kinds* a feature has and give the gate one of each; a feature with one fixture is a feature with one case checked.

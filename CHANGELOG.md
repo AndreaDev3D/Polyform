@@ -24,6 +24,14 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   of the *whole inspector*, not of the swatch that opened it — measuring from the
   swatch left it three pixels over the panel border, which reads as a bug rather than
   a near miss. It flips to the other side only if the window is too narrow.
+- **A shape's layer icon is the shape.** Rectangles, ellipses, polygons, stars,
+  vectors and booleans draw their own silhouette as the row icon in the Layers panel,
+  the way Figma does — so a group of seven layers all called *Vector* reads as
+  **D I G B O R N** instead of as seven identical glyphs. The outline comes from the
+  same `nodeOutline`/`booleanRings` the renderers draw, so an icon cannot drift from
+  its layer; it is cached per scene version, and a path with more detail than 12 pixels
+  can show falls back to the type icon. Frames, groups, components, text and models
+  keep theirs, and an image-filled rectangle still shows the image icon.
 - **Selecting on the canvas reveals the layer.** The row scrolls into view, and if the
   layer sits inside a collapsed group the group expands first — previously there was
   no row to highlight at all, so the panel looked like it had not noticed.
@@ -104,7 +112,7 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   the scene now draws through the batched WebGPU pipeline — 100,000 shapes panning at
   60fps against a Canvas2D budget aimed at typical documents — and its 14 pixel-parity
   fixtures (shadows, blurs, all 16 blend modes, masks, shaped text) were re-run on the
-  way in. No device, or a device that fails to initialise, still falls back to Canvas2D
+  way in — 17 by the end of the release, the three new ones being masks (F-34). No device, or a device that fails to initialise, still falls back to Canvas2D
   by itself, and View → GPU Rendering still turns it off; a preference you set is
   remembered and the default never overrides it.
   - **The tick follows what is drawing, not what was asked for.** The editor now keeps
@@ -121,6 +129,48 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **Masks clip to what the mask actually covers** (F-34). Reported as "the subtraction
+  isn't working" on an imported `.fig`, and the subtraction was fine: the mask over it
+  was clipping to a bounding box. A mask's shape came from `nodeOutline`, which answers
+  *what box is this in* — right for selection, wrong for a mask. So a **group** of seven
+  letterform shapes clipped to a 948×155 rectangle, **text** clipped to its text box,
+  and the wave that should have shown only inside the letters showed as a bar.
+  - **A group masks with the union of its contents; text masks with its glyphs.** One
+    function (`engine/mask.ts`) answers this for all three back ends — Canvas2D clips
+    with it, the GPU tessellates it into a stencil mesh, SVG export writes it into a
+    `<clipPath>` — because a mask shape computed three times is a mask that comes out
+    differently on the GPU. A frame still masks with its own rectangle: a frame has a
+    shape of its own and already clips its children to it.
+  - **The two renderers disagreed about even-odd masks.** Canvas2D clipped every
+    non-boolean mask nonzero while the GPU tessellated the same node even-odd, so an
+    imported subtracted shape used as a mask rendered differently depending on which
+    renderer was drawing — in the release that made the GPU the default.
+  - **SVG export ignored masks completely.** `isMask` appeared nowhere in the exporter,
+    so a mask was written out as a filled shape *on top of* the artwork it should have
+    cut out. Every masked design exported wrong, and it exported as a plausible solid
+    shape rather than as an error.
+  - **The GPU ignored masks at the top level of a page.** Its bake walked the page's
+    roots in a bare loop, while the only place `isMask` was read handled every other
+    sibling list — so a mask on a top-level layer did nothing on the GPU and worked on
+    the CPU. Found by the new fixtures, which failed at 23.46% differing pixels: exactly
+    the area of the rectangle that should have been clipped.
+  - **Three fixtures where there was one.** The old mask fixture used an ellipse inside
+    a group — a plain shape, in the one position where masks worked, under the one fill
+    rule both renderers agreed on, and green for months.
+    `mask-group-coverage` / `mask-evenodd-vector` / `mask-text-glyphs` now cover the
+    kinds; 17/17 pass, GPU perf unchanged (0.19 ms CPU per frame at 100k shapes).
+  - Still a hard clip: no luminance masks and no soft alpha, so a semi-transparent mask
+    cuts rather than fades — identical for the solid shapes nearly every mask is made
+    of, and declared per file by the importer.
+- **`.fig` import: a Figma group is a group** (F-34). The type `GROUP` is in Figma's
+  schema and appears in no real file — a group is a `FRAME` that resizes to fit its
+  children, and 538 of one file's 750 frames are groups. Reading them all as frames
+  clipped content Figma draws in full, and made the logo's letterform mask clip by its
+  rectangle instead of by its letters. Measured rather than guessed: every frame still
+  named `Group N` / `Mask group` carries the flag (258 of 258, no counterexamples), and
+  none of the file's 44 auto-layout frames does — so it is not "hug contents". The file
+  now imports as 530 groups, 189 clipping frames and 15 masks (4 group, 4 text,
+  5 vector, 2 rectangle).
 - **`.fig` import: instances come through with their contents** (F-33). An `INSTANCE`
   in a `.fig` has **no children at all** — it is a `symbolID` plus overrides, the same
   shape as ours — so importing it as a frame produced an empty box, which is exactly
@@ -138,13 +188,8 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   - Found while fixing it: `walk` assigned children only to a frame or a group, by
     name, so components linked correctly and still arrived empty. Both places that
     made that decision now ask `isContainer`, which already existed.
-  - **Not fixed, and it is what most of the reported screenshot showed:** the DIGBORN
-    logo is a **mask made of letterform shapes** (a frame holding seven vector glyphs,
-    and in another variant a text layer over an image). Our renderer takes a mask's
-    shape from the node's outline — a rectangle for a frame, a box for text — so it
-    clips nothing and the brown wave that should show only inside the letters shows as
-    a bar. Container and text masks need real coverage in both renderers and in SVG
-    export; recorded in F-33 as renderer work, not import work.
+  - The rest of that screenshot — the DIGBORN logo as a brown bar — was the mask over
+    it, not the import. Fixed separately, below (F-34).
 - **`.fig` import: pages are pages, subtractions have holes, masks mask, and a
   component keeps what is inside it** (F-32). Four separate defects, found against a
   4,825-node file and each measured against what the file itself says.

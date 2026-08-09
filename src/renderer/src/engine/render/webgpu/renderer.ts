@@ -710,9 +710,14 @@ export class WebGPURenderer {
       this.fxKeyCounter = 0
       this.atlas.beginBake()
 
-      for (const id of scene.rootIds()) {
-        this.bakeNode(id, IDENTITY, 1, 0, false)
-      }
+      // Through bakeChildren, not a bare loop over the roots: masks are a
+      // property of a SIBLING LIST, and this list is a sibling list like any
+      // other. Baking each root directly meant `isMask` was honoured inside every
+      // container and ignored at the top level of a page — so a mask applied to a
+      // top-level layer did nothing on the GPU while Canvas2D clipped correctly
+      // (`drawScene` has always routed the page's roots through `drawChildren`).
+      // Found by a parity fixture, which is what parity fixtures are for.
+      this.bakeChildren(scene.rootIds(), IDENTITY, 1, 0, false)
       this.endBatch()
       if (!this.atlas.clearedDuringBake || attempt >= 2) break
       if (attempt === 1) this.glyphFallback = true
@@ -1285,7 +1290,9 @@ export class WebGPURenderer {
       if (!child) continue
       if (child.isMask && child.visible) {
         const m = matMultiply(parentMat, scene.localMatrix(child))
-        const mesh = this.meshCache.get(scene, child, this.bakeOpts.camera.zoom, true, false)
+        // The mask's coverage, not the mask node's own fill: a group masks with
+        // the union of its contents and a text node with its glyphs.
+        const mesh = this.meshCache.getMask(scene, child, this.bakeOpts.camera.zoom)
         this.appendStencil(mesh.fillPositions, mesh.fillIndices, m, 'push')
         maskDepth++
         continue

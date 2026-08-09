@@ -5,11 +5,20 @@
 
 import { useWasm, wasmHandle } from './backend'
 import { decodeSubPaths } from './wasm/codec'
-import type { SubPath } from './shapes'
+import { transformSubPath, type SubPath } from './shapes'
+import { layoutText } from './text'
+import type { Mat } from './geometry'
+import type { TextNode } from './types'
 
 export interface GlyphOutline {
   /** null for whitespace / empty glyphs. */
   path: Path2D | null
+  /**
+   * The same outline before it became a Path2D. Kept because a Path2D can only
+   * be drawn: it cannot be transformed, unioned or tessellated, which is what a
+   * text MASK and the WebGPU backend need from the very same curves.
+   */
+  subpaths: SubPath[]
   /** Conservative bbox over anchors + control points, font units, y-down. */
   minX: number
   minY: number
@@ -72,8 +81,40 @@ export function glyphOutline(fontId: number, glyphId: number): GlyphOutline | nu
   }
   const outline: GlyphOutline =
     points === 0
-      ? { path: null, minX: 0, minY: 0, maxX: 0, maxY: 0 }
-      : { path: buildPath(subpaths), minX, minY, maxX, maxY }
+      ? { path: null, subpaths: [], minX: 0, minY: 0, maxX: 0, maxY: 0 }
+      : { path: buildPath(subpaths), subpaths, minX, minY, maxX, maxY }
   cache.set(key, outline)
   return outline
+}
+
+/**
+ * A text node's glyphs as geometry, in the node's own coordinates.
+ *
+ * Empty when this node did not go through the shaping engine (no WASM, font
+ * bytes still loading, non-DOM test environment) — there are no outlines to be
+ * had in that case, only a font name handed to `fillText`, so callers need a
+ * fallback rather than a wrong shape.
+ *
+ * Why it exists: `nodeOutline` answers "what box is this text in", which is the
+ * right answer for selection and the wrong one for a mask. Clipping to the box
+ * clips nothing, so text used as a mask showed the whole picture underneath
+ * instead of showing it inside the letters (F-33).
+ */
+export function textSubPaths(node: TextNode): SubPath[] {
+  const layout = layoutText(node)
+  if (!layout.shaped) return []
+  // Font units -> node units. The glyph positions are already in node space.
+  const s = node.fontSize / layout.shaped.unitsPerEm
+  const out: SubPath[] = []
+  for (const line of layout.lines) {
+    const glyphs = line.glyphs
+    if (!glyphs) continue
+    for (let i = 0; i + 3 <= glyphs.length; i += 3) {
+      const outline = glyphOutline(layout.shaped.fontId, glyphs[i])
+      if (!outline || outline.subpaths.length === 0) continue
+      const m: Mat = { a: s, b: 0, c: 0, d: s, e: glyphs[i + 1], f: glyphs[i + 2] }
+      for (const sp of outline.subpaths) out.push(transformSubPath(sp, m))
+    }
+  }
+  return out
 }
