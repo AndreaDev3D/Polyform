@@ -47,6 +47,9 @@ export function CanvasView() {
     let gpu: WebGPURenderer | null = null
     let lastCursor = ''
     const ctx2d = useGpu ? null : sceneCanvas.getContext('2d')!
+    // What the menu reads. Reported from here because this is the only place that
+    // knows whether a device was actually acquired.
+    editor.get().setGpuStatus({ supported: WebGPURenderer.isSupported(), active: false })
     const overlayCtx = overlayCanvas.getContext('2d')!
 
     const markDirty = () => {
@@ -62,9 +65,11 @@ export function CanvasView() {
         if (!renderer) {
           console.warn('[polyform] WebGPU unavailable — staying on Canvas2D rendering.')
           setGpuFailed(true)
+          editor.get().setGpuStatus({ active: false })
           return
         }
         gpu = renderer
+        editor.get().setGpuStatus({ active: true })
         markDirty()
       })
     }
@@ -196,6 +201,7 @@ export function CanvasView() {
       container.removeEventListener('wheel', onWheel)
       assetCache.onLoad = null
       gpu?.dispose()
+      editor.get().setGpuStatus({ active: false })
     }
   }, [useGpu])
 

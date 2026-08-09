@@ -414,9 +414,10 @@ textarea {
  * click while the thread is busy anyway. */
 
 .pf-busy {
-  position: fixed;
+  /* Absolute inside the canvas area, so it centres over the drawing rather than
+   * over the window, and `top` can be measured from the ruler. */
+  position: absolute;
   left: 50%;
-  top: 52px;
   transform: translateX(-50%);
   z-index: 90;
   display: flex;

@@ -100,6 +100,19 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Changed
 
+- **The GPU renderer is the default.** Wherever the machine exposes a WebGPU device
+  the scene now draws through the batched WebGPU pipeline — 100,000 shapes panning at
+  60fps against a Canvas2D budget aimed at typical documents — and its 14 pixel-parity
+  fixtures (shadows, blurs, all 16 blend modes, masks, shaped text) were re-run on the
+  way in. No device, or a device that fails to initialise, still falls back to Canvas2D
+  by itself, and View → GPU Rendering still turns it off; a preference you set is
+  remembered and the default never overrides it.
+  - **The tick follows what is drawing, not what was asked for.** The editor now keeps
+    the preference and the live state apart, so on a machine with no WebGPU device the
+    row reads as off — with the reason in its tooltip — instead of claiming a renderer
+    that is not running (F-30). It is also the honest answer to "am I on the fast one?"
+- **The loading spinner sits under the rulers**, centred on the canvas rather than the
+  window. It was crossing the ruler, which is a scale you read.
 - **The bottom bar's controls are one height.** The agent button was 21px, the focus
   button 30px, and the zoom box 21px in a 40px row — three heights on one line. All of
   them, and the vector-edit buttons, are now 30px, matching the tool buttons in the

@@ -95,7 +95,7 @@ export const MENU: MenuDef[] = [
       sep,
       { id: 'view.toggleGrid', label: 'Toggle Grid', accelerator: "CmdOrCtrl+'", action: 'view.toggleGrid' },
       { id: 'view.toggleRulers', label: 'Toggle Rulers', accelerator: 'Shift+R', displayOnlyAccelerator: true, action: 'view.toggleRulers' },
-      { id: 'view.toggleGpu', label: 'GPU Rendering (Beta)', action: 'view.toggleGpu' },
+      { id: 'view.toggleGpu', label: 'GPU Rendering', action: 'view.toggleGpu' },
       { id: 'view.history', label: 'Version History', accelerator: 'CmdOrCtrl+Alt+H', action: 'view.history' },
       sep,
       { id: 'view.devTools', label: 'Developer Tools', role: 'toggleDevTools' },

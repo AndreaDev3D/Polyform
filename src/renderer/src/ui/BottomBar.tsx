@@ -98,6 +98,8 @@ function ZoomMenu() {
   const showGrid = useEditor((s) => s.showGrid)
   const showRulers = useEditor((s) => s.showRulers)
   const gpuRender = useEditor((s) => s.gpuRender)
+  const gpuSupported = useEditor((s) => s.gpuSupported)
+  const gpuActive = useEditor((s) => s.gpuActive)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const platform = window.polyform.platform
@@ -142,12 +144,14 @@ function ZoomMenu() {
     shortcut,
     checked,
     title,
+    disabled,
     onSelect,
   }: {
     label: string
     shortcut?: string | null
     checked?: boolean
     title?: string
+    disabled?: boolean
     onSelect: () => void
   }) => (
     <button
@@ -155,6 +159,7 @@ function ZoomMenu() {
       role={checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
       aria-checked={checked === undefined ? undefined : checked}
       title={title}
+      disabled={disabled}
       onClick={onSelect}
     >
       {/* The gutter is reserved on every row, ticked or not, so the labels line
@@ -230,10 +235,20 @@ function ZoomMenu() {
             checked={showRulers}
             onSelect={() => run('view.toggleRulers')}
           />
+          {/* The tick follows what is DRAWING, not what was asked for: a device
+              can be requested and fail, and a tick that survives that is a lie
+              about the renderer you are using (F-30). */}
           <Row
             label="GPU rendering"
-            checked={gpuRender}
-            title="Beta: falls back to the CPU renderer where WebGPU is unavailable"
+            checked={gpuActive}
+            disabled={!gpuSupported}
+            title={
+              !gpuSupported
+                ? 'No WebGPU device on this machine — drawing with the CPU renderer'
+                : gpuRender && !gpuActive
+                  ? 'Asked for, but the device could not be created — drawing with the CPU renderer'
+                  : 'On by default: 100,000 shapes at 60fps, pixel-checked against the CPU renderer'
+            }
             onSelect={() => run('view.toggleGpu')}
           />
         </div>

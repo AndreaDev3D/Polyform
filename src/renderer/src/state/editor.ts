@@ -85,8 +85,17 @@ interface EditorState {
   showAgent: boolean
   /** Left panel tab. */
   leftTab: 'layers' | 'assets'
-  /** WebGPU scene rendering (beta); falls back to Canvas2D when unavailable. */
+  /** WebGPU scene rendering; falls back to Canvas2D when unavailable. */
   gpuRender: boolean
+  /** Whether this machine exposes a WebGPU device at all. Set by CanvasView. */
+  gpuSupported: boolean
+  /**
+   * Whether the GPU renderer is the one actually drawing right now. Distinct from
+   * `gpuRender`, which is only the preference: a device can be asked for and fail.
+   * The UI shows THIS, so a tick never claims something that is not happening
+   * (F-30 — a setting that is stored, shown and ignored is a lie).
+   */
+  gpuActive: boolean
 
   setTool: (tool: Tool) => void
   setSelection: (ids: NodeId[]) => void
@@ -115,6 +124,7 @@ interface EditorState {
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
   setGpuRender: (v: boolean) => void
+  setGpuStatus: (v: { supported?: boolean; active?: boolean }) => void
 }
 
 export const useEditor = create<EditorState>((set) => ({
@@ -147,8 +157,20 @@ export const useEditor = create<EditorState>((set) => ({
   showHistory: false,
   showAgent: false,
   leftTab: 'layers' as const,
-  gpuRender:
-    typeof localStorage !== 'undefined' && localStorage.getItem('polyform.gpuRender') === '1',
+  // Default ON where a device exists: the GPU path pans 100,000 shapes at 60fps
+  // against a Canvas2D budget aimed at typical documents, and its 14 pixel-parity
+  // fixtures pass. A stored '0' still wins — a preference the user set is theirs,
+  // not a default to be re-applied on every launch.
+  gpuRender: (() => {
+    try {
+      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('polyform.gpuRender') : null
+      return stored === null ? true : stored === '1'
+    } catch {
+      return true
+    }
+  })(),
+  gpuSupported: false,
+  gpuActive: false,
 
   setTool: (tool) => set({ tool, penDraft: null, contextMenu: null }),
   setSelection: (selection) => set({ selection }),
@@ -178,6 +200,11 @@ export const useEditor = create<EditorState>((set) => ({
   setBusy: (busy) => set({ busy }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),
+  setGpuStatus: ({ supported, active }) =>
+    set((s) => ({
+      gpuSupported: supported ?? s.gpuSupported,
+      gpuActive: active ?? s.gpuActive,
+    })),
   setGpuRender: (gpuRender) => {
     try {
       localStorage.setItem('polyform.gpuRender', gpuRender ? '1' : '0')

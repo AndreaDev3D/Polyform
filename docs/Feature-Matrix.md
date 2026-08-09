@@ -189,7 +189,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Drop shadow | Offset/blur/spread/color shadow effect | ✅ | On a group or an unpainted frame it is cast by the children's union silhouette, as one shape (both renderers; `group-effects` parity fixture) |
 | Inner shadow | Shadow cast inside the shape | 🟡 | Needs a path to clip to, so it is a no-op on groups |
 | Layer blur | Gaussian blur on the layer | ✅ | Blurs a container's assembled composite, not each child |
-| Background blur | Blur content behind a translucent layer | 🟡 | Canvas2D default: backdrop-capture self-draw, expensive on very large canvases; GPU mode: scoped pass split, cost bounded per effect node (ADR-017) |
+| Background blur | Blur content behind a translucent layer | 🟡 | GPU renderer (the default): scoped pass split, cost bounded per effect node (ADR-017); Canvas2D fallback: backdrop-capture self-draw, expensive on very large canvases |
 | Blend modes | Full Photoshop-style blend mode list | 🟡 | All 16 modeled modes in both renderers (GPU: MULTIPLY/SCREEN fixed-function, rest W3C composite shaders); Figma's linear/plus variants not modeled |
 | Layer opacity | 0–100% object opacity | ✅ | |
 
@@ -324,15 +324,15 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
-| GPU-accelerated rendering | Custom WebGL/WebGPU tile renderer | 🟡 | Canvas2D default; WebGPU beta behind View → GPU Rendering with full effects/blend compositing (ADR-016/017) |
+| GPU-accelerated rendering | Custom WebGL/WebGPU tile renderer | 🟡 | **WebGPU by default from v0.8** wherever a device exists, with full effects/blend compositing (ADR-016/017) and automatic fallback to the Canvas2D renderer; not tile-based or progressive the way Figma's is |
 | No DOM/SVG shapes | Canvas is never built from DOM nodes | ✅ | Shapes render to canvas only; DOM is reserved for editor chrome |
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 🟡 | Beta: lyon-tessellated batched pipeline, **11/11** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017) and shaped text from the glyph atlas (ADR-018); Canvas2D stays the default pending soak time |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **14/14** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017) and shaped text from the glyph atlas (ADR-018). **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
-| 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) in the WebGPU beta; Canvas2D default targets typical documents |
+| 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) on the WebGPU renderer, which is the default from v0.8; the Canvas2D fallback targets typical documents |
 | Swappable render backends | Single internal engine (not swappable) | ✅ | `IRenderer` abstraction is a Polyform architectural feature |
 
 ## Desktop / Platform

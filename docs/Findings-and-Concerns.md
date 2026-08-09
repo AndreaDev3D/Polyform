@@ -24,7 +24,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-13](#f-13) | Nested-instance override capture depth (v0.3) | Med |
 | [F-14](#f-14) | Library updates can orphan overrides (v0.3) | Med |
 | [F-15](#f-15) | Plugin runner is unsandboxed (v0.3 preview) | High (consent-gated) |
-| [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Low (resolved in GPU mode, ADR-017; Canvas2D default unchanged) |
+| [F-16](#f-16) | Background blur backdrop pass cost (v0.2) | Low (resolved on the GPU renderer, ADR-017 — the default from v0.8; the Canvas2D fallback is unchanged) |
 | [F-17](#f-17) | Plugin preview is CSP-blocked in the built app (v0.3) | Med |
 | [F-18](#f-18) | Add-text deleted its own node via a mid-gesture focus bounce (≤v0.3, fixed v0.4) | Fixed (High while live) |
 | [F-19](#f-19) | Every double-click gesture was dead — `PointerEvent.detail` is always 0 (v0.1–v0.5, fixed v0.5) | Fixed (High while live) |

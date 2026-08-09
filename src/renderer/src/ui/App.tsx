@@ -67,6 +67,8 @@ export function App() {
         <LayersPanel />
         <div className="flex-1 min-w-0 relative">
           <CanvasView />
+          {/* Inside the canvas area: it belongs to the drawing, not to the window. */}
+          <BusyOverlay />
         </div>
         <Inspector />
       </div>
@@ -78,7 +80,6 @@ export function App() {
       <ContextMenu />
       <HistoryModal />
       <AgentModal />
-      <BusyOverlay />
     </div>
   )
 }

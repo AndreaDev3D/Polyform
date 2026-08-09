@@ -10,9 +10,11 @@
 
 import { useEffect } from 'react'
 import { useEditor } from '../state/editor'
+import { RULER_SIZE } from '../engine/render/overlays'
 
 export function BusyOverlay() {
   const busy = useEditor((s) => s.busy)
+  const showRulers = useEditor((s) => s.showRulers)
 
   // The cursor goes on <html>, because the canvas writes its own cursor inline on
   // every frame (F-23) and a class further down would lose to it. `!important` in
@@ -25,8 +27,12 @@ export function BusyOverlay() {
   }, [busy])
 
   if (!busy) return null
+  // Clear of the ruler rather than across it: the ruler is a scale you read, and
+  // something sitting on it is noise. RULER_SIZE comes from the overlay that draws
+  // it, so hiding the rulers (Shift+R) moves this up by exactly the right amount.
+  const top = (showRulers ? RULER_SIZE : 0) + 10
   return (
-    <div className="pf-busy pf-floating" role="status" aria-live="polite" data-busy={busy}>
+    <div className="pf-busy pf-floating" style={{ top }} role="status" aria-live="polite" data-busy={busy}>
       <span className="pf-busy-spinner" />
       <span>{busy}</span>
     </div>
