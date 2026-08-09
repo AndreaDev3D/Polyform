@@ -17,6 +17,7 @@ import { WelcomeScreen } from './WelcomeScreen'
 import { ContextMenu } from './ContextMenu'
 import { HistoryModal } from './HistoryModal'
 import { AgentModal } from './AgentModal'
+import { BusyOverlay } from './Busy'
 
 export function App() {
   const hasProject = useEditor((s) => s.hasProject)
@@ -49,7 +50,14 @@ export function App() {
   }, [])
 
   if (!hasProject) {
-    return <WelcomeScreen />
+    // Also here: opening a project is one of the slow things, and it starts from
+    // this screen.
+    return (
+      <>
+        <WelcomeScreen />
+        <BusyOverlay />
+      </>
+    )
   }
 
   return (
@@ -70,6 +78,7 @@ export function App() {
       <ContextMenu />
       <HistoryModal />
       <AgentModal />
+      <BusyOverlay />
     </div>
   )
 }

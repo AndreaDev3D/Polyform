@@ -73,6 +73,12 @@ interface EditorState {
    * that is quietly not being written is the one thing you must be told about.
    */
   saveState: 'idle' | 'saving' | 'saved' | 'error'
+  /**
+   * What the app is busy doing, or null. Loading a file blocks the main thread —
+   * a big `.fig` commit is minutes of synchronous work — so this exists to be
+   * PAINTED BEFORE that work starts; see `withBusy` in state/actions.
+   */
+  busy: string | null
   /** Version-history browser visibility. */
   showHistory: boolean
   /** Agent-connection consent panel visibility. */
@@ -105,6 +111,7 @@ interface EditorState {
   setCornerDrag: (k: CornerKind | null) => void
   setRotating: (v: boolean) => void
   setStatus: (text: string | null) => void
+  setBusy: (v: string | null) => void
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
   setGpuRender: (v: boolean) => void
@@ -136,6 +143,7 @@ export const useEditor = create<EditorState>((set) => ({
   rotating: false,
   status: null,
   saveState: 'idle' as const,
+  busy: null,
   showHistory: false,
   showAgent: false,
   leftTab: 'layers' as const,
@@ -167,6 +175,7 @@ export const useEditor = create<EditorState>((set) => ({
   setCornerDrag: (cornerDrag) => set({ cornerDrag }),
   setRotating: (rotating) => set({ rotating }),
   setStatus: (status) => set({ status }),
+  setBusy: (busy) => set({ busy }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),
   setGpuRender: (gpuRender) => {

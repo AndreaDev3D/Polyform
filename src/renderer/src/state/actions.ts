@@ -1152,6 +1152,43 @@ async function saveIfDirty(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Busy feedback
+// ---------------------------------------------------------------------------
+
+/**
+ * Put a label on screen and WAIT until it is actually there.
+ *
+ * The expensive half of loading a file is synchronous — decoding a `.fig`,
+ * then committing every node in it, ~90 s for a 4,600-layer file. A label set in
+ * the same tick as that work is never painted: the frame it belongs to would
+ * render after the thread frees up, by which time it is wrong. So each step
+ * yields for a frame (`requestAnimationFrame`) and then once more through the
+ * task queue, which is what actually gets the pixels out.
+ */
+export async function busyStep(label: string): Promise<void> {
+  editor.set({ busy: label })
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * Run something slow with the spinner up, and take it down whatever happens —
+ * including a cancelled file dialog, which is the common way out of these flows.
+ * `step` re-labels mid-flight, so a long job can say which part it is on.
+ */
+export async function withBusy<T>(
+  label: string,
+  run: (step: (label: string) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  await busyStep(label)
+  try {
+    return await run(busyStep)
+  } finally {
+    editor.set({ busy: null })
+  }
+}
+
 export async function newProjectFlow(): Promise<void> {
   await saveIfDirty()
   const viewport = await documentStore.newProject()
@@ -1160,7 +1197,9 @@ export async function newProjectFlow(): Promise<void> {
 
 export async function openProjectFlow(path?: string): Promise<void> {
   await saveIfDirty()
-  const viewport = await documentStore.openProject(path)
+  // Reading a bundle back is the same shape of work as importing one: parse,
+  // then build every node. A big document is a visible wait.
+  const viewport = await withBusy('Opening project…', () => documentStore.openProject(path))
   if (viewport) applyViewport(viewport)
 }
 
@@ -1228,6 +1267,10 @@ export async function saveAsFlow(): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 export async function importImages(): Promise<void> {
+  await withBusy('Importing images…', () => placeImages())
+}
+
+async function placeImages(): Promise<void> {
   const assets = await window.polyform.assetsImportDialog()
   if (!assets || assets.length === 0) return
   const scene = documentStore.scene
@@ -1291,6 +1334,11 @@ const MODEL_FORMAT_BY_EXT: Record<string, Model3dFormat> = {
 }
 
 export async function importModels(): Promise<void> {
+  // A GLB or a splat capture can be tens of megabytes, parsed on this thread.
+  await withBusy('Importing 3D model…', () => placeModels())
+}
+
+async function placeModels(): Promise<void> {
   const assets = await window.polyform.assetsImportDialog('model')
   if (!assets || assets.length === 0) return
   const scene = documentStore.scene
@@ -1639,6 +1687,10 @@ export async function runPluginFlow(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function importSvgFlow(): Promise<void> {
+  await withBusy('Importing SVG…', () => importSvg())
+}
+
+async function importSvg(): Promise<void> {
   const files = await window.polyform.svgImportDialog()
   if (!files || files.length === 0) return
   const scene = documentStore.scene
@@ -1701,6 +1753,13 @@ function imageExtOf(bytes: Uint8Array): string | null {
  * into a fresh project gives exactly the pages the file has and nothing else.
  */
 export async function importFigFlow(paths?: string[]): Promise<void> {
+  // The spinner goes up before the file dialog, not after: the dialog is a native
+  // window in front of ours, and reading starts the instant it closes — there is no
+  // tick in between to paint anything in.
+  await withBusy('Importing .fig…', (step) => importFig(paths, step))
+}
+
+async function importFig(paths: string[] | undefined, step: (label: string) => Promise<void>): Promise<void> {
   const files = await window.polyform.figImportDialog(paths)
   if (!files || files.length === 0) return
   const scene = documentStore.scene
@@ -1728,6 +1787,8 @@ export async function importFigFlow(paths?: string[]): Promise<void> {
     // Their SHA-1 → our SHA-256: assets are content-addressed by OUR hash, so the
     // same bitmap imported twice from two files lands once on disk.
     const imageMap = new Map<string, string>()
+    const imageCount = Object.keys(file.images).length
+    if (imageCount > 0) await step(`${file.fileName}: writing ${imageCount} image${imageCount === 1 ? '' : 's'}…`)
     for (const [figHash, bytes] of Object.entries(file.images)) {
       const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayLike<number>)
       const ext = imageExtOf(data)
@@ -1736,11 +1797,17 @@ export async function importFigFlow(paths?: string[]): Promise<void> {
       if (written?.hash) imageMap.set(figHash.toLowerCase(), written.hash)
     }
 
+    await step(`${file.fileName}: reading layers…`)
     const result = mapFigDocument(file.root as Parameters<typeof mapFigDocument>[0], imageMap)
     if (result.bundle.rootIds.length === 0) {
       lines.push(`${file.fileName}: nothing importable found.`)
       continue
     }
+    // The long one: several minutes for a few thousand layers, and the reason any
+    // of this exists. Named so the wait is legible rather than mysterious.
+    const layers = result.report.nodesCreated
+    const pageWord = result.pages.length === 1 ? 'page' : 'pages'
+    await step(`${file.fileName}: placing ${layers.toLocaleString()} layers on ${result.pages.length} ${pageWord}…`)
     const claimed = new Set<NodeId>()
     for (const page of result.pages) {
       let pageId: string

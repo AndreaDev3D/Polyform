@@ -68,6 +68,18 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Loading a file says so.** A spinner and a label — *"Digborn.fig: writing 183
+  images…"*, then *"placing 4,587 layers on 4 pages…"* — plus the wait cursor, for
+  `.fig` and SVG import, opening a project, and placing images or a 3D model. A 90-
+  second import with no feedback is indistinguishable from a hung app.
+  - **The label is painted before the work starts, on purpose.** The expensive half
+    of loading a file is synchronous, so setting a label and beginning in the same
+    tick shows nothing: the frame it belongs to would render after the thread frees
+    up, by which time it is stale. Each step yields for a frame and then once more
+    through the task queue, so what you read is what is *about* to happen. Verified
+    by starting an import and screenshotting while the thread was blocked.
+  - The wait cursor is set on `<html>` with `!important`, because the canvas rewrites
+    its own cursor inline on every frame (F-23) and anything less loses to it.
 - **The zoom control is a menu, not a −/+ box.** Click the percentage and you get a
   field with the current zoom in it, already selected — type `250`, press Enter — over
   rows for zoom in/out, fit, focus on selection, and 50/100/200%, then the view
@@ -125,8 +137,11 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     Tilemaps, RadMiner), 13/13 masks, 183 images, 4,587 layers, and the winding
     change proven to alter the picture by forcing every vector back to nonzero and
     diffing the screenshots. All four bugs were put back to watch their tests go red.
-  - **Not fixed, and now measured:** a file this size takes about 90 s to import —
-    16 s to read, decode and cross the IPC boundary, the rest committing 4,587 nodes.
+  - **Not fixed, and now measured properly:** a file this size takes about 90 s to
+    import — 20 s to read, decode and cross the IPC boundary, **65 s writing its 183
+    images**, 1 s mapping and 4 s committing 4,587 layers. The images are the cost,
+    and the shape is worse than slow: main reads them out of the archive, ships them
+    to the renderer, and the renderer sends them back one at a time to be written.
 - **Frame names no longer pile into each other when you zoom out.** They were drawn
   at a fixed 11px whatever the zoom, so a sheet of a hundred small frames became a
   wall of overlapping text with the artwork somewhere underneath. Names now shrink as

@@ -408,6 +408,48 @@ textarea {
   -webkit-backdrop-filter: blur(12px) saturate(140%);
 }
 
+/* --- Busy ---------------------------------------------------------------- *
+ * Feedback for work that blocks the main thread. Centred under the title bar,
+ * where a progress readout is expected, and unclickable — there is nothing to
+ * click while the thread is busy anyway. */
+
+.pf-busy {
+  position: fixed;
+  left: 50%;
+  top: 52px;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  font-size: 0.75rem;
+  color: var(--pf-text);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.pf-busy-spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--pf-text) 22%, transparent);
+  border-top-color: var(--pf-accent);
+  animation: pf-spin 0.7s linear infinite;
+}
+@keyframes pf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The canvas rewrites its own cursor inline every frame (F-23), so this has to
+ * be !important to win — and it goes on <html> to cover the whole window,
+ * including the welcome screen and any dialog surface. */
+html.pf-busy-cursor,
+html.pf-busy-cursor * {
+  cursor: wait !important;
+}
+
 /* Opens upward, right-aligned: the zoom menu hangs off a control in the bottom
  * bar, where there is no room below and the window edge is to the right. The
  * height cap is for short windows — a menu taller than the app cannot be read. */

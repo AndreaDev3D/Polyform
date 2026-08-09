@@ -774,7 +774,18 @@ The test for this asserted the bug. `fillGeometry: [{ windingRule: 'EVENODD' }]`
 
 **How it was found, and how the fix was judged.** By decoding the user's file with our own reader and counting: 5 canvases (one `internalOnly`), 42 booleans (37 subtract, 2 union, 3 intersect), 13 nodes with `mask: true`, 26 symbols, 99 image hashes. Then the same counts out of the importer, until they matched: 4 pages, 13 masks, 56 even-odd paths, 183 images, 4,587 layers. The winding fix was checked by A/B against the renderer itself — force every vector back to nonzero and the screenshots differ, so the change is not cosmetic — and all four bugs were put back to watch their tests go red ([F-22](#f-22-a-regression-test-that-has-never-failed-is-a-guess)).
 
-**Known and not fixed:** that file takes ~90 s to import (16 s to read, decode and cross the IPC boundary; the rest is 4,587 nodes through the op recorder, which deep-clones each node twice by design so the journal entry cannot alias the scene). Reported rather than quietly optimised — the fix is a change to how bundles commit, not to the importer.
+**Known and not fixed, and measured properly the second time.** That file takes ~90 s to import. The first attribution here was a guess dressed as a finding — "the rest is the op recorder" — and adding a phase label to each step (v0.8, for the user's benefit rather than mine) printed the real division:
+
+| phase | time |
+| :--- | ---: |
+| read the file, decode it, cross the IPC boundary | 20 s |
+| **write 183 images** | **65 s** |
+| map 4,825 nodes | 1 s |
+| commit 4,587 layers onto 4 pages | 4 s |
+
+The commit is 4 seconds. The cost is the images, and the shape of it is worse than slow: **main reads the archive, ships 183 bitmaps to the renderer, and the renderer sends them back one at a time to be written** — a round trip per image, of bytes that never needed to leave the process that already had them. Writing them where they are read, and returning only the hash map, is the fix; it is not an importer change, which is why it is recorded here instead of done in passing.
+
+The lesson is the smaller one in this entry and worth its own line: **an unmeasured attribution is a guess, and a plausible one is the most expensive kind** — "deep-clones each node twice" was true, and irrelevant, and would have sent the next person to optimise a 4-second phase.
 
 **Standing obligation.** When you read someone else's format, every constant you compare against must be **quoted from their definition** — their schema, their source, their file — and the fixture that exercises it must contain *their* value, not ours. A test whose input we invented in our own vocabulary cannot fail; it can only confirm. And when deciding what a foreign node meant, ask the foreign type: inferring it from what our own mapper happened to produce turns one unsupported type into silent data loss.
 
