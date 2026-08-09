@@ -355,15 +355,95 @@ describe('fig document mapping', () => {
           parentIndex: { guid: guid(1, 1), position: '!' },
         },
       ] as unknown as KiwiObject[])
-      const { bundle, report } = mapFigDocument(doc)
+      const { bundle } = mapFigDocument(doc)
       const symbol = Object.values(bundle.nodes).find((n) => n.name === 'Bark_Tilemap')
-      expect(symbol?.type).toBe('FRAME')
+      // A COMPONENT since F-33; it was a FRAME when this test was written, and a bare
+      // path with its contents deleted before that.
+      expect(symbol?.type).toBe('COMPONENT')
       // The whole point: the child survived. A SYMBOL used to map to a bare path and
       // then have its contents dropped under a comment about operands.
-      if (symbol?.type === 'FRAME') {
+      if (symbol?.type === 'COMPONENT') {
         expect(symbol.children.map((id) => bundle.nodes[id].name)).toEqual(['Tile'])
       }
-      expect(Object.keys(report.approximations)).toContain('component imported as a plain frame (no link to its instances)')
+    })
+
+    it('makes a component a component and an instance an instance, linked', () => {
+      // An INSTANCE in a .fig has NO children — it is a symbolID plus overrides.
+      // So importing it as a frame gave an empty box, and the fix is the link:
+      // ours materialises its contents from the component it points at (F-33).
+      const doc = figDoc([
+        { guid: guid(1, 672), type: 'SYMBOL', name: 'Log', size: { x: 200, y: 200 } },
+        {
+          guid: guid(1, 700),
+          type: 'ROUNDED_RECTANGLE',
+          name: 'Bark',
+          size: { x: 64, y: 64 },
+          parentIndex: { guid: guid(1, 672), position: '!' },
+        },
+        {
+          guid: guid(1, 682),
+          type: 'INSTANCE',
+          name: 'Log',
+          size: { x: 200, y: 200 },
+          transform: { m00: 1, m01: 0, m02: 400, m10: 0, m11: 1, m12: 0 },
+          symbolData: { symbolID: guid(1, 672), symbolOverrides: [] },
+        },
+      ] as unknown as KiwiObject[])
+      const { bundle } = mapFigDocument(doc)
+      const nodes = Object.values(bundle.nodes)
+      const component = nodes.find((n) => n.type === 'COMPONENT')
+      const instance = nodes.find((n) => n.type === 'INSTANCE')
+      expect(component?.name).toBe('Log')
+      // The component keeps its contents: `walk` used to list container types by
+      // hand, and a component was not among them.
+      if (component?.type === 'COMPONENT') {
+        expect(component.children.map((id) => bundle.nodes[id].name)).toEqual(['Bark'])
+      }
+      expect(instance?.name).toBe('Log')
+      if (instance?.type === 'INSTANCE') {
+        expect(instance.componentId).toBe(component?.id)
+        // Empty on arrival BY DESIGN: the engine's derived pass fills it from the
+        // component. An importer that copied the subtree here would be building a
+        // detached duplicate.
+        expect(instance.children).toEqual([])
+      }
+    })
+
+    it('falls back to a frame when the component is not in the file', () => {
+      // A library component, or one on the internal-only canvas: an instance
+      // pointing at nothing would materialise as the empty box we started with.
+      const doc = figDoc([
+        {
+          guid: guid(1, 682),
+          type: 'INSTANCE',
+          name: 'Log',
+          size: { x: 200, y: 200 },
+          symbolData: { symbolID: guid(9, 999) },
+        },
+      ] as unknown as KiwiObject[])
+      const { bundle, report } = mapFigDocument(doc)
+      const node = bundle.nodes[bundle.rootIds[0]]
+      expect(node.type).toBe('FRAME')
+      expect(Object.keys(report.approximations)).toContain(
+        'instance whose component is not in this file imported as an empty frame',
+      )
+    })
+
+    it('says when an instance had its own overrides', () => {
+      const doc = figDoc([
+        { guid: guid(1, 1), type: 'SYMBOL', name: 'Apple', size: { x: 40, y: 40 } },
+        {
+          guid: guid(1, 2),
+          type: 'INSTANCE',
+          name: 'Apple',
+          size: { x: 40, y: 40 },
+          symbolData: { symbolID: guid(1, 1), symbolOverrides: [{}, {}] },
+        },
+      ] as unknown as KiwiObject[])
+      const { report } = mapFigDocument(doc)
+      expect(Object.keys(report.approximations)).toContain(
+        "an instance's own overrides not carried (it shows the component as designed)",
+      )
     })
 
     it("leaves Figma's internal-only canvas out of the document", () => {

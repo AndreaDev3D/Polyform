@@ -791,6 +791,30 @@ The lesson is the smaller one in this entry and worth its own line: **an unmeasu
 
 ---
 
+## F-33. An instance is a reference, so importing it as a frame imports a box
+
+**Severity: Med** — every instance in a `.fig` arrived empty. Reported by a user who could see the difference side by side: their component full of artwork, and the copy of it next to it a blank rectangle. Fixed in v0.8.
+
+**An `INSTANCE` in a `.fig` has no children at all.** Measured, not assumed — all eight in the reported file:
+
+```
+"Log"       children=0  symbolID=1:672   -> "Log" (SYMBOL, 4 children)
+"Apple"     children=0  symbolID=171:104 -> "Apple" (SYMBOL, 6 children)
+"Logo_Text" children=0  symbolID=188:38  -> "Light=Variant3" (SYMBOL, 3 children)
+```
+
+It is a `symbolID` plus an override list, exactly as our own instances are a `componentId` plus overrides. [F-32](#f-32) had just stopped instances being *deleted* by making them containers, which was the right change against the evidence at the time — and left the real defect intact, because a container with nothing in it is still empty. Two fixes, one node type, one release: the first made it survive, the second gave it something to hold.
+
+So `SYMBOL` maps to `COMPONENT` and `INSTANCE` to `INSTANCE`, with `componentId` resolved **after** the walk — a symbol is usually written after the instances that use it, so its id does not exist while they are being mapped. The engine's derived pass then materialises each one, which is why the importer deliberately leaves an instance's children empty: copying the subtree in would build a detached duplicate that no longer follows its component. Verified in the app: 8 instances, 8 links, 8 materialised (9, 6 and 15 descendants respectively, every one carrying the `sourceId` it came from), and editing a component child changes the copy — opacity 0.25 through the link.
+
+**A third instance of the same mistake, found by fixing the second.** `walk` assigned children only when the node it built was a `FRAME` or a `GROUP` — a hand-written pair of type names where the predicate `isContainer` already existed. So components linked correctly and still arrived empty, because their contents were dropped one line earlier. Both places now ask `isContainer`.
+
+**Not fixed, and it is what the screenshot mostly shows.** The same picture had the DIGBORN logo as brown bars. That is not the importer: the logo is built as a **mask whose shape is a container of letterforms** — `FRAME "Text" [MASK]` holding seven `VECTOR` glyph outlines — and in one variant a `TEXT [MASK]` over an image. Our renderer takes a mask's shape from `nodeOutline`, which for a frame is its rectangle and for text is its box, so the mask covers everything and clips nothing: the brown wave that should show only inside the letters shows as a bar. Container and text masks need real coverage — the union of a mask's descendants' outlines, and glyph outlines for text — in both renderers and in SVG export. Recorded because it is a renderer capability, not an import bug, and the import is now faithful to the file either way.
+
+**Standing obligation.** When a format stores something **by reference**, the reference *is* the content, and an importer that carries the node without resolving the reference has imported nothing. Ask of every foreign container: does this hold its children, or name them? And when a check on our node type stands in for a decision about the foreign one, spell the predicate out once and use it everywhere — three separate defects in this file and [F-32](#f-32) came from lists of type names written by hand.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -803,8 +827,9 @@ Three themes run through every entry:
 6. **A correct document is not a correct app.** F-21 was a stale cache over right data, F-23 was the right answer computed and then not applied, and F-22 is the reason both now have checks that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.
 7. **A green pipeline is not a running one.** F-26 removed a gate and reported success, and F-24/F-25 were both found by reading what actually happened rather than what the summary said. Ask of every check: if the thing it guards were broken right now, would this run be red? For a condition, the question is narrower and sharper — did the job I expected actually *run*?
 8. **A fixture in our own vocabulary is not a test.** F-32's importer compared Figma's winding rule against `EVENODD`, a string Figma never writes, and the fixture that covered it supplied `EVENODD` as input — so the check confirmed the assumption and every real even-odd path was read wrongly for two releases. Quote the other side's own definition, and put *their* values in the fixture.
-9. **A conversion is only verified against its source.** F-28's importer passed every check it had while placing a quarter of its nodes wrongly, because all of them examined our output alone — and one of them had frozen the bug as the expected value. Whenever code converts between representations, at least one check has to hold the output against the *input*, derived independently.
-10. **Two halves built by different tools will disagree.** F-29's publisher wrote `latest.yml` while the client asked for `beta.yml`, and each side was self-consistent. Wherever a boundary is crossed by convention rather than by a shared type — file names, wire formats, IPC channel strings, CLI flags — the only test that means anything crosses it too.
-11. **The model can be right while the picture is wrong.** F-30 stored a stroke alignment faithfully, read it back faithfully, and drew something else; the gradient had correct stops and painted nothing. Tests that assert on documents cannot see either. Where the output is pixels, something has to look at pixels.
-12. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
-13. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+9. **A reference is content.** F-33's instances carried a `symbolID` and no children, so importing the node without resolving the reference imported an empty box — and the fix before it had made the box survive rather than fill. Ask of every foreign container whether it holds its children or merely names them.
+10. **A conversion is only verified against its source.** F-28's importer passed every check it had while placing a quarter of its nodes wrongly, because all of them examined our output alone — and one of them had frozen the bug as the expected value. Whenever code converts between representations, at least one check has to hold the output against the *input*, derived independently.
+11. **Two halves built by different tools will disagree.** F-29's publisher wrote `latest.yml` while the client asked for `beta.yml`, and each side was self-consistent. Wherever a boundary is crossed by convention rather than by a shared type — file names, wire formats, IPC channel strings, CLI flags — the only test that means anything crosses it too.
+12. **The model can be right while the picture is wrong.** F-30 stored a stroke alignment faithfully, read it back faithfully, and drew something else; the gradient had correct stops and painted nothing. Tests that assert on documents cannot see either. Where the output is pixels, something has to look at pixels.
+13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
+14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

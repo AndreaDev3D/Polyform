@@ -23,7 +23,16 @@
 // silently: an importer that quietly loses half a file is worse than one that
 // says what it left behind.
 
-import { createNode, rgba, type BlendMode, type Effect, type NodeId, type Paint, type SceneNode } from '../../types'
+import {
+  createNode,
+  isContainer,
+  rgba,
+  type BlendMode,
+  type Effect,
+  type NodeId,
+  type Paint,
+  type SceneNode,
+} from '../../types'
 import type { NodeBundle } from '../../commands'
 import type { KiwiObject } from '../../../../../shared/fig/kiwi'
 import { networkFromPaths, parsePathCommands, windingRuleFrom, type ParsedGeometry } from './geometry'
@@ -63,6 +72,12 @@ export interface FigImportReport {
 interface Ctx {
   bundle: NodeBundle
   idByGuid: Map<string, NodeId>
+  /**
+   * Our instance node id → the Figma GUID of the SYMBOL it is a copy of. Resolved
+   * after the walk, because a symbol is often written after the instances that use
+   * it and its own id does not exist yet.
+   */
+  instanceSymbols: Map<NodeId, string>
   /** One entry per Figma CANVAS, in file order: its name and its root ids. */
   pageBreaks: { name: string; ids: NodeId[] }[]
   blobs: Uint8Array[]
@@ -486,19 +501,29 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
   // Containers keep the hierarchy, which is most of what a design IS.
   if (CONTAINER_TYPES.has(figType)) {
     const isGroup = figType === 'GROUP'
-    // A component and its instances come in as ordinary frames: their contents,
-    // names and geometry are exact, but the LINK between them is not carried, so
-    // editing the original will not update the copies.
-    if (figType === 'SYMBOL') note(ctx.report.approximations, 'component imported as a plain frame (no link to its instances)')
-    if (figType === 'INSTANCE') note(ctx.report.approximations, 'instance imported as a plain frame (detached from its component)')
-    const node = createNode(isGroup ? 'GROUP' : 'FRAME', name)
+    // A Figma SYMBOL is a component and an INSTANCE is a copy of one, so they map
+    // to ours. This matters more than it sounds: **an instance in a `.fig` has no
+    // children at all** — it is a reference to its symbol plus overrides — so
+    // importing it as a frame produced an empty box, which is exactly what it
+    // looked like (F-33). Ours materialises its children from the component, so the
+    // link is not a nicety here, it is the content.
+    const kind = isGroup ? 'GROUP' : figType === 'SYMBOL' ? 'COMPONENT' : figType === 'INSTANCE' ? 'INSTANCE' : 'FRAME'
+    const node = createNode(kind, name)
     node.width = width
     node.height = height
-    if (node.type === 'FRAME') {
+    if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE') {
       node.clipsContent = raw.frameMaskDisabled !== true
       node.cornerRadius = cornerRadiiOf(raw)
       // A frame with no fill in Figma is transparent; createNode gives it white.
       node.fills = paintsFrom(raw.fillPaints, ctx)
+    }
+    if (node.type === 'INSTANCE') {
+      const overrides = (raw.symbolData as { symbolOverrides?: unknown[] } | undefined)?.symbolOverrides
+      if (Array.isArray(overrides) && overrides.length > 0) {
+        // Per-layer changes made on the copy: colours, text, swapped children. Our
+        // override map is keyed differently and carrying it across is its own job.
+        note(ctx.report.approximations, "an instance's own overrides not carried (it shows the component as designed)")
+      }
     }
     return finish(node)
   }
@@ -658,11 +683,19 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
   ctx.bundle.nodes[node.id] = node
   ctx.idByGuid.set(fig.guid, node.id)
   ctx.report.nodesCreated += 1
+  // Recorded here rather than in mapNode: the id above is the one that lasts.
+  if (node.type === 'INSTANCE') {
+    const symbolGuid = guidOf((fig.raw.symbolData as KiwiObject | undefined)?.symbolID)
+    if (symbolGuid) ctx.instanceSymbols.set(node.id, symbolGuid)
+  }
 
   const childIds: NodeId[] = []
   for (const child of fig.children) childIds.push(...walk(child, ctx))
   if (childIds.length > 0) {
-    if (node.type === 'FRAME' || node.type === 'GROUP') {
+    // Every container type, not a hand-written pair of them: components and
+    // instances are containers too, and listing types here is how a component's
+    // whole subtree ended up being deleted as if it were a boolean's operands.
+    if (isContainer(node)) {
       node.children = childIds
       // A group's box is its content; a frame that came without one gets the same
       // treatment so nothing is clipped away on arrival.
@@ -699,7 +732,7 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
       const drop = (id: NodeId): void => {
         const n = ctx.bundle.nodes[id]
         if (!n) return
-        if (n.type === 'FRAME' || n.type === 'GROUP') for (const cid of n.children) drop(cid)
+        if (isContainer(n)) for (const cid of n.children) drop(cid)
         delete ctx.bundle.nodes[id]
         ctx.report.nodesCreated -= 1
       }
@@ -735,6 +768,7 @@ export function mapFigDocument(root: KiwiObject, imageMap = new Map<string, stri
   const ctx: Ctx = {
     bundle: { nodes: {}, rootIds: [] },
     idByGuid: new Map(),
+    instanceSymbols: new Map(),
     pageBreaks: [],
     blobs,
     imageMap,
@@ -742,6 +776,36 @@ export function mapFigDocument(root: KiwiObject, imageMap = new Map<string, stri
   }
 
   for (const rootFig of buildFigTree(nodeChanges)) ctx.bundle.rootIds.push(...walk(rootFig, ctx))
+
+  // Point every instance at the component it copies. Deferred to here because a
+  // symbol is often written after the instances that use it, so its id does not
+  // exist while they are being mapped.
+  let orphanedInstances = 0
+  for (const [instanceId, symbolGuid] of ctx.instanceSymbols) {
+    const inst = ctx.bundle.nodes[instanceId]
+    if (!inst || inst.type !== 'INSTANCE') continue
+    const componentId = ctx.idByGuid.get(symbolGuid)
+    const component = componentId ? ctx.bundle.nodes[componentId] : undefined
+    if (componentId && component?.type === 'COMPONENT') {
+      inst.componentId = componentId
+      continue
+    }
+    // The symbol is not in this file — a library component, or one that lived on
+    // the canvas we skip. An instance pointing at nothing materialises as an empty
+    // box, which is the bug this whole change is about, so it becomes a frame.
+    orphanedInstances += 1
+    const asFrame = inst as SceneNode as { type: string; componentId?: unknown; overrides?: unknown }
+    asFrame.type = 'FRAME'
+    delete asFrame.componentId
+    delete asFrame.overrides
+  }
+  if (orphanedInstances > 0) {
+    note(
+      ctx.report.approximations,
+      'instance whose component is not in this file imported as an empty frame',
+      orphanedInstances,
+    )
+  }
 
   // One entry per Figma page that has something on it. Nothing is moved: each page
   // becomes a page, so two pages sharing a coordinate range no longer sit on top of

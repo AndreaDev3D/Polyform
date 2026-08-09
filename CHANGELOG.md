@@ -121,6 +121,30 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **`.fig` import: instances come through with their contents** (F-33). An `INSTANCE`
+  in a `.fig` has **no children at all** — it is a `symbolID` plus overrides, the same
+  shape as ours — so importing it as a frame produced an empty box, which is exactly
+  what it looked like next to the component it was a copy of. A Figma component is now
+  a Polyform component and an instance a linked instance, so the engine materialises
+  its contents from the component and editing the original updates the copies.
+  - The link is resolved *after* the walk: a symbol is usually written after the
+    instances that use it, so its id does not exist while they are being mapped. An
+    instance whose component is not in the file (a library component) becomes a plain
+    frame and says so, rather than a copy of nothing.
+  - The importer leaves an instance's children empty on purpose — filling them in
+    would build a detached duplicate that no longer follows its component.
+  - An instance's **own overrides are not carried**: it shows the component as
+    designed. Reported per file.
+  - Found while fixing it: `walk` assigned children only to a frame or a group, by
+    name, so components linked correctly and still arrived empty. Both places that
+    made that decision now ask `isContainer`, which already existed.
+  - **Not fixed, and it is what most of the reported screenshot showed:** the DIGBORN
+    logo is a **mask made of letterform shapes** (a frame holding seven vector glyphs,
+    and in another variant a text layer over an image). Our renderer takes a mask's
+    shape from the node's outline — a rectangle for a frame, a box for text — so it
+    clips nothing and the brown wave that should show only inside the letters shows as
+    a bar. Container and text masks need real coverage in both renderers and in SVG
+    export; recorded in F-33 as renderer work, not import work.
 - **`.fig` import: pages are pages, subtractions have holes, masks mask, and a
   component keeps what is inside it** (F-32). Four separate defects, found against a
   4,825-node file and each measured against what the file itself says.
