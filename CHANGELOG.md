@@ -6,6 +6,12 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Gradients on a STROKE are editable at all.** The stops bar and the new direction
+  control are gated on a gradient-mutation handler, and only the *fill* row ever passed
+  one — so a gradient stroke could be created and then never edited: no stops, no
+  angle. That is the gradient most people meet first, on a line, and it is why "I still
+  can't rotate the gradient" was true after the direction control shipped. The fill
+  case passing is exactly what hid it.
 - **Gradients have a direction you can type.** A number field (0° runs left to right,
   90° top to bottom), a *turn 90°* button, and *reverse the stops*, on every linear
   gradient. Before this the direction was whatever the file happened to contain, with

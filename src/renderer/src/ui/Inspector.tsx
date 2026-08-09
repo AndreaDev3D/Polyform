@@ -732,6 +732,19 @@ export function Inspector() {
                 return { strokes }
               }, 'Change Stroke Type')
             }
+            // Without this the gradient editor did not exist for STROKES at all:
+            // PaintRow gates the stops bar and the direction control on it, and only
+            // the fill row was passing one. So a gradient stroke could be created and
+            // never edited — no stops, no angle — which is exactly the gradient most
+            // people meet first on a line.
+            onStopsChange={(mutate) =>
+              commit((n) => {
+                const strokes = structuredClone(n.strokes)
+                const p = strokes[i]
+                if (p && (p.type === 'GRADIENT_LINEAR' || p.type === 'GRADIENT_RADIAL')) mutate(p)
+                return { strokes }
+              }, 'Edit Gradient')
+            }
           />
         ))}
         {first.strokes.length > 0 && (
