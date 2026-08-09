@@ -96,6 +96,37 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **`.fig` import: pages are pages, subtractions have holes, masks mask, and a
+  component keeps what is inside it** (F-32). Four separate defects, found against a
+  4,825-node file and each measured against what the file itself says.
+  - **A Figma page becomes a Polyform page**, named the same, at the file's own
+    coordinates. Everything used to land on one page with each page after the first
+    shoved sideways so they did not overlap — a way of coping with pages rather than
+    creating them. The page-add lands in the same commit as the nodes, so the whole
+    import is still one undo, and an untouched document's starter page is reused so a
+    fresh project gets the file's pages and nothing else.
+  - **Even-odd paths arrive even-odd.** Figma's winding rule is spelled `ODD`; we
+    compared against `EVENODD`, which is *our* word for it and a value a `.fig` never
+    contains — so every even-odd path since the feature shipped came in as nonzero,
+    and a subtraction's hole filled itself in. 56 paths in this one file. Their enum
+    is in the schema the file carries: `WindingRule => NONZERO, ODD`.
+  - **Masks come across as masks.** `mask: true` was never read, so 13 masks arrived
+    as 13 opaque shapes covering the artwork they were meant to cut out. The renderer
+    has done Figma's mask semantics all along.
+  - **Components and instances keep their contents.** Neither counted as a container,
+    so each mapped to a bare path made from its own background and then had its whole
+    subtree deleted as if it were a boolean's operands — 26 components, 8 instances.
+    Operand-dropping now keys off the *Figma* type instead of guessing from what our
+    own mapper produced.
+  - **Figma's `internalOnly` holding canvas is left out** — component definitions it
+    has moved aside, deleted nodes, brushes. It is not a page in Figma, and it was
+    arriving as the largest page in the document (477 roots).
+  - Verified end to end on that file, in a real project: 4 pages (Assets, Banner,
+    Tilemaps, RadMiner), 13/13 masks, 183 images, 4,587 layers, and the winding
+    change proven to alter the picture by forcing every vector back to nonzero and
+    diffing the screenshots. All four bugs were put back to watch their tests go red.
+  - **Not fixed, and now measured:** a file this size takes about 90 s to import —
+    16 s to read, decode and cross the IPC boundary, the rest committing 4,587 nodes.
 - **Frame names no longer pile into each other when you zoom out.** They were drawn
   at a fixed 11px whatever the zoom, so a sheet of a hundred small frames became a
   wall of overlapping text with the artwork somewhere underneath. Names now shrink as

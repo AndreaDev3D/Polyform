@@ -41,12 +41,12 @@ export interface FigImportResult {
    */
   idByGuid: Map<string, NodeId>
   /**
-   * One entry per Figma page that had content, in file order. `dx` is how far this
-   * page had to be moved to stop it landing on a page already placed — 0 for a page
-   * whose coordinates are untouched. Kept because a caller (or a test) cannot tell
-   * a deliberate page offset from a misplaced node without it.
+   * One entry per Figma page that had content, in file order — the caller makes one
+   * Polyform page from each. Coordinates are exactly the file's: pages used to be
+   * shoved sideways to stop them overlapping, which is only a problem while they
+   * share one page.
    */
-  pages: { name: string; rootIds: NodeId[]; dx: number }[]
+  pages: { name: string; rootIds: NodeId[] }[]
 }
 
 export interface FigImportReport {
@@ -397,7 +397,23 @@ function geometryOf(
   return { geometry: stroke, paths: raw.strokeGeometry as KiwiObject[] | undefined, strokeOnly: stroke.length > 0 }
 }
 
-const CONTAINER_TYPES = new Set(['FRAME', 'GROUP', 'CANVAS', 'DOCUMENT', 'SECTION', 'COMPONENT_SET'])
+/**
+ * SYMBOL and INSTANCE are in here because they are *containers* — a component and
+ * a copy of one. They were not, so each mapped to a bare path made from its own
+ * background fill and then, being a non-container with children, had its entire
+ * contents deleted as if it were a boolean's operands: 24 components in one file
+ * arrived as empty rectangles (F-32).
+ */
+const CONTAINER_TYPES = new Set([
+  'FRAME',
+  'GROUP',
+  'CANVAS',
+  'DOCUMENT',
+  'SECTION',
+  'COMPONENT_SET',
+  'SYMBOL',
+  'INSTANCE',
+])
 
 function cornerRadiiOf(raw: KiwiObject): { tl: number; tr: number; br: number; bl: number } {
   const uniform = typeof raw.cornerRadius === 'number' ? raw.cornerRadius : 0
@@ -441,6 +457,18 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
       }
     }
     node.effects = effectsFrom(raw.effects, ctx.report)
+    // A mask clips the siblings above it, which is what our renderer already does
+    // with `isMask` — it was simply never read, so 13 masks in one file arrived as
+    // 13 opaque shapes drawn over the artwork they were meant to cut out (F-32).
+    if (raw.mask === true) {
+      node.isMask = true
+      const maskType = String(raw.maskType ?? 'ALPHA').toUpperCase()
+      if (maskType !== 'OUTLINE' && maskType !== 'VECTOR') {
+        // Ours is a clip: identical for a solid shape, hard-edged where theirs
+        // would fade (a gradient, a soft image, partial opacity).
+        note(ctx.report.approximations, `${maskType.toLowerCase()} mask imported as a clipping path`)
+      }
+    }
     if (node.type === 'FRAME' || node.type === 'GROUP') {
       // Auto layout is a frame concern; a group cannot hold one here.
       if (node.type === 'FRAME' && raw.stackMode && String(raw.stackMode) !== 'NONE') {
@@ -458,6 +486,11 @@ function mapNode(fig: FigNode, ctx: Ctx): SceneNode | null {
   // Containers keep the hierarchy, which is most of what a design IS.
   if (CONTAINER_TYPES.has(figType)) {
     const isGroup = figType === 'GROUP'
+    // A component and its instances come in as ordinary frames: their contents,
+    // names and geometry are exact, but the LINK between them is not carried, so
+    // editing the original will not update the copies.
+    if (figType === 'SYMBOL') note(ctx.report.approximations, 'component imported as a plain frame (no link to its instances)')
+    if (figType === 'INSTANCE') note(ctx.report.approximations, 'instance imported as a plain frame (detached from its component)')
     const node = createNode(isGroup ? 'GROUP' : 'FRAME', name)
     node.width = width
     node.height = height
@@ -589,7 +622,23 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
   // laying them on top of each other put three pages of frames in one heap — the
   // second thing that made the imports look scrambled.
   if (figType === 'DOCUMENT' || figType === 'CANVAS') {
-    if (figType === 'CANVAS') ctx.report.pages += 1
+    if (figType === 'CANVAS') {
+      // `internalOnly` is Figma's own holding canvas — component definitions it has
+      // moved out of the way, deleted nodes, brush assets. Figma does not list it in
+      // Pages, and importing it turned 477 pieces of debris into the largest "page"
+      // in the document. The flag is theirs, read from the file's own schema: no
+      // name matching (F-32).
+      if (fig.raw.internalOnly === true) {
+        note(ctx.report.skipped, "Figma's internal-only canvas (component definitions and deleted nodes)")
+        return []
+      }
+      // A divider is a label in the pages list, not a page.
+      if (fig.raw.isPageDivider === true) {
+        note(ctx.report.skipped, 'page divider')
+        return []
+      }
+      ctx.report.pages += 1
+    }
     const out: NodeId[] = []
     for (const child of fig.children) out.push(...walk(child, ctx))
     if (figType === 'CANVAS') ctx.pageBreaks.push({ name: String(fig.raw.name ?? ''), ids: out })
@@ -629,13 +678,22 @@ function walk(fig: FigNode, ctx: Ctx): NodeId[] {
         node.height = Math.max(node.height, maxY)
       }
     } else {
-      // A shape with children is a BOOLEAN OPERATION and its children are the
-      // OPERANDS. We already imported the flattened result, which *is* those
-      // operands combined — so hoisting them next to it drew the union AND both
-      // circles it was made from, one on top of the other. That is what turned the
-      // OmniTecta logo into a black scribble: twenty booleans, every operand drawn
-      // again over the answer. Figma does not draw them either.
-      note(ctx.report.approximations, `operands of a flattened boolean dropped (the result contains them)`)
+      // A BOOLEAN OPERATION's children are its OPERANDS. We already imported the
+      // flattened result, which *is* those operands combined — so hoisting them
+      // next to it drew the union AND both circles it was made from, one on top of
+      // the other. That is what turned the OmniTecta logo into a black scribble:
+      // twenty booleans, every operand drawn again over the answer. Figma does not
+      // draw them either.
+      //
+      // Keyed on the FIGMA type, not on ours. Asking "is our node a container?"
+      // called every non-container-with-children a boolean, so a component's
+      // entire contents were deleted under a comment about operands (F-32).
+      note(
+        ctx.report.approximations,
+        figType === 'BOOLEAN_OPERATION'
+          ? 'operands of a flattened boolean dropped (the result contains them)'
+          : `children of a ${figType} dropped (it did not import as a container)`,
+      )
       // Whole subtrees: an operand can be a group, and leaving its descendants in
       // the bundle would leave nodes nothing references.
       const drop = (id: NodeId): void => {
@@ -685,64 +743,12 @@ export function mapFigDocument(root: KiwiObject, imageMap = new Map<string, stri
 
   for (const rootFig of buildFigTree(nodeChanges)) ctx.bundle.rootIds.push(...walk(rootFig, ctx))
 
-  // Separate the pages. Every Figma CANVAS starts near its own origin, so importing
-  // a three-page file dropped three pages of frames into one pile — overlapping
-  // artwork that reads as a broken importer even though every node was placed
-  // exactly where its own page put it. We do not create pages here (a node add
-  // targets the active page, and inventing pages mid-commit is a bigger change than
-  // this fix), so each page is laid out to the RIGHT of the one before it and the
-  // report says so.
-  const pageBoxOf = (ids: NodeId[]): { minX: number; minY: number; maxX: number; maxY: number } | null => {
-    let a = Infinity
-    let b = Infinity
-    let c = -Infinity
-    let d = -Infinity
-    for (const id of ids) {
-      const n = ctx.bundle.nodes[id]
-      if (!n) continue
-      a = Math.min(a, n.x)
-      b = Math.min(b, n.y)
-      c = Math.max(c, n.x + n.width)
-      d = Math.max(d, n.y + n.height)
-    }
-    return a === Infinity ? null : { minX: a, minY: b, maxX: c, maxY: d }
-  }
-  const withContent = ctx.pageBreaks.filter((p) => p.ids.length > 0)
-  const GAP = 400
-  const pages: { name: string; rootIds: NodeId[]; dx: number }[] = []
-  let placed: { minX: number; minY: number; maxX: number; maxY: number } | null = null
-  let moved = 0
-  for (const page of withContent) {
-    const box = pageBoxOf(page.ids)
-    if (!box) continue
-    // Move a page ONLY when it would land on top of one already placed. Figma pages
-    // have independent coordinates, so some files already sit apart — shifting those
-    // would throw away exact positions to solve a problem they do not have.
-    const collides =
-      placed !== null && box.minX < placed.maxX && box.maxX > placed.minX && box.minY < placed.maxY && box.maxY > placed.minY
-    let dx = 0
-    if (collides && placed) {
-      dx = placed.maxX + GAP - box.minX
-      for (const id of page.ids) {
-        const n = ctx.bundle.nodes[id]
-        if (n) n.x += dx
-      }
-      moved += 1
-    }
-    pages.push({ name: page.name, rootIds: page.ids, dx })
-    const b = { minX: box.minX + dx, minY: box.minY, maxX: box.maxX + dx, maxY: box.maxY }
-    placed = placed
-      ? {
-          minX: Math.min(placed.minX, b.minX),
-          minY: Math.min(placed.minY, b.minY),
-          maxX: Math.max(placed.maxX, b.maxX),
-          maxY: Math.max(placed.maxY, b.maxY),
-        }
-      : b
-  }
-  if (moved > 0) {
-    note(ctx.report.approximations, `${moved} Figma page(s) moved aside so pages do not overlap`, moved)
-  }
+  // One entry per Figma page that has something on it. Nothing is moved: each page
+  // becomes a page, so two pages sharing a coordinate range no longer sit on top of
+  // each other, and every node keeps the position its own page gave it.
+  const pages = ctx.pageBreaks
+    .filter((p) => p.ids.length > 0)
+    .map((p) => ({ name: p.name, rootIds: p.ids }))
 
   let minX = Infinity
   let minY = Infinity

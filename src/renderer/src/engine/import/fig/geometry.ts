@@ -182,7 +182,17 @@ export function networkFromPaths(paths: ParsedGeometry[]): VectorNetwork {
   return { vertices, edges }
 }
 
-/** Figma names the same two rules we do. */
+/**
+ * Figma's rule, in Figma's spelling.
+ *
+ * Their enum is `NONZERO | ODD` — read out of the schema embedded in a real file,
+ * not assumed. This used to compare against `EVENODD`, which is OUR name for that
+ * rule and never a value they write, so **every even-odd path in every `.fig` ever
+ * imported arrived as nonzero** (F-32): a subtraction's hole filled itself in, and
+ * a boolean looked like a blob. `EVENODD` is still accepted so the function reads
+ * correctly whichever spelling reaches it.
+ */
 export function windingRuleFrom(value: unknown): 'NONZERO' | 'EVENODD' {
-  return String(value ?? 'NONZERO').toUpperCase() === 'EVENODD' ? 'EVENODD' : 'NONZERO'
+  const rule = String(value ?? 'NONZERO').toUpperCase()
+  return rule === 'ODD' || rule === 'EVENODD' ? 'EVENODD' : 'NONZERO'
 }

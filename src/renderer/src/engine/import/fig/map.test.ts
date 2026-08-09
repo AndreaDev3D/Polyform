@@ -274,6 +274,167 @@ describe('fig document mapping', () => {
     expect(node.strokes).toEqual([])
   })
 
+  // The four things a real 5000-node file got wrong, each pinned to what the file
+  // itself says (F-28: an importer is only checked against its source).
+  describe('what Digborn.fig proved was wrong', () => {
+    const withHole = (over: Record<string, unknown> = {}): KiwiObject =>
+      ({
+        guid: guid(1, 1),
+        type: 'BOOLEAN_OPERATION',
+        booleanOperation: 'SUBTRACT',
+        name: 'Subtract',
+        size: { x: 1024, y: 1024 },
+        // Figma's enum spells this ODD. Read from the schema embedded in a real
+        // export — `WindingRule => NONZERO, ODD` — not from our own vocabulary.
+        fillGeometry: [{ windingRule: 'ODD', commandsBlob: 0 }],
+        fillPaints: [{ type: 'SOLID', color: { r: 1, g: 0, b: 0, a: 1 }, opacity: 1, visible: true }],
+        ...over,
+      }) as unknown as KiwiObject
+
+    it("reads Figma's ODD as even-odd, so a subtraction keeps its hole", () => {
+      const { bundle } = mapFigDocument(figDoc([withHole()], [RECT_1024]))
+      const node = bundle.nodes[bundle.rootIds[0]]
+      expect(node.type).toBe('VECTOR')
+      // Was NONZERO for every even-odd path in every .fig ever imported, because
+      // 'ODD' was compared against 'EVENODD' and quietly lost.
+      if (node.type === 'VECTOR') expect(node.windingRule).toBe('EVENODD')
+    })
+
+    it('still reads NONZERO, and anything unknown, as nonzero', () => {
+      const nz = mapFigDocument(figDoc([withHole({ fillGeometry: [{ windingRule: 'NONZERO', commandsBlob: 0 }] })], [RECT_1024]))
+      const a = nz.bundle.nodes[nz.bundle.rootIds[0]]
+      if (a.type === 'VECTOR') expect(a.windingRule).toBe('NONZERO')
+      const junk = mapFigDocument(figDoc([withHole({ fillGeometry: [{ windingRule: 'WAT', commandsBlob: 0 }] })], [RECT_1024]))
+      const b = junk.bundle.nodes[junk.bundle.rootIds[0]]
+      if (b.type === 'VECTOR') expect(b.windingRule).toBe('NONZERO')
+    })
+
+    it('carries a mask across as a mask', () => {
+      const doc = figDoc(
+        [
+          { guid: guid(1, 1), type: 'FRAME', name: 'House_Roof_Top', size: { x: 1000, y: 1000 } },
+          {
+            guid: guid(1, 2),
+            type: 'ROUNDED_RECTANGLE',
+            name: 'Rectangle 299',
+            size: { x: 500, y: 500 },
+            mask: true,
+            parentIndex: { guid: guid(1, 1), position: '!' },
+          },
+          {
+            guid: guid(1, 3),
+            type: 'ROUNDED_RECTANGLE',
+            name: 'Roof',
+            size: { x: 1000, y: 1000 },
+            parentIndex: { guid: guid(1, 1), position: '"' },
+          },
+        ] as unknown as KiwiObject[],
+      )
+      const { bundle, report } = mapFigDocument(doc)
+      const nodes = Object.values(bundle.nodes)
+      const mask = nodes.find((n) => n.name === 'Rectangle 299')
+      expect(mask?.isMask).toBe(true)
+      // And it stays BELOW the layer it clips, which is what makes it clip it.
+      const frame = nodes.find((n) => n.name === 'House_Roof_Top')
+      if (frame?.type === 'FRAME') {
+        expect(frame.children.map((id) => bundle.nodes[id].name)).toEqual(['Rectangle 299', 'Roof'])
+      }
+      // Ours is a clip; theirs defaults to an alpha mask. Same for a solid shape,
+      // hard-edged where theirs would fade — so it is declared.
+      expect(Object.keys(report.approximations)).toContain('alpha mask imported as a clipping path')
+    })
+
+    it('keeps what is inside a component instead of deleting it as boolean operands', () => {
+      const doc = figDoc([
+        { guid: guid(1, 1), type: 'SYMBOL', name: 'Bark_Tilemap', size: { x: 400, y: 400 } },
+        {
+          guid: guid(1, 2),
+          type: 'ROUNDED_RECTANGLE',
+          name: 'Tile',
+          size: { x: 64, y: 64 },
+          parentIndex: { guid: guid(1, 1), position: '!' },
+        },
+      ] as unknown as KiwiObject[])
+      const { bundle, report } = mapFigDocument(doc)
+      const symbol = Object.values(bundle.nodes).find((n) => n.name === 'Bark_Tilemap')
+      expect(symbol?.type).toBe('FRAME')
+      // The whole point: the child survived. A SYMBOL used to map to a bare path and
+      // then have its contents dropped under a comment about operands.
+      if (symbol?.type === 'FRAME') {
+        expect(symbol.children.map((id) => bundle.nodes[id].name)).toEqual(['Tile'])
+      }
+      expect(Object.keys(report.approximations)).toContain('component imported as a plain frame (no link to its instances)')
+    })
+
+    it("leaves Figma's internal-only canvas out of the document", () => {
+      const doc = figDoc([
+        { guid: guid(1, 1), type: 'DOCUMENT' },
+        { guid: guid(1, 2), type: 'CANVAS', name: 'Assets', parentIndex: { guid: guid(1, 1), position: '!' } },
+        {
+          guid: guid(1, 3),
+          type: 'ROUNDED_RECTANGLE',
+          name: 'Keeper',
+          size: { x: 10, y: 10 },
+          parentIndex: { guid: guid(1, 2), position: '!' },
+        },
+        {
+          guid: guid(1, 4),
+          type: 'CANVAS',
+          name: 'Internal Only Canvas',
+          internalOnly: true,
+          parentIndex: { guid: guid(1, 1), position: '"' },
+        },
+        {
+          guid: guid(1, 5),
+          type: 'ROUNDED_RECTANGLE',
+          name: 'Debris',
+          size: { x: 10, y: 10 },
+          parentIndex: { guid: guid(1, 4), position: '!' },
+        },
+      ] as unknown as KiwiObject[])
+      const { bundle, report, pages } = mapFigDocument(doc)
+      const names = Object.values(bundle.nodes).map((n) => n.name)
+      expect(names).toContain('Keeper')
+      // 477 pieces of debris were the biggest "page" in the real import.
+      expect(names).not.toContain('Debris')
+      expect(pages.map((p) => p.name)).toEqual(['Assets'])
+      expect(report.pages).toBe(1)
+      expect(Object.keys(report.skipped)).toContain(
+        "Figma's internal-only canvas (component definitions and deleted nodes)",
+      )
+    })
+
+    it('reports one page entry per Figma page, at the coordinates the file gave them', () => {
+      // Two pages whose contents overlap exactly. They used to be shoved sideways to
+      // stop them colliding on one Polyform page; now each gets its own page and
+      // keeps its own coordinates.
+      const page = (id: number, pos: string, name: string): KiwiObject =>
+        ({ guid: guid(1, id), type: 'CANVAS', name, parentIndex: { guid: guid(1, 1), position: pos } }) as unknown as KiwiObject
+      const rect = (id: number, parent: number): KiwiObject =>
+        ({
+          guid: guid(1, id),
+          type: 'ROUNDED_RECTANGLE',
+          name: `R${id}`,
+          size: { x: 100, y: 100 },
+          transform: { m00: 1, m01: 0, m02: 50, m10: 0, m11: 1, m12: 60 },
+          parentIndex: { guid: guid(1, parent), position: '!' },
+        }) as unknown as KiwiObject
+      const { bundle, pages } = mapFigDocument(
+        figDoc([
+          { guid: guid(1, 1), type: 'DOCUMENT' } as unknown as KiwiObject,
+          page(2, '!', 'Assets'),
+          rect(10, 2),
+          page(3, '"', 'Banner'),
+          rect(11, 3),
+        ]),
+      )
+      expect(pages.map((p) => `${p.name}:${p.rootIds.length}`)).toEqual(['Assets:1', 'Banner:1'])
+      const [a, b] = pages.map((p) => bundle.nodes[p.rootIds[0]])
+      expect([a.x, a.y]).toEqual([50, 60])
+      expect([b.x, b.y]).toEqual([50, 60])
+    })
+  })
+
   it('keeps a rounded rectangle parametric rather than flattening it to a path', () => {
     const doc = figDoc([
       {
@@ -302,7 +463,11 @@ describe('fig document mapping', () => {
           type: 'VECTOR',
           name: 'Rectangle 1',
           size: { x: 1024, y: 1024 },
-          fillGeometry: [{ windingRule: 'EVENODD', commandsBlob: 0, styleID: 0 }],
+          // 'ODD' is what Figma writes. This fixture said 'EVENODD' — OUR word for
+          // the rule, which never appears in a .fig — so it asserted our own
+          // assumption back at us and passed while every real even-odd path was
+          // being read as nonzero (F-32).
+          fillGeometry: [{ windingRule: 'ODD', commandsBlob: 0, styleID: 0 }],
         },
       ] as unknown as KiwiObject[],
       [RECT_1024],
@@ -425,9 +590,6 @@ describe.skipIf(!REAL_FIG)('mapping a real .fig export', () => {
     }
     let compared = 0
     const misplaced: string[] = []
-    // A page that had to be moved aside is offset ON PURPOSE, and by a known amount.
-    const pageDx = new Map<string, number>()
-    for (const p of pages) for (const rid of p.rootIds) pageDx.set(rid, p.dx)
     for (const [guidKey, id] of idByGuid) {
       const raw = raws.get(guidKey)
       const node = bundle.nodes[id]
@@ -452,7 +614,7 @@ describe.skipIf(!REAL_FIG)('mapping a real .fig export', () => {
       const m = nodeLocalMatrix(node.x, node.y, w, h, node.rotation, node.flipH, node.flipV)
       for (const p of corners) {
         const theirs = {
-          x: m00 * p.x + m01 * p.y + (t.m02 ?? 0) + (pageDx.get(id) ?? 0),
+          x: m00 * p.x + m01 * p.y + (t.m02 ?? 0),
           y: m10 * p.x + m11 * p.y + (t.m12 ?? 0),
         }
         const ours = applyMat(m, p)

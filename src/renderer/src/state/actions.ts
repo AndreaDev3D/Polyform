@@ -11,6 +11,7 @@ import type {
   Model3dFormat,
   Model3dNode,
   NodeId,
+  Page,
   Paint,
   SceneNode,
   TextNode,
@@ -63,8 +64,27 @@ export class OpRecorder {
     this.ops.push({ kind: 'add', parentId, index, node: snapshot })
   }
 
-  addBundle(bundle: NodeBundle, parentId: NodeId | null, baseIndex: number): void {
-    bundle.rootIds.forEach((rid, i) => this.addSubtree(bundle, rid, parentId, baseIndex + i))
+  /**
+   * `roots` defaults to the whole bundle. Pass a subset to place part of it
+   * somewhere of its own — a `.fig` import puts each Figma page's roots on its own
+   * Polyform page, from one bundle, in one commit.
+   */
+  addBundle(bundle: NodeBundle, parentId: NodeId | null, baseIndex: number, roots = bundle.rootIds): void {
+    roots.forEach((rid, i) => this.addSubtree(bundle, rid, parentId, baseIndex + i))
+  }
+
+  /** A new page, in the same undo step as whatever is about to go onto it. */
+  addPage(page: Page, index: number): void {
+    this.scene.doc.pages.splice(Math.min(index, this.scene.doc.pages.length), 0, page)
+    this.ops.push({ kind: 'page-add', index, page: { ...page, rootIds: [] } })
+  }
+
+  renamePage(pageId: string, after: string): void {
+    const page = this.scene.getPage(pageId)
+    if (!page || page.name === after) return
+    const before = page.name
+    page.name = after
+    this.ops.push({ kind: 'page-rename', pageId, before, after })
   }
 
   private addSubtree(bundle: NodeBundle, id: NodeId, parentId: NodeId | null, index: number): void {
@@ -1671,6 +1691,15 @@ function imageExtOf(bytes: Uint8Array): string | null {
  * onto our nodes, and lands the whole thing as ONE undoable entry. One Ctrl+Z
  * removes an import, however many layers it made.
  */
+/**
+ * Import one or more `.fig` files.
+ *
+ * **A Figma page becomes a Polyform page.** Everything used to land on the active
+ * page, with each page after the first shoved sideways so they did not overlap —
+ * which is a way of coping with pages you have not made rather than making them.
+ * The document's own empty starter page is reused for the first one, so importing
+ * into a fresh project gives exactly the pages the file has and nothing else.
+ */
 export async function importFigFlow(paths?: string[]): Promise<void> {
   const files = await window.polyform.figImportDialog(paths)
   if (!files || files.length === 0) return
@@ -1685,6 +1714,11 @@ export async function importFigFlow(paths?: string[]): Promise<void> {
   const created: NodeId[] = []
   const lines: string[] = []
   let offset = 0
+  let firstImportedPage: string | null = null
+  // The starter page of an untouched document is fair game for the first imported
+  // page; anything the user has already made is not.
+  let reusablePage: string | null =
+    scene.doc.pages.length === 1 && scene.doc.pages[0].rootIds.length === 0 ? scene.doc.pages[0].id : null
 
   for (const file of files) {
     if (file.error || !file.root) {
@@ -1707,23 +1741,60 @@ export async function importFigFlow(paths?: string[]): Promise<void> {
       lines.push(`${file.fileName}: nothing importable found.`)
       continue
     }
-    // Drop it where you are looking, like an SVG import.
-    const dx = centerWorld.x - (result.bounds.x + result.bounds.w / 2) + offset
-    const dy = centerWorld.y - (result.bounds.y + result.bounds.h / 2) + offset
-    for (const rid of result.bundle.rootIds) {
-      const n = result.bundle.nodes[rid]
-      n.x += dx
-      n.y += dy
+    const claimed = new Set<NodeId>()
+    for (const page of result.pages) {
+      let pageId: string
+      if (reusablePage) {
+        // Rename rather than add: the page is already there and already active.
+        rec.renamePage(reusablePage, page.name)
+        pageId = reusablePage
+        reusablePage = null
+      } else {
+        const made = createPage(page.name)
+        rec.addPage(made, scene.doc.pages.length)
+        pageId = made.id
+      }
+      if (!firstImportedPage) firstImportedPage = pageId
+      // Original coordinates: a page of its own has nothing to collide with, and
+      // "where the file put it" is the only placement that survives a re-import.
+      rec.addBundle(result.bundle, pageId, scene.childListOf(pageId).length, page.rootIds)
+      for (const rid of page.rootIds) claimed.add(rid)
+      created.push(...page.rootIds)
     }
-    rec.addBundle(result.bundle, null, scene.childListOf(null).length)
-    created.push(...result.bundle.rootIds)
-    offset += 24
-    lines.push(`${file.fileName} (v${file.version}): ${describeFigReport(result.report).join(' ')}`)
+
+    // Anything not under a page of its own — a file with content directly beneath
+    // its DOCUMENT — still gets dropped where you are looking, like an SVG import.
+    const loose = result.bundle.rootIds.filter((id) => !claimed.has(id))
+    if (loose.length > 0) {
+      const dx = centerWorld.x - (result.bounds.x + result.bounds.w / 2) + offset
+      const dy = centerWorld.y - (result.bounds.y + result.bounds.h / 2) + offset
+      for (const rid of loose) {
+        const n = result.bundle.nodes[rid]
+        n.x += dx
+        n.y += dy
+      }
+      rec.addBundle(result.bundle, null, scene.childListOf(null).length, loose)
+      created.push(...loose)
+      offset += 24
+    }
+    const pageNames = result.pages.map((p) => p.name).join(', ')
+    lines.push(
+      `${file.fileName} (v${file.version}): ${describeFigReport(result.report).join(' ')}` +
+        (result.pages.length > 0 ? `\nPages: ${pageNames}.` : ''),
+    )
   }
 
   if (created.length > 0) {
     rec.commit(files.length === 1 ? 'Import .fig' : `Import ${files.length} .fig files`)
-    setSelection(created)
+    // Land on the first imported page, framed — otherwise the camera is still
+    // wherever it was, which for a fresh document is nowhere near the artwork.
+    if (firstImportedPage) {
+      if (scene.doc.activePageId !== firstImportedPage) switchPage(firstImportedPage)
+      setSelection([])
+      zoomToFit()
+    } else {
+      setSelection(created)
+    }
   }
   // Said out loud rather than logged: an import that quietly approximated half a
   // document is the thing this feature most needs to be honest about.
