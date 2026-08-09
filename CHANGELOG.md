@@ -52,6 +52,27 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     rests on: `releases/latest` must never resolve to a pre-release.
 - **Both workflows pointed at `main`, which no longer exists**, so nothing would have
   run at all on either new branch.
+- **The update check crashed in every packaged build** — `Cannot set properties of
+  undefined (setting 'autoDownload')` — and this is the same F-29 story a second
+  time. `electron-updater` is CommonJS, the main process is ESM, and
+  `const { autoUpdater } = await import('electron-updater')` depends on Node's CJS
+  lexer finding that name. It cannot: `autoUpdater` is a lazy
+  `Object.defineProperty(exports, …, { get })`, not the re-export form the lexer
+  recognises. Every *other* export is visible, which is why nothing looked wrong.
+  Resolved through both module shapes now, with an explicit error if neither works.
+- **A 0.8.0 install with betas on was offered `0.8.0-beta.19`**, which is older. The
+  "is there an update" test was `version !== app.getVersion()` — a string comparison,
+  so anything merely *different* counted. Now it asks the library
+  (`UpdateCheckResult.isUpdateAvailable`), which does the semver comparison and
+  honours `allowDowngrade`.
+- **The packaged app's update check is now a gate** (`scripts/update-check-gate.mjs`,
+  inside `npm run test:packaging`, all three platforms). Everything in
+  `checkForUpdates` sits behind `if (!app.isPackaged) return`, and every other gate
+  drives the app *from source* — so the whole function was dead code under test, which
+  is how it accumulated three defects. The gate drives the installed binary through the
+  same IPC the button uses, with betas off and on, and fails only on
+  programming-error-shaped results: offline and "nothing published" are legitimate
+  answers, a `TypeError` is not. Shown red against the bug before being trusted.
 - **Update errors say what happened.** electron-updater reports "no published stable
   release" as *"Cannot parse releases feed"*, which reads like corruption — you get
   "No release has been published yet, so there is nothing to update to." A missing

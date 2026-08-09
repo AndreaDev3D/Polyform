@@ -103,7 +103,23 @@ export async function checkForUpdates(manual: boolean): Promise<UpdateStatus> {
   try {
     // Imported lazily: it reads app-update.yml at module scope in some versions,
     // and a CLI run should not pay for it or fail on it.
-    const { autoUpdater } = await import('electron-updater')
+    //
+    // Resolved through BOTH shapes on purpose. `electron-updater` is CommonJS and
+    // this process is ESM, so the named exports of a dynamic import come from
+    // Node's CJS lexer — and it cannot see `autoUpdater`, because that one is a
+    // lazy `Object.defineProperty(exports, …, { get })` that constructs the
+    // platform updater on first access, not the TS re-export form the lexer
+    // recognises. Every other export IS visible, which is what made this look fine.
+    // Destructuring it therefore yielded `undefined` and the next line threw
+    // "Cannot set properties of undefined (setting 'autoDownload')" — in the
+    // packaged app only, because from source we never get past `isPackaged`.
+    const mod = await import('electron-updater')
+    const autoUpdater =
+      mod.autoUpdater ?? (mod as unknown as { default?: { autoUpdater?: typeof mod.autoUpdater } }).default?.autoUpdater
+    if (!autoUpdater) {
+      // Name the failure rather than throwing a TypeError one line later.
+      throw new Error('electron-updater did not expose autoUpdater (module interop changed)')
+    }
     autoUpdater.autoDownload = INSTALL_UPDATES
     autoUpdater.autoInstallOnAppQuit = INSTALL_UPDATES
     // Beta opt-in. `allowPrerelease` is the whole mechanism and it is read at
@@ -126,7 +142,13 @@ export async function checkForUpdates(manual: boolean): Promise<UpdateStatus> {
 
     const result = await autoUpdater.checkForUpdates()
     const version = result?.updateInfo?.version ?? null
-    if (version && version !== app.getVersion()) {
+    // `isUpdateAvailable`, not `version !== app.getVersion()`. That was a STRING
+    // comparison, so anything merely DIFFERENT counted as an update — and with betas
+    // on, a 0.8.0 install was offered `0.8.0-beta.19`, which is older. The library
+    // does the semver comparison itself and honours `allowDowngrade` (off, F-10)
+    // while doing it. If the field is ever absent we say "up to date": failing
+    // toward silence is right for a notice nobody asked for.
+    if (version && result?.isUpdateAvailable === true) {
       const isBeta = /-(?:beta|alpha|rc)\./.test(version)
       const status: UpdateStatus = {
         state: 'available',

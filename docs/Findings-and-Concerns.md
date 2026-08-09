@@ -37,7 +37,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-26](#f-26-a-wrong-ci-condition-fails-open-the-gate-skips-and-the-run-goes-green) | A wrong CI condition fails open (fixed v0.7) | Process |
 | [F-27](#f-27-synthetic-input-is-not-a-gesture-the-apps-time-windows-decide-not-the-events) | Synthetic input is not a gesture: time windows decide (fixed v0.7) | Process |
 | [F-28](#f-28-an-importer-can-only-be-checked-against-the-thing-it-imported) | An importer can only be checked against its source (fixed v0.7) | Fixed (High while live) |
-| [F-29](#f-29-the-update-feed-was-never-published-so-the-feature-could-only-ever-have-failed) | The update feed was never published (fixed v0.8) | Fixed (High while live) |
+| [F-29](#f-29-the-update-feed-was-never-published-so-the-feature-could-only-ever-have-failed) | Update checking was never run in a packaged app — three defects (fixed v0.8) | Fixed (High while live) |
 
 ---
 
@@ -648,7 +648,15 @@ Every one of those checks is a property of *our output alone*. Nonsense has fini
 
 ## F-29. The update feed was never published, so the feature could only ever have failed
 
-**Severity: High while live** — "Check for Updates" shipped in v0.7 and could not have succeeded for anybody. Found in v0.8 while adding the beta channel, before any release was published.
+**Severity: High while live** — "Check for Updates" shipped in v0.7 and could not have succeeded for anybody. **Three independent defects**, in the same short function, none of which any gate could see. The first two were found while adding the beta channel; the third was found *by the user, in an installed beta*, which is the part worth keeping in mind.
+
+The common cause is one line of control flow:
+
+```ts
+if (!app.isPackaged) return { state: 'unsupported', … }
+```
+
+Everything interesting happens after it, and **nothing we ran was packaged**. Unit tests, the e2e input gates and the agent probe all drive the app from source, so all three walked into that early return. The packaging smoke test *does* run the installed binary — and only exercised the CLI. The update check was, in effect, dead code under test.
 
 electron-updater does not ask GitHub "what is the latest version". It reads a **metadata file out of the release's assets** — `latest.yml` on Windows, `latest-mac.yml`, `latest-linux.yml` — and without it raises `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`. The release workflow uploaded `*.exe`, `*.dmg`, `*.AppImage`, `*.deb` and `SHA256SUMS.txt`. **Not the yml.** So Help → Check for Updates would have reported an error, and the launch check would have failed silently, for every user of every release.
 
@@ -665,6 +673,20 @@ So each release now publishes **both names** from the one build — the file des
 
 It also asserts the property the whole opt-in rests on: **`releases/latest` must not resolve to a pre-release**. That endpoint is what a client with `allowPrerelease: false` reads, so if a beta ever appeared there, every user would be offered dev builds. That is a one-line check on a fact no amount of app-side testing can establish.
 
+**The third defect: the module was never actually loaded.** `electron-updater` is CommonJS; the main process is ESM. So `const { autoUpdater } = await import('electron-updater')` relies on Node's CJS lexer finding that name — and it cannot, because `autoUpdater` is a lazy `Object.defineProperty(exports, …, { get })` that constructs the platform updater on first access, rather than the TS re-export form the lexer recognises. **Every other export is visible**, which is exactly why this looked fine. `autoUpdater` came back `undefined` and the next line threw:
+
+```
+Cannot set properties of undefined (setting 'autoDownload')
+```
+
+Reproduced outside Electron in one command (`Object.keys(await import('electron-updater'))` lists 15 names and not that one), and resolved through both shapes with an explicit error if neither works.
+
+**A fourth thing, found in the same session:** the "is there an update" test was `version !== app.getVersion()` — a **string** comparison, so anything *different* counted, and a 0.8.0 install with betas on was offered `0.8.0-beta.19`. That is older. `UpdateCheckResult.isUpdateAvailable` is the library's own semver comparison and honours `allowDowngrade` (off) while doing it; we now use it, and fail toward silence if it is ever absent.
+
+**What replaced the gates: run the packaged app.** `scripts/update-check-gate.mjs` launches the installed binary, drives the same IPC the button uses with betas off and on, and asserts something narrow — **no programming-error-shaped failure**. Offline, rate-limited, "nothing published yet" are legitimate answers from a machine or a repo; a `TypeError` is not an answer at all. It runs inside `npm run test:packaging`, so it happens on all three platforms of every release.
+
+Shown red before being trusted (F-22): with the destructuring restored, the gate reports `betas off: error — Cannot set properties of undefined (setting 'autoDownload')` and exits non-zero — the user's screenshot, reproduced by a check.
+
 **Verified with their resolver, not ours.** `test:feed` reimplements the algorithm, so it can agree with itself and still be wrong. So `electron-updater`'s own `GitHubProvider.getLatestVersion()` was run in Node against the real published release (6.8.9, 2026-08-09), with a stub updater for each case that matters:
 
 | App version | Betas | What the library returned |
@@ -679,6 +701,8 @@ It also asserts the property the whole opt-in rests on: **`releases/latest` must
 Two things fell out of that. The library reports "no published stable release" as **"Cannot parse releases feed"**, which reads like corruption; `updater.ts` now translates that (and `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`) into a sentence naming the cause. And on macOS the feed offers **dmgs**, which Squirrel.Mac cannot apply — irrelevant while updates are notify-only, and a prerequisite (a `zip` target) for the day downloads are turned on. Recorded in ADR-028 rather than discovered then.
 
 **Standing obligation.** A client-side configuration test is not a test of a remote-facing feature. Where the product depends on an artifact *we publish* being fetched by code *we do not control*, the check has to make the same request the real client makes, against the real remote, and read the real response — and it has to run on the pipeline that produces the artifact, not on a developer's machine when someone remembers.
+
+**And the sharper one:** any behaviour gated on `app.isPackaged` — or on any environment the test harness does not reproduce — is untested until something drives the packaged artifact. When code says "only in production", read it as "no test you have written touches this". Three defects in eleven lines is what that costs.
 
 ---
 

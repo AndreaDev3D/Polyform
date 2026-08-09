@@ -159,6 +159,26 @@ process.stderr.write(gate.stderr ?? '')
 if (gate.status !== 0) fail(`the CLI gate failed against the packaged app (exit ${gate.status})`)
 else pass('the packaged binary passes the whole CLI gate (new → stdio MCP edit → query → export)')
 
+// --- 2b. the update check, in the packaged app -----------------------------
+// Only here can it be tested at all: `checkForUpdates` returns "unsupported"
+// unless `app.isPackaged`, so every source-run gate is blind to it. Two releases
+// shipped with it broken — no feed published, and then a module-interop TypeError
+// on the first line — and nothing went red (F-29). Network-tolerant by design: it
+// fails on programming errors, not on an offline runner.
+console.log('\n--- update check against the packaged binary ---')
+{
+  const res = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'update-check-gate.mjs')], {
+    cwd: ROOT,
+    env: { ...process.env, POLYFORM_BIN: bin },
+    encoding: 'utf-8',
+    timeout: 300_000,
+  })
+  process.stdout.write(res.stdout ?? '')
+  process.stderr.write(res.stderr ?? '')
+  if (res.status !== 0) fail(`the packaged app cannot check for updates (exit ${res.status})`)
+  else pass('the packaged app checks for updates on both channels without throwing')
+}
+
 // --- 3. history survives the round trip ------------------------------------
 // The gate leaves its bundle behind when POLYFORM_KEEP_BUNDLE is set; find it
 // and read the journal the PACKAGED app wrote.
