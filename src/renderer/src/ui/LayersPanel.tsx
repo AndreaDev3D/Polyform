@@ -218,6 +218,48 @@ export function LayersPanel() {
   }
   pushRows(scene.rootIds(), 0)
 
+  // Reveal what got selected somewhere else.
+  //
+  // Selecting on the canvas highlights a row you may not be able to see — or, inside
+  // a collapsed group, a row that does not exist at all, so the panel looked like it
+  // had not noticed. Expand the ancestors first (there is nothing to scroll to
+  // otherwise), then scroll on the next frame, once the row has been rendered.
+  //
+  // `block: 'nearest'` on purpose: a row already in view must not be yanked to the
+  // middle, because that moves the list under a pointer that is about to click it.
+  const revealed = useRef('')
+  useEffect(() => {
+    // Mid-drag the list is being reordered by hand; do not fight it.
+    if (drag?.active) return
+    const key = selection.join(',')
+    if (key === revealed.current) return
+    revealed.current = key
+    if (selection.length === 0) return
+
+    const hidden: NodeId[] = []
+    for (const id of selection) {
+      for (let p = scene.parentOf(id); p; p = scene.parentOf(p)) {
+        if (collapsed.has(p)) hidden.push(p)
+      }
+    }
+    if (hidden.length > 0) {
+      setCollapsed((prev) => {
+        const next = new Set(prev)
+        for (const id of hidden) next.delete(id)
+        return next
+      })
+    }
+    const scroll = () => {
+      const row = listRef.current?.querySelector(`[data-layer-row="${CSS.escape(selection[0])}"]`)
+      row?.scrollIntoView({ block: 'nearest' })
+    }
+    if (hidden.length > 0) requestAnimationFrame(scroll)
+    else scroll()
+    // `collapsed` is deliberately not a dependency: expanding here would re-run this
+    // effect, and the `revealed` guard is what makes that harmless either way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, drag?.active])
+
   // Auto-scroll: hold the cursor near either end of the list and it keeps
   // scrolling, so a target off the bottom of a long tree is reachable at all.
   // Speed ramps with how far into the edge band you are — a fixed rate is

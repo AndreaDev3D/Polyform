@@ -6,6 +6,21 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Gradients have a direction you can type.** A number field (0° runs left to right,
+  90° top to bottom), a *turn 90°* button, and *reverse the stops*, on every linear
+  gradient. Before this the direction was whatever the file happened to contain, with
+  no way to change it. The angle is the angle **on screen**: it is computed through
+  the box the paint is painted in, because unit space is not square and "45°" in a
+  600×40 band points nowhere near 45°. Turning keeps the gradient's centre and spans
+  the shape the way CSS does, so a rotation feels like turning a dial rather than
+  rescaling the ramp.
+- **The colour picker opens beside the panel instead of over it.** It is placed clear
+  of the *whole inspector*, not of the swatch that opened it — measuring from the
+  swatch left it three pixels over the panel border, which reads as a bug rather than
+  a near miss. It flips to the other side only if the window is too narrow.
+- **Selecting on the canvas reveals the layer.** The row scrolls into view, and if the
+  layer sits inside a collapsed group the group expands first — previously there was
+  no row to highlight at all, so the panel looked like it had not noticed.
 - **Updates download and install themselves now, and the UI says what is happening.**
   A badge appears in the title bar the moment an update is found — *Update
   v0.8.0-beta.21*, then a progress fill while it downloads, then a green *Restart to
@@ -122,10 +137,16 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     on screen, no error. Strokes now map through the box the **stroke covers** — half
     its weight either side of the path — from one shared function, so Canvas2D and
     WebGPU cannot drift (`engine/paintbox.ts`).
-  - "Inside" and "Outside" need an interior. Both renderers already forced Center for
-    open geometry, while the inspector let you pick Outside, stored it, and displayed
-    it as current. The control is now disabled for lines and open paths, shows Center,
-    and says why in its hint.
+  - **A line's stroke can now sit to one side of the path**, which is what picking
+    "Inside"/"Outside" on a line always looked like it would do. Previously both
+    renderers forced Center while the inspector stored and displayed Outside — a
+    control that lied. (Briefly it was disabled instead; that was the wrong half of
+    the fix. "No interior" rules out the clipping trick closed shapes use, not the
+    feature.) A LINE is a straight segment, so the offset is an exact translation:
+    ±half the weight, in both renderers, with the gradient box moving with the band.
+    Open *curved* paths stay centred — offsetting those is a curve-offsetting problem
+    rather than a translation — and there the control is disabled with the reason in
+    its hint.
   - Verified by sampling canvas pixels across the band — red → purple → blue — not by
     reading the model back, which was correct all along and is exactly why no test
     caught it.

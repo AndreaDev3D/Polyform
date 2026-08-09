@@ -96,6 +96,16 @@ export const CheckIcon = (p: P) => (
     <path d="M3.5 8.5l3 3 6-7" strokeWidth="1.6" />
   </I>
 )
+/** Reverse a gradient: two arrows trading places. */
+export const SwapIcon = (p: P) => (
+  <I {...p}>
+    <path d="M3 6h9" />
+    <path d="M10 4l2 2-2 2" />
+    <path d="M13 10H4" />
+    <path d="M6 8l-2 2 2 2" />
+  </I>
+)
+
 /** Update available: an arrow into a tray. */
 export const DownloadIcon = (p: P) => (
   <I {...p}>

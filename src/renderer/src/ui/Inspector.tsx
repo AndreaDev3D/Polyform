@@ -27,7 +27,14 @@ import type {
   VectorNode,
 } from '../engine/types'
 import { defaultPose, solid } from '../engine/types'
-import { strokeAlignApplies } from '../engine/paintbox'
+import {
+  fillPaintBox,
+  gradientAngle,
+  strokeAlignApplies,
+  strokePaintBox,
+  withGradientAngle,
+  type PaintBox,
+} from '../engine/paintbox'
 import { isFullEllipse } from '../engine/shapes'
 import { setVertexMirror } from '../engine/vector-edit'
 import { isSplatFormat } from '../render3d/island'
@@ -57,7 +64,7 @@ import {
 } from '../state/actions'
 import type { ExportTarget } from '../state/actions'
 import { listComponents } from '../engine/components'
-import { ComponentIcon } from './icons'
+import { ComponentIcon , SwapIcon } from './icons'
 import type { PatchOp } from '../engine/commands'
 import { Field, NumberInput, Section, Segmented, Select, round } from './components'
 import { ColorPicker, type PickerPaintType } from './ColorPicker'
@@ -148,6 +155,7 @@ export function Inspector() {
   if (nodes.length === 0) {
     return (
       <div
+        data-inspector
         className="shrink-0 relative bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto"
         style={{ width: panel.width }}
       >
@@ -291,6 +299,7 @@ export function Inspector() {
 
   return (
     <div
+      data-inspector
       className="shrink-0 relative bg-[var(--pf-bg-0)] border-l border-[var(--pf-border)] overflow-y-auto select-none"
       style={{ width: panel.width }}
     >
@@ -623,6 +632,7 @@ export function Inspector() {
           <div key={i}>
             <PaintRow
               paint={paint}
+              box={fillPaintBox(first)}
               onSwatch={(anchor, stopIndex) => openPicker({ kind: 'fill', index: i, anchor, stopIndex })}
               onToggle={() =>
                 commit((n) => {
@@ -699,7 +709,8 @@ export function Inspector() {
           <PaintRow
             key={i}
             paint={paint}
-            onSwatch={(anchor, stopIndex) => openPicker({ kind: 'stroke', index: i, anchor, stopIndex })}
+            box={strokePaintBox(first)}
+          onSwatch={(anchor, stopIndex) => openPicker({ kind: 'stroke', index: i, anchor, stopIndex })}
             onToggle={() =>
               commit((n) => {
                 const strokes = structuredClone(n.strokes)
@@ -867,8 +878,7 @@ export function Inspector() {
                     style={{ background: rgbaToCss(fx.color) }}
                     title="Shadow colour"
                     onClick={(e) => {
-                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                      openPicker({ kind: 'effect', index: i, anchor: { x: r.left - 260, y: r.top } })
+                      openPicker({ kind: 'effect', index: i, anchor: popoverAnchor(e.currentTarget as HTMLElement) })
                     }}
                   />
                 </Field>
@@ -1169,6 +1179,21 @@ function paintSwatchCss(paint: Paint): string {
   return 'repeating-conic-gradient(#666 0 25%, #999 0 50%) 0 0 / 8px 8px'
 }
 
+/**
+ * Where a popover opened from the inspector belongs: clear of the WHOLE PANEL, not
+ * of the little swatch that opened it.
+ *
+ * Measuring from the swatch looks right and is off by the panel's padding — the
+ * picker's edge landed three pixels over the panel border, which is exactly the kind
+ * of "nearly" that reads as a bug. The panel's own left edge is the boundary that
+ * matters, so the row you are editing stays readable while you pick.
+ */
+function popoverAnchor(el: HTMLElement): { x: number; y: number } {
+  const own = el.getBoundingClientRect()
+  const panel = el.closest('[data-inspector]')?.getBoundingClientRect()
+  return { x: panel ? panel.left : own.left, y: own.top }
+}
+
 function PaintRow({
   paint,
   onSwatch,
@@ -1177,8 +1202,15 @@ function PaintRow({
   onTypeChange,
   onScaleModeChange,
   onStopsChange,
+  box,
 }: {
   paint: Paint
+  /**
+   * The box this paint is painted through — the node's own for a fill, the band the
+   * stroke covers for a stroke. The direction control needs it to report an angle
+   * that matches the pixels rather than one in unit space (paintbox.ts).
+   */
+  box: PaintBox
   onSwatch: (anchor: { x: number; y: number }, stopIndex?: number) => void
   onToggle: () => void
   onRemove: () => void
@@ -1194,8 +1226,7 @@ function PaintRow({
           className="w-6 h-6 rounded border border-[var(--pf-border)] shrink-0"
           style={{ background: paintSwatchCss(paint) }}
           onClick={(e) => {
-            const r = (e.target as HTMLElement).getBoundingClientRect()
-            onSwatch({ x: r.left - 260, y: r.top }, isGradient ? 0 : undefined)
+            onSwatch(popoverAnchor(e.currentTarget as HTMLElement), isGradient ? 0 : undefined)
           }}
         />
         {paint.type === 'IMAGE' ? (
@@ -1230,8 +1261,69 @@ function PaintRow({
         </button>
       </div>
       {(paint.type === 'GRADIENT_LINEAR' || paint.type === 'GRADIENT_RADIAL') && onStopsChange && (
-        <GradientStopsBar paint={paint} onSwatch={onSwatch} onStopsChange={onStopsChange} />
+        <>
+          <GradientStopsBar paint={paint} onSwatch={onSwatch} onStopsChange={onStopsChange} />
+          {paint.type === 'GRADIENT_LINEAR' && (
+            <GradientDirection paint={paint} box={box} onGradientChange={onStopsChange} />
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Which way a linear gradient runs, as a number you can type.
+ *
+ * A gradient was previously only editable by its stops: the direction was whatever
+ * the file happened to contain (or straight down, for one made here), with no way to
+ * turn it. The angle shown is the angle ON SCREEN — 0° left to right, 90° top to
+ * bottom — computed through the paint box, because unit space is not square and
+ * "45°" in a 600×40 band points nowhere near 45°.
+ */
+function GradientDirection({
+  paint,
+  box,
+  onGradientChange,
+}: {
+  paint: GradientPaint
+  box: PaintBox
+  onGradientChange: (mutate: (p: GradientPaint) => void) => void
+}) {
+  const angle = Math.round(gradientAngle(paint, box))
+  const setAngle = (deg: number) =>
+    onGradientChange((p) => {
+      const turned = withGradientAngle(p, box, deg)
+      p.start = turned.start
+      p.end = turned.end
+    })
+  return (
+    <div className="flex items-center gap-1.5 mt-1.5 ml-8">
+      <NumberInput
+        label={<RotationIcon />}
+        title="Gradient angle — 0° runs left to right, 90° top to bottom"
+        value={angle}
+        suffix="°"
+        onCommit={setAngle}
+        className="flex-1"
+      />
+      <button className="pf-icon-btn !w-6 !h-6" title="Turn 90°" onClick={() => setAngle(angle + 90)}>
+        <Rotate90Icon width={11} height={11} />
+      </button>
+      <button
+        className="pf-icon-btn !w-6 !h-6"
+        title="Reverse the stops"
+        onClick={() =>
+          onGradientChange((p) => {
+            // Mirror the positions and re-sort, so the ramp reads the other way while
+            // the direction stays put — reversing by swapping start/end would rotate
+            // the gradient 180° instead, which is a different operation.
+            p.stops = p.stops.map((s) => ({ ...s, position: 1 - s.position })).sort((a, b) => a.position - b.position)
+          })
+        }
+      >
+        <SwapIcon width={11} height={11} />
+      </button>
     </div>
   )
 }
@@ -1272,8 +1364,7 @@ function GradientStopsBar({
         if (ev.altKey && paint.stops.length > 2) {
           onStopsChange((p) => p.stops.splice(si, 1))
         } else {
-          const r = (e.target as HTMLElement).getBoundingClientRect()
-          onSwatch({ x: r.left - 260, y: r.top }, si)
+          onSwatch(popoverAnchor(e.currentTarget as HTMLElement), si)
         }
       }
     }
@@ -1634,9 +1725,8 @@ function StylesPanel() {
                 style={{ background: paintSwatchCss(s.paint) }}
                 title="Edit color"
                 onClick={(e) => {
-                  const r = (e.target as HTMLElement).getBoundingClientRect()
                   liveColor.current = null
-                  setPicker({ styleId: s.id, anchor: { x: r.left - 260, y: r.top } })
+                  setPicker({ styleId: s.id, anchor: popoverAnchor(e.currentTarget as HTMLElement) })
                 }}
               />
               <EditableStyleName name={s.name} onRename={(name) => renameSharedStyle('colors', s.id, name)} />

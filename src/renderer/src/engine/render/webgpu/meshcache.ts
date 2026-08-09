@@ -7,6 +7,7 @@
 import type { SceneNode, Vec2 } from '../../types'
 import type { SceneGraph } from '../../scene'
 import { nodeOutline, type SubPath } from '../../shapes'
+import { openStrokeOffset } from '../../paintbox'
 import { booleanRings } from '../../booleans'
 import { encodeSubPaths } from '../../wasm/codec'
 import { wasmHandle } from '../../backend'
@@ -29,7 +30,9 @@ export function zoomBucket(zoom: number): number {
 }
 
 function geometryKey(scene: SceneGraph, node: SceneNode, bucket: number): string {
-  const parts: unknown[] = [node.type, node.width, node.height, bucket]
+  // openStrokeOffset moves the stroke mesh, so it belongs in the key: without it a
+  // cached centred band survives a change to Inside/Outside.
+  const parts: unknown[] = [node.type, node.width, node.height, bucket, openStrokeOffset(node)]
   switch (node.type) {
     case 'RECTANGLE':
     case 'FRAME':
@@ -166,10 +169,18 @@ export class MeshCache {
       wantFill,
       wantStroke,
     )
+    const strokePositions = mesh.strokePositions()
+    // Alignment on an open path moves the band off the path; the tessellator centres
+    // it, so shift the result. Local space, same units and same function Canvas2D and
+    // the gradient box use, so all three land in the same place.
+    const offset = openStrokeOffset(node)
+    if (offset !== 0) {
+      for (let i = 1; i < strokePositions.length; i += 2) strokePositions[i] += offset
+    }
     const out: NodeMesh = {
       fillPositions: mesh.fillPositions(),
       fillIndices: mesh.fillIndices(),
-      strokePositions: mesh.strokePositions(),
+      strokePositions,
       strokeIndices: mesh.strokeIndices(),
       strokeAlignCode: alignCode,
     }

@@ -9,7 +9,7 @@ import type { SpatialIndex } from '../spatial-index'
 import type { AABB } from '../geometry'
 import { aabbIntersects, matInvert } from '../geometry'
 import type { SubPath } from '../shapes'
-import { fillPaintBox, paintPoint, strokePaintBox, type PaintBox } from '../paintbox'
+import { fillPaintBox, openStrokeOffset, paintPoint, strokePaintBox, type PaintBox } from '../paintbox'
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { layoutText } from '../text'
@@ -218,9 +218,13 @@ function strokePath(
 ): void {
   const weight = node.strokeWeight
   if (weight <= 0) return
-  // Open geometry has no inside, so alignment cannot mean anything (paintbox.ts:
-  // strokeAlignApplies is the same rule, and the inspector disables the control on
-  // the strength of it instead of storing a value nothing reads).
+  // Closed geometry gets alignment by clipping (below). Open geometry gets it by
+  // moving the band off the path — exact for a LINE, which is a straight segment —
+  // and then stroking that centred. One function decides the offset for both
+  // renderers and for the gradient box, so the three cannot disagree.
+  const offset = openStrokeOffset(node)
+  const target = offset === 0 ? path : new Path2D()
+  if (offset !== 0) target.addPath(path, new DOMMatrix().translate(0, offset))
   const align = hasClosedGeometry ? node.strokeAlign : 'CENTER'
   for (const paint of node.strokes) {
     if (!paint.visible || paint.type === 'IMAGE') continue
@@ -231,7 +235,7 @@ function strokePath(
     if (node.strokeDash.length > 0) ctx.setLineDash(node.strokeDash)
     if (align === 'CENTER') {
       ctx.lineWidth = weight
-      ctx.stroke(path)
+      ctx.stroke(target)
     } else if (align === 'INSIDE') {
       ctx.save()
       ctx.clip(path)

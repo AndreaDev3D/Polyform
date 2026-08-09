@@ -28,6 +28,7 @@ export type PickerPaintType = 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL'
 
 interface Props {
   color: RGBA
+  /** The LEFT/TOP of the control that opened this. Placement is decided here. */
   anchor: { x: number; y: number }
   onLive: (c: RGBA) => void
   onClose: () => void
@@ -143,7 +144,18 @@ export function ColorPicker({
   }
 
   const W = 268
-  const left = Math.max(8, Math.min(anchor.x, window.innerWidth - W - 8))
+  const GAP = 10
+  // BESIDE the panel, never over it. `anchor.x` is the LEFT EDGE of the swatch that
+  // opened this, so the picker's right edge lands a gap short of it — the panel it
+  // came from stays fully readable while you pick, which is the whole point of
+  // opening a picker from a row you are looking at. Callers used to subtract a
+  // hard-coded 260 themselves, which is this width minus 8 and so overlapped by
+  // however much the two numbers disagreed.
+  //
+  // Flips to the right of the anchor only if there is genuinely no room on the left
+  // (a narrow window), and is clamped to the viewport either way.
+  const wantLeft = anchor.x - W - GAP
+  const left = wantLeft >= 8 ? wantLeft : Math.min(anchor.x + 32, window.innerWidth - W - 8)
   const top = Math.max(8, Math.min(anchor.y, window.innerHeight - 430))
 
   const swatchGrid = (items: { key: string; css: string; title: string; onClick: () => void }[]) => (

@@ -2,7 +2,15 @@
 
 import { describe, expect, it } from 'vitest'
 import { createNode } from './types'
-import { fillPaintBox, paintPoint, strokeAlignApplies, strokePaintBox } from './paintbox'
+import {
+  fillPaintBox,
+  gradientAngle,
+  openStrokeOffset,
+  paintPoint,
+  strokeAlignApplies,
+  strokePaintBox,
+  withGradientAngle,
+} from './paintbox'
 import type { SceneNode, VectorNetwork } from './types'
 
 /** A 564×0 line with a fat stroke: the shape from the bug report. */
@@ -63,8 +71,33 @@ describe('stroke alignment applies', () => {
     return n
   }
 
-  it('never on a line — there is no inside', () => {
-    expect(strokeAlignApplies(line())).toBe(false)
+  it('on a line, because the band can sit to one side of it', () => {
+    // Briefly false, which was wrong: pushing a line's stroke to one side is an
+    // ordinary thing to want, and `openStrokeOffset` makes it exact for a segment.
+    expect(strokeAlignApplies(line())).toBe(true)
+  })
+
+  it('offsets the band, and the paint box follows it', () => {
+    const inside = line()
+    inside.strokeAlign = 'INSIDE'
+    expect(openStrokeOffset(inside)).toBe(-32.5)
+    // The band now occupies y ∈ [-65, 0]; the gradient has to cover exactly that.
+    expect(strokePaintBox(inside)).toEqual({ x: 0, y: -65, w: 564, h: 65 })
+
+    const outside = line()
+    outside.strokeAlign = 'OUTSIDE'
+    expect(openStrokeOffset(outside)).toBe(32.5)
+    expect(strokePaintBox(outside)).toEqual({ x: 0, y: 0, w: 564, h: 65 })
+
+    const centre = line()
+    expect(openStrokeOffset(centre)).toBe(0)
+  })
+
+  it('does not offset a closed shape — clipping does that job', () => {
+    const r = createNode('RECTANGLE', 'Card')
+    r.strokeAlign = 'OUTSIDE'
+    r.strokeWeight = 10
+    expect(openStrokeOffset(r)).toBe(0)
   })
 
   it('always on a rectangle', () => {
@@ -96,5 +129,46 @@ describe('stroke alignment applies', () => {
       ],
     })
     expect(strokeAlignApplies(closed)).toBe(true)
+  })
+})
+
+describe('gradient direction', () => {
+  const box = { x: 0, y: 0, w: 200, h: 100 }
+  const g = (start: { x: number; y: number }, end: { x: number; y: number }) => ({ start, end })
+
+  it('reads the angle you can see, not the one in unit space', () => {
+    // Corner to corner on a 200×100 box is 26.57° on screen, not 45°.
+    expect(gradientAngle(g({ x: 0, y: 0 }, { x: 1, y: 1 }), box)).toBeCloseTo(26.565, 3)
+    expect(gradientAngle(g({ x: 0, y: 0.5 }, { x: 1, y: 0.5 }), box)).toBe(0)
+    expect(gradientAngle(g({ x: 0.5, y: 0 }, { x: 0.5, y: 1 }), box)).toBe(90)
+  })
+
+  it('round-trips every quarter turn', () => {
+    for (const deg of [0, 90, 180, -90, 45, -135]) {
+      const turned = withGradientAngle(g({ x: 0, y: 0 }, { x: 1, y: 1 }), box, deg)
+      expect(gradientAngle(turned, box)).toBeCloseTo(deg, 6)
+    }
+  })
+
+  it('keeps the centre and spans the box, CSS-style', () => {
+    const turned = withGradientAngle(g({ x: 0, y: 0 }, { x: 1, y: 1 }), box, 90)
+    // Vertical on a 100-tall box: exactly top edge to bottom edge, centred.
+    expect(turned.start).toEqual({ x: 0.5, y: 0 })
+    expect(turned.end).toEqual({ x: 0.5, y: 1 })
+    const diagonal = withGradientAngle(g({ x: 0, y: 0 }, { x: 1, y: 1 }), box, 45)
+    const mid = { x: (diagonal.start.x + diagonal.end.x) / 2, y: (diagonal.start.y + diagonal.end.y) / 2 }
+    expect(mid.x).toBeCloseTo(0.5, 6)
+    expect(mid.y).toBeCloseTo(0.5, 6)
+  })
+
+  it('turns a stroke gradient inside the band it is painted in', () => {
+    const l = line()
+    const bandBox = strokePaintBox(l)
+    const across = withGradientAngle(g({ x: 0, y: 0.5 }, { x: 1, y: 0.5 }), bandBox, 90)
+    // 90° across a 65-unit band: the two ends are 65 apart, which is what made the
+    // difference between a visible gradient and nothing at all (F-30).
+    const a = paintPoint(bandBox, across.start)
+    const b = paintPoint(bandBox, across.end)
+    expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(65, 6)
   })
 })
