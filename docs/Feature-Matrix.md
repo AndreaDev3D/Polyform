@@ -33,7 +33,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
-| [Components, Styles & Libraries](#components-styles--libraries) | 4 | 3 | 4 | 1 | 12 |
+| [Components, Styles & Libraries](#components-styles--libraries) | 3 | 4 | 4 | 1 | 12 |
 | [Prototyping](#prototyping) | 0 | 0 | 7 | 2 | 9 |
 | [Export & Import](#export--import) | 4 | 3 | 5 | 0 | 12 |
 | [Files, Data & History](#files-data--history) | 12 | 1 | 1 | 2 | 16 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **143** | **27** | **49** | **23** | **242** |
+| **Total** | **142** | **28** | **49** | **23** | **242** |
 
 ---
 
@@ -243,8 +243,8 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Instances & overrides | Linked copies with local overrides | ✅ | Materialized instances auto-sync; edits journal as overrides; reset/detach per instance |
 | Instance swapping | Swap an instance for another component | ✅ | Inspector dropdown |
 | Component properties | Boolean/text/swap props on components | 📋 | |
-| Color styles | Named, reusable color tokens | ✅ | Create/apply/detach; editing propagates to referencing layers |
-| Text styles | Named, reusable typography sets | 🟡 | Create/apply/detach/rename; property re-editing via recreate |
+| Color styles | Named, reusable color tokens | 🟡 | Create from a fill (named after the paint, e.g. `135BEC`, renamed in place), apply, detach, rename; editing a solid style repaints every layer using it. Gaps: a style is one paint occupying the layer's first fill slot, gradient/image styles cannot be re-edited from the Styles panel, and editing a styled layer's fill does not detach it |
+| Text styles | Named, reusable typography sets | 🟡 | Create from a text layer (named e.g. `Inter Bold 24`), apply, detach, rename; property re-editing via recreate |
 | Effect styles | Named, reusable effect stacks | 🟡 | Apply-by-reference API shipped; no dedicated management UI yet |
 | Grid styles | Named, reusable layout grids | 📋 | Depends on layout grids |
 | Variables / design tokens | Modes, aliases, token-driven values | 📋 | |

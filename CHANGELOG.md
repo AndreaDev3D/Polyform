@@ -68,6 +68,28 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **Shared styles could never be created, so the whole feature was unreachable**
+  (F-31). Both "+ Style" buttons — Fill and Text — started with `window.prompt`, and
+  **Electron does not implement `prompt()`**: it throws. The throw landed in devtools,
+  so the button did nothing at all, visibly or otherwise. Those buttons were the only
+  way to mint a style, and the "Apply style…" dropdown, the Color/Text styles sections
+  and the library style importer are all gated on one existing — so a section of the
+  product documented as working had never been reachable. Reported by a user asking
+  what the button does.
+  - **A style is born named, and renamed in place.** `135BEC` from the paint,
+    `Inter Bold 24` from the text, `135BEC 2` when that name is taken; double-click
+    the name to change it, on the applied chip as well as in the Styles panel, so
+    naming no longer means deselecting the layer. No dialog — this is a desktop app
+    that cannot show that particular one.
+  - **A colour style no longer eats the fills above it.** Applying or editing one
+    replaced the layer's entire fill list; a style is a single paint, so it owns the
+    first fill slot and leaves the rest of the stack alone.
+  - **A gradient style can no longer be flattened by accident.** The Styles panel's
+    picker writes a solid colour, so its swatch is no longer clickable on a gradient
+    or image style. Both of these were latent for as long as the feature was dead.
+  - The click itself is now an `npm run test:e2e` gate — a real press on the button,
+    then a read of the document, plus the double-click rename — and it was confirmed
+    to fail with the `prompt` call put back (F-22).
 - **The update feed was never published, so "Check for Updates" could not have
   worked for anybody** (F-29). electron-updater does not ask GitHub for a version
   number; it fetches a metadata file out of the release's assets (`latest.yml`,

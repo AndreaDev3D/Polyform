@@ -69,6 +69,7 @@ import type { PatchOp } from '../engine/commands'
 import { Field, NumberInput, Section, Segmented, Select, round } from './components'
 import { ColorPicker, type PickerPaintType } from './ColorPicker'
 import { rgbaToCss, rgbaToHex } from '../engine/color'
+import { defaultColorStyleName, defaultTextStyleName, uniqueStyleName } from '../engine/stylename'
 import {
   AlignBottomIcon,
   AlignHCenterIcon,
@@ -1630,7 +1631,7 @@ function FillStyleChip({ node }: { node: SceneNode }) {
     return (
       <div className="flex items-center gap-1.5 mb-1.5">
         <span className="w-4 h-4 rounded-full border border-[var(--pf-border)]" style={{ background: paintSwatchCss(applied.paint) }} />
-        <span className="flex-1 text-[11px] truncate">{applied.name}</span>
+        <EditableStyleName name={applied.name} onRename={(name) => renameSharedStyle('colors', applied.id, name)} />
         <button className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)]" onClick={() => detachStyle('fill')}>
           Detach
         </button>
@@ -1651,13 +1652,14 @@ function FillStyleChip({ node }: { node: SceneNode }) {
       {node.fills.length > 0 && (
         <button
           className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)] whitespace-nowrap"
-          title="Create a shared color style from this fill"
+          title="Create a shared color style from this fill (double-click its name to rename)"
           onClick={() => {
-            const name = window.prompt('Style name', 'Color style')
-            if (name?.trim()) {
-              const id = createColorStyle(name.trim(), node.fills[0])
-              applyColorStyle(id)
-            }
+            const paint = node.fills[0]
+            const name = uniqueStyleName(
+              defaultColorStyleName(paint),
+              styles.map((s) => s.name),
+            )
+            applyColorStyle(createColorStyle(name, paint))
           }}
         >
           + Style
@@ -1675,7 +1677,7 @@ function TextStyleChip({ node }: { node: TextNode }) {
   if (applied) {
     return (
       <div className="flex items-center gap-1.5 mb-2">
-        <span className="flex-1 text-[11px] truncate font-medium">{applied.name}</span>
+        <EditableStyleName name={applied.name} onRename={(name) => renameSharedStyle('texts', applied.id, name)} />
         <button className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)]" onClick={() => detachStyle('text')}>
           Detach
         </button>
@@ -1694,20 +1696,21 @@ function TextStyleChip({ node }: { node: TextNode }) {
       )}
       <button
         className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)] whitespace-nowrap"
-        title="Create a shared text style from this node"
+        title="Create a shared text style from this node (double-click its name to rename)"
         onClick={() => {
-          const name = window.prompt('Style name', `${node.fontFamily} ${node.fontSize}`)
-          if (name?.trim()) {
-            const id = createTextStyle(name.trim(), {
-              fontFamily: node.fontFamily,
-              fontWeight: node.fontWeight,
-              italic: node.italic,
-              fontSize: node.fontSize,
-              lineHeight: node.lineHeight,
-              letterSpacing: node.letterSpacing,
-            })
-            applyTextStyle(id)
+          const props = {
+            fontFamily: node.fontFamily,
+            fontWeight: node.fontWeight,
+            italic: node.italic,
+            fontSize: node.fontSize,
+            lineHeight: node.lineHeight,
+            letterSpacing: node.letterSpacing,
           }
+          const name = uniqueStyleName(
+            defaultTextStyleName(props),
+            styles.map((s) => s.name),
+          )
+          applyTextStyle(createTextStyle(name, props))
         }}
       >
         + Style
@@ -1733,15 +1736,25 @@ function StylesPanel() {
         <Section title="Color styles">
           {styles.colors.map((s) => (
             <div key={s.id} className="group flex items-center gap-2 h-7">
-              <button
-                className="w-4 h-4 rounded-full border border-[var(--pf-border)]"
-                style={{ background: paintSwatchCss(s.paint) }}
-                title="Edit color"
-                onClick={(e) => {
-                  liveColor.current = null
-                  setPicker({ styleId: s.id, anchor: popoverAnchor(e.currentTarget as HTMLElement) })
-                }}
-              />
+              {/* The picker here writes a SOLID paint, so it must not be opened on a
+                  gradient or image style: moving the wheel would flatten it. */}
+              {s.paint.type === 'SOLID' ? (
+                <button
+                  className="w-4 h-4 rounded-full border border-[var(--pf-border)]"
+                  style={{ background: paintSwatchCss(s.paint) }}
+                  title="Edit color"
+                  onClick={(e) => {
+                    liveColor.current = null
+                    setPicker({ styleId: s.id, anchor: popoverAnchor(e.currentTarget as HTMLElement) })
+                  }}
+                />
+              ) : (
+                <span
+                  className="w-4 h-4 rounded-full border border-[var(--pf-border)]"
+                  style={{ background: paintSwatchCss(s.paint) }}
+                  title="Edit this on a layer, then make a new style — the picker here only edits solid colors"
+                />
+              )}
               <EditableStyleName name={s.name} onRename={(name) => renameSharedStyle('colors', s.id, name)} />
               <button
                 className="hidden group-hover:block pf-icon-btn !w-5 !h-5"

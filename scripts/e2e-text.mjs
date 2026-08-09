@@ -22,6 +22,10 @@
 //      not leak to the global shortcuts, and picking applies exactly once -
 //      Chromium's native popup is unstyleable and does not appear in the
 //      screenshots this gate takes.
+//   8. "+ Style" creates a shared style, and its name can be changed. Its
+//      handler called window.prompt, which Electron throws on, so the only
+//      door into the whole styles feature was shut in every shipped build
+//      while everything below it stayed correct (F-31).
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -787,6 +791,107 @@ try {
       if (kept !== '["e2e-rot"]') fail(`Escape closed the menu but also reached the canvas: selection is ${kept}`)
       else console.log('E2E PASS: Escape closes the menu without clearing the selection')
       await send('Emulation.clearDeviceMetricsOverride')
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 8. "+ Style" actually creates a style, and the name can be changed.
+  //
+  //    Those two buttons are the only way to mint a shared style, and their
+  //    handler opened with `window.prompt` — which Electron throws on. The
+  //    throw died inside a React handler, so the button did nothing, silently,
+  //    in every build that ever shipped, while the model layer underneath it
+  //    stayed perfectly correct (F-31). Nothing below the click could report
+  //    the emptiness as wrong, so the click is the check: press it for real,
+  //    then read the document. Renaming is here for the same reason — with no
+  //    dialog to type a name into, double-clicking the name is now the only
+  //    way a style gets called anything else.
+  // ---------------------------------------------------------------------
+  {
+    const clickAt = async (x, y, clickCount = 1) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount })
+      await sleep(300)
+    }
+    await evaluate(`(() => {
+      const P = globalThis.__polyform
+      P.documentStore.scene.addNode({
+        id: 'e2e-style', type: 'RECTANGLE', name: 'E2E Style', visible: true, locked: false,
+        opacity: 1, blendMode: 'NORMAL', x: 700, y: 120, width: 160, height: 120, rotation: 0,
+        cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0x13/255, g: 0x5b/255, b: 0xec/255, a: 1 } }],
+        strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE', strokeDash: [], effects: [],
+      }, null, P.documentStore.scene.rootIds().length)
+      P.editor.set({ selection: ['e2e-style'], vectorEditId: null, tool: 'select' })
+      P.documentStore.transient()
+    })()`)
+    await sleep(500)
+    // Ask where the button is — and scroll it into view first, as a user would.
+    const where = JSON.parse(await evaluate(`(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '+ Style')
+      if (!b) return 'null'
+      b.scrollIntoView({ block: 'center' })
+      const r = b.getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: Math.round(r.width) })
+    })()`))
+    if (!where || where.w < 10) {
+      fail('no "+ Style" button in the Fill section of a rectangle with a fill')
+    } else {
+      await clickAt(where.x, where.y)
+      const made = JSON.parse(await evaluate(`(() => {
+        const P = globalThis.__polyform
+        const n = P.documentStore.scene.getNode('e2e-style')
+        return JSON.stringify({
+          styles: P.documentStore.scene.doc.styles.colors.map((s) => s.name),
+          ref: n.styleRefs?.fill ?? null,
+          fills: n.fills.length,
+          detach: [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Detach'),
+        })
+      })()`))
+      if (!made.styles.includes('135BEC')) {
+        fail(`clicking "+ Style" should create a style named after the fill, got ${JSON.stringify(made.styles)}`)
+      } else if (!made.ref) {
+        fail('the style was created but the layer does not reference it')
+      } else if (!made.detach) {
+        fail('the fill row should turn into the style name plus Detach')
+      } else {
+        console.log(`E2E PASS: "+ Style" creates and applies ${JSON.stringify(made.styles)}`)
+      }
+      // Double-click the name, type a new one, Enter.
+      const nameAt = JSON.parse(await evaluate(`(() => {
+        const s = [...document.querySelectorAll('span')].find((x) => x.textContent.trim() === '135BEC')
+        if (!s) return 'null'
+        const r = s.getBoundingClientRect()
+        return JSON.stringify({ x: Math.round(r.left + Math.min(20, r.width / 2)), y: Math.round(r.top + r.height / 2) })
+      })()`))
+      if (!nameAt) {
+        fail('the applied style name is not on screen to rename')
+      } else {
+        await clickAt(nameAt.x, nameAt.y, 1)
+        await clickAt(nameAt.x, nameAt.y, 2)
+        const open = await evaluate(`!!document.querySelector('input.pf-input.h-5')`)
+        if (open !== true) {
+          fail('double-clicking the style name did not open an editable field')
+        } else {
+          for (const ch of 'Brand') {
+            await send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch })
+            await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch })
+            await sleep(25)
+          }
+          await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+          await sleep(400)
+          const renamed = await evaluate(
+            `JSON.stringify(globalThis.__polyform.documentStore.scene.doc.styles.colors.map((s) => s.name))`,
+          )
+          if (!JSON.parse(renamed).includes('Brand')) {
+            fail(`renaming the style should have stuck, styles are ${renamed}`)
+          } else {
+            console.log('E2E PASS: a style is renamed in place by double-clicking its name')
+          }
+        }
+      }
     }
   }
 

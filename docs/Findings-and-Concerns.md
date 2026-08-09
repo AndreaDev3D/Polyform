@@ -727,6 +727,35 @@ The lesson from the correction is narrower than the one below and worth keeping 
 
 ---
 
+## F-31. The only door into a feature was a browser API this platform refuses
+
+**Severity: Med** — no shared style, colour or text, could be created in any build that ever shipped. Found by a user asking what the "+ Style" button does; fixed in v0.8.
+
+The handler behind both "+ Style" buttons opened with `window.prompt('Style name', …)`. **Electron does not implement `prompt()`** — it throws `Error: prompt() is not supported.` The throw happens inside a React event handler, so it goes to devtools and nowhere else: the button highlighted, nothing appeared, nothing was created, and no message reached the screen.
+
+Feature-detection could not have caught it. Measured in the built app rather than assumed:
+
+```
+typeof window.prompt : function        ← present, and useless
+window.prompt(...)   : threw: prompt() is not supported.
+typeof window.confirm: function
+window.confirm(...)  : blocked (modal, and genuinely supported)
+```
+
+`alert` and `confirm` work — the app uses `confirm` for deleting a page and for background removal. `prompt` is the one Chromium ships and Electron removes, and it fails at *call* time, not at lookup time.
+
+**The blast radius was the whole feature.** Those two buttons were the only way to mint a style, and everything downstream is gated on one existing: the "Apply style…" dropdown, the "Color styles" / "Text styles" sections of the inspector, the swatch list, and the library importer — which copies a style *between* documents but cannot conjure the first one. So an entire section of the product, marked ✅ in the feature matrix with the note "Create/apply/detach", was unreachable from the first build that had it. The model layer was blameless and correct throughout; `createColorStyle` did exactly what it promised, to a caller that never called it.
+
+**Why nothing saw it.** Nothing tested it, in any sense. `state/actions.ts` sits outside the vitest include globs, so the actions had no unit test; the e2e suite never clicked the button; and the matrix row was written from the code's intent. Nobody had clicked it since it was written, which is the entire finding: **the click was the untested part, and the click was the only door.**
+
+**The fix removes the dialog rather than replacing it.** A style is now born named — `135BEC` from the paint, `Inter Bold 24` from the text, deduplicated to `135BEC 2` when that name is taken (`engine/stylename.ts`, unit-tested) — and renamed in place by double-clicking it, using the editable-name control the Styles panel already had, now also on the applied chip so naming does not require deselecting the layer. One less modal in a desktop app that cannot show this one anyway.
+
+**Two adjacent defects, reachable for the first time, closed in the same change.** Applying or editing a colour style replaced the layer's whole fill list, silently deleting any fill stacked above it; a colour style is one paint, so it now owns the first fill slot and leaves the rest alone. And the Styles panel's colour picker writes a `SOLID` paint unconditionally, so opening it on a gradient style would have flattened the gradient to a colour — that swatch is no longer a button for non-solid styles. Both were latent for as long as the feature was dead, which is how a dead feature hides its own bugs.
+
+**Standing obligation.** ✅ is a claim that someone has done the thing, not that the code reads as though it would. Where a capability has exactly one entry point in the UI, the check has to be the click — pressing the button in the built app and reading what the document contains afterwards — because nothing below that point can fail loudly enough to be noticed. And treat browser-shaped globals as platform questions: in Electron `prompt` throws, `confirm` and `alert` block the renderer, and the only way to know which is which is to call it and look.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -741,4 +770,5 @@ Three themes run through every entry:
 8. **A conversion is only verified against its source.** F-28's importer passed every check it had while placing a quarter of its nodes wrongly, because all of them examined our output alone — and one of them had frozen the bug as the expected value. Whenever code converts between representations, at least one check has to hold the output against the *input*, derived independently.
 9. **Two halves built by different tools will disagree.** F-29's publisher wrote `latest.yml` while the client asked for `beta.yml`, and each side was self-consistent. Wherever a boundary is crossed by convention rather than by a shared type — file names, wire formats, IPC channel strings, CLI flags — the only test that means anything crosses it too.
 10. **The model can be right while the picture is wrong.** F-30 stored a stroke alignment faithfully, read it back faithfully, and drew something else; the gradient had correct stops and painted nothing. Tests that assert on documents cannot see either. Where the output is pixels, something has to look at pixels.
-11. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+11. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
+12. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

@@ -899,8 +899,10 @@ export function applyColorStyle(styleId: string): void {
   for (const id of selectedIds()) {
     const node = scene.getNode(id)
     if (!node) continue
+    // A colour style is one paint, so it owns the first fill slot only — the
+    // layers stacked above it are not the style's to delete.
     rec.update(id, {
-      fills: [structuredClone(style.paint)],
+      fills: [structuredClone(style.paint), ...node.fills.slice(1)],
       styleRefs: { ...(node.styleRefs ?? {}), fill: styleId },
     })
   }
@@ -927,7 +929,7 @@ export function updateColorStyle(styleId: string, paint: Paint): void {
   const ops: PatchOp[] = [op]
   for (const node of Object.values(scene.doc.nodes)) {
     if (node.styleRefs?.fill === styleId) {
-      ops.push(makeUpdateOp(node, { fills: [structuredClone(paint)] }))
+      ops.push(makeUpdateOp(node, { fills: [structuredClone(paint), ...node.fills.slice(1)] }))
     }
   }
   documentStore.commit(ops, 'Edit Color Style')
