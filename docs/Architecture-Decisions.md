@@ -597,6 +597,8 @@ Flipping that one constant is the last step of shipping signing, not a separate 
 
 **Revisit when.** A certificate exists — Windows first (SignPath Foundation signs open-source projects for free; Apple has no free path and notarization needs the paid programme). Then: turn on downloads, keep verification on, and only then consider a silent channel. The beta channel is the natural first place to turn downloads on, because the people on it chose to be.
 
+One prerequisite is already known, from running the real resolver against a real release (F-29): on macOS the feed offers **dmgs**, and Squirrel.Mac cannot apply a dmg. Turning downloads on therefore needs a `zip` target in the mac build as well as a certificate — harmless to know now, expensive to discover on the day.
+
 ---
 
 ## ADR-029: `.fig` import takes shape from their flattened geometry, and reports what it lost (v0.7)

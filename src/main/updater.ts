@@ -58,6 +58,30 @@ export function openReleasesPage(): void {
 }
 
 /**
+ * electron-updater's messages describe its own plumbing, not the situation. The two
+ * that users will actually hit deserve a sentence that names the cause:
+ *
+ * - `ERR_UPDATER_NO_PUBLISHED_VERSIONS` / "Unable to find latest version" — the
+ *   repository has no *published* stable release. Reached by anyone with betas off
+ *   while only pre-releases exist, and reported by the library as
+ *   "Cannot parse releases feed", which sounds like corruption.
+ * - `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` — the release exists but carries no update
+ *   metadata. That is F-29, and if it ever comes back the message should say so
+ *   rather than leave someone reading a stack trace about a yml file.
+ */
+function explain(err: unknown): string {
+  const code = String((err as { code?: string })?.code ?? '')
+  const text = String((err as Error)?.message ?? err)
+  if (code === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' || /Unable to find latest version/i.test(text)) {
+    return 'No release has been published yet, so there is nothing to update to.'
+  }
+  if (code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' || /ERR_UPDATER_CHANNEL_FILE_NOT_FOUND/.test(text)) {
+    return 'That release is missing its update metadata, so Polyform cannot tell what it contains. Open the releases page instead.'
+  }
+  return text
+}
+
+/**
  * @param manual A manual check reports "you are up to date" and reports errors;
  *   a launch check stays quiet unless there is something to say, because a
  *   failed network call on startup is not news.
@@ -123,7 +147,7 @@ export async function checkForUpdates(manual: boolean): Promise<UpdateStatus> {
     else lastStatus = status
     return status
   } catch (err) {
-    const status: UpdateStatus = { state: 'error', message: String((err as Error)?.message ?? err) }
+    const status: UpdateStatus = { state: 'error', message: explain(err) }
     if (manual) push(status)
     else lastStatus = status
     return status

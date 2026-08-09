@@ -665,6 +665,19 @@ So each release now publishes **both names** from the one build — the file des
 
 It also asserts the property the whole opt-in rests on: **`releases/latest` must not resolve to a pre-release**. That endpoint is what a client with `allowPrerelease: false` reads, so if a beta ever appeared there, every user would be offered dev builds. That is a one-line check on a fact no amount of app-side testing can establish.
 
+**Verified with their resolver, not ours.** `test:feed` reimplements the algorithm, so it can agree with itself and still be wrong. So `electron-updater`'s own `GitHubProvider.getLatestVersion()` was run in Node against the real published release (6.8.9, 2026-08-09), with a stub updater for each case that matters:
+
+| App version | Betas | What the library returned |
+| :-- | :-- | :-- |
+| 0.7.0 (stable) | off | error — no *published* stable release exists, so `releases/latest` 404s. **The beta did not leak.** |
+| 0.7.0 (stable) | on | `0.8.0-beta.18`, with the Windows installer |
+| 0.8.0-beta.1 | on | `0.8.0-beta.18` — a beta user is offered a newer beta |
+| 0.8.0-beta.1 | off | error, as above — opting out is honoured even on a beta build |
+| 0.7.0, macOS | on | `0.8.0-beta.18`, both dmgs |
+| 0.7.0, Linux | on | `0.8.0-beta.18`, AppImage + deb |
+
+Two things fell out of that. The library reports "no published stable release" as **"Cannot parse releases feed"**, which reads like corruption; `updater.ts` now translates that (and `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`) into a sentence naming the cause. And on macOS the feed offers **dmgs**, which Squirrel.Mac cannot apply — irrelevant while updates are notify-only, and a prerequisite (a `zip` target) for the day downloads are turned on. Recorded in ADR-028 rather than discovered then.
+
 **Standing obligation.** A client-side configuration test is not a test of a remote-facing feature. Where the product depends on an artifact *we publish* being fetched by code *we do not control*, the check has to make the same request the real client makes, against the real remote, and read the real response — and it has to run on the pipeline that produces the artifact, not on a developer's machine when someone remembers.
 
 ---

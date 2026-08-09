@@ -329,7 +329,8 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
-            release/*.yml
+            release/latest*.yml
+            release/beta*.yml
             release/SHA256SUMS-${{ matrix.target }}.txt
           if-no-files-found: error
 

@@ -52,6 +52,11 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     rests on: `releases/latest` must never resolve to a pre-release.
 - **Both workflows pointed at `main`, which no longer exists**, so nothing would have
   run at all on either new branch.
+- **Update errors say what happened.** electron-updater reports "no published stable
+  release" as *"Cannot parse releases feed"*, which reads like corruption — you get
+  "No release has been published yet, so there is nothing to update to." A missing
+  feed file (the F-29 failure) likewise names itself instead of showing a stack trace
+  about a yml file.
 
 ## 0.7.0 — "Distribution & .fig Import" — 2026-08-05
 
