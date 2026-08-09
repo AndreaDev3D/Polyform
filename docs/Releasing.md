@@ -3,24 +3,57 @@
 How a Polyform release is cut, what a downloader can verify, and what is
 deliberately still missing.
 
-## Cutting one
+## Two branches
+
+| Branch | Every push produces | State | Who sees it |
+| :-- | :-- | :-- | :-- |
+| `staging` | `0.8.0-beta.<run>` | **published pre-release** | only people who ticked **betas** in the app |
+| `production` | `0.8.0`, when the version has changed | **draft** | nobody, until a human presses Publish |
+
+`package.json` holds the *base* version (`0.8.0`) and the branch decides the rest.
+A pre-release suffix in the file is refused, because the run number adds one and
+`0.8.0-beta.1-beta.42` is not a version.
+
+**The rule that keeps betas useful: bump the base version right after cutting a
+stable release.** Betas sort *below* their base (`0.8.0-beta.7` < `0.8.0`), so if
+`staging` still says `0.7.0` after `0.7.0` shipped, every beta it cuts is older
+than what people already have and the updater — correctly — ignores it.
+
+### Dev work
+
+Push to `staging`. A beta appears a few minutes later, versioned by the run
+number, and anyone with **betas** ticked is told about it the next time they
+check. The ten newest betas are kept; older ones are deleted with their tags, so
+the release list does not silently become hundreds of entries.
+
+### Cutting a stable release
 
 **Bump the version. That is the release.**
 
 ```sh
-npm version 0.8.0 --no-git-tag-version   # or edit package.json
+npm version 0.9.0 --no-git-tag-version   # or edit package.json
 npm run licenses                          # regenerate THIRD-PARTY-NOTICES.md if deps changed
 # ...move the CHANGELOG's "Unreleased" section under a new heading...
-git commit -am '0.8.0 — "Name"' && git push
+git commit -am '0.9.0 — "Name"'
+git push origin staging                   # betas of the new base, if you want them first
+# then merge into production, which is what actually cuts it:
+git push origin staging:production
 ```
 
 There is no tag to remember: [`release.yml`](../.github/workflows/release.yml)
-runs on every push to `main`, asks whether `package.json`'s version has been
+runs on every push to `production`, asks whether `package.json`'s version has been
 released yet, and stops in ten seconds if it has. When it has not, it releases —
 and `gh release create` makes the tag itself from the commit being released.
 
-Pushing a `v*` tag by hand still works, for re-cutting one; the tag then has to
-match `package.json` or the run fails rather than shipping mislabelled files.
+**After publishing a stable draft by hand, run `npm run test:feed`.** A draft's
+assets are not public, so the pipeline cannot check the update feed of a release it
+has just drafted; that one command asks GitHub for exactly what an installed app
+will ask for and fails if the answer is wrong (F-29).
+
+Pushing a `v*` tag by hand still works, for re-cutting either kind; the tag then
+has to match `package.json` — compared against its *base*, so `v0.8.0-beta.3` is a
+legal re-cut on a `0.8.0` package — or the run fails rather than shipping
+mislabelled files.
 
 *Why not have CI push the tag? A tag created with the default token does not
 trigger workflows (GitHub's recursion guard), so that route needs a stored PAT.
@@ -40,13 +73,52 @@ Either way, the run:
    still have its history (`npm run test:packaging`).
 4. **SHA-256 checksums** are computed per platform, then merged into one
    `SHA256SUMS.txt` and verified with `sha256sum -c` before publication.
-5. **A draft release is created** with every artifact and the checksums.
+5. **The update feed is written for both channels** and asserted to name this
+   version — see below, and F-29 for why this is a step rather than an assumption.
+6. **The release is created**: a draft for `production`, a published pre-release
+   for `staging`.
+7. **A Sigstore build-provenance attestation** is recorded for each artifact.
+8. **For a beta, the feed is fetched back from GitHub** the way an installed app
+   fetches it (`npm run test:feed`), and old betas beyond the newest ten are
+   deleted with their tags.
 
-6. **A Sigstore build-provenance attestation** is recorded for each artifact.
+For a stable release the draft is the last gate, and it is a human one: open it,
+read the notes, download one installer, run it, then press **Publish**. Bumping a
+version should be able to produce a release without announcing one.
 
-The draft is the last gate, and it is a human one: open it, read the notes,
-download one installer, run it, then press **Publish**. Bumping a version should
-be able to produce a release without announcing one.
+## Betas and the update feed
+
+The app's **betas** checkbox (welcome screen, beside *Check for updates*) sets
+`allowPrerelease`. That single flag decides which GitHub endpoint the updater
+resolves, which is why "pre-release" is the right state for a beta and "draft" is
+not:
+
+| Opt-in | What electron-updater reads | Result |
+| :-- | :-- | :-- |
+| off | `releases/latest` — **excludes pre-releases** | betas are unreachable, not merely unoffered |
+| on | the newest entry of `releases.atom` | the newest beta, or the stable release if it is newer |
+
+Then it fetches a **metadata file out of that release's assets** — not an API
+query — and the name depends on the tag it picked:
+
+| Platform | Stable release | Beta release |
+| :-- | :-- | :-- |
+| Windows | `latest.yml` | `beta.yml` |
+| macOS | `latest-mac.yml` | `beta-mac.yml` |
+| Linux | `latest-linux.yml` | `beta-linux.yml` |
+
+Two traps live here, and both have bitten (F-29):
+
+1. **electron-builder writes only `latest*.yml` for the GitHub provider**,
+   whatever the version says — the channel is *never* auto-detected there. So the
+   release job copies each `latest*.yml` to `beta*.yml`; the file describes the
+   artifact, not the channel.
+2. **A stable release also needs `beta*.yml`** — for the beta user being offered
+   the stable version that supersedes their build, whose client asks for the beta
+   name against a stable tag.
+
+`npm run test:feed` checks all of it against the live repo, including the property
+the opt-in rests on: `releases/latest` must never resolve to a pre-release.
 
 ## Verifying a download
 

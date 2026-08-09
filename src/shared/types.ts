@@ -216,6 +216,8 @@ export interface PolyformApi {
   openReleases: () => Promise<void>
   /** Persisted preference; OFF by default, because a launch-time web call is not free. */
   updateOnLaunch: (enabled?: boolean) => Promise<boolean>
+  /** Read (no argument) or set the beta/pre-release opt-in. */
+  updateBeta: (enabled?: boolean) => Promise<boolean>
   onUpdateStatus: (cb: (status: UpdateStatus) => void) => () => void
   historyAppend: (label: string, opsJson: string) => Promise<number>
   historySetCursor: (cursor: number) => Promise<void>

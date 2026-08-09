@@ -385,6 +385,10 @@ function registerIpc(): void {
     if (typeof enabled === 'boolean') return (await writeSettings({ checkUpdatesOnLaunch: enabled })).checkUpdatesOnLaunch
     return (await readSettings()).checkUpdatesOnLaunch
   })
+  ipcMain.handle('update:beta', async (_e, enabled?: boolean) => {
+    if (typeof enabled === 'boolean') return (await writeSettings({ betaUpdates: enabled })).betaUpdates
+    return (await readSettings()).betaUpdates
+  })
 
   ipcMain.handle('app:licenses', async () => {
     const candidates = app.isPackaged

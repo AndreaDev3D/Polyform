@@ -1,6 +1,6 @@
 {
   "name": "polyform",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Polyform — a local-first, self-contained, open-source vector design tool for the desktop.",
   "main": "./out/main/index.js",
   "type": "module",
@@ -26,6 +26,7 @@
     "test:mcp": "node scripts/mcp-probe.mjs",
     "test:cli": "node scripts/cli-test.mjs",
     "test:packaging": "node scripts/packaging-smoke.mjs",
+    "test:feed": "node scripts/update-feed-check.mjs",
     "licenses": "node scripts/licenses.mjs",
     "cli": "electron out/main/index.js",
     "build:wasm": "node scripts/build-wasm.mjs",

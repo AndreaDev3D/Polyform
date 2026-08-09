@@ -19,6 +19,7 @@
 
 import { BrowserWindow, app, shell } from 'electron'
 import type { UpdateStatus } from '../shared/types'
+import { readSettings } from './settings'
 
 /**
  * Flip to true in the same commit that adds code signing, and not before.
@@ -27,6 +28,15 @@ import type { UpdateStatus } from '../shared/types'
 const INSTALL_UPDATES = false
 
 const RELEASES_URL = 'https://github.com/AndreaDev3D/Polyform/releases/latest'
+
+/**
+ * Where to send someone for a specific version. NOT `/releases/latest` for a
+ * beta: that URL resolves to the newest *stable* release, so a beta notice would
+ * link to a page that does not mention the version it just named.
+ */
+function releaseUrl(version: string | null): string {
+  return version ? `https://github.com/AndreaDev3D/Polyform/releases/tag/v${version}` : RELEASES_URL
+}
 
 let checking = false
 let lastStatus: UpdateStatus = { state: 'idle' }
@@ -43,7 +53,8 @@ export function updateStatus(): UpdateStatus {
 }
 
 export function openReleasesPage(): void {
-  void shell.openExternal(RELEASES_URL)
+  // The page for the version we actually named, when we named one.
+  void shell.openExternal(lastStatus.state === 'available' ? (lastStatus.url ?? RELEASES_URL) : RELEASES_URL)
 }
 
 /**
@@ -71,7 +82,20 @@ export async function checkForUpdates(manual: boolean): Promise<UpdateStatus> {
     const { autoUpdater } = await import('electron-updater')
     autoUpdater.autoDownload = INSTALL_UPDATES
     autoUpdater.autoInstallOnAppQuit = INSTALL_UPDATES
-    autoUpdater.allowPrerelease = false
+    // Beta opt-in. `allowPrerelease` is the whole mechanism and it is read at
+    // check time, so toggling it needs no restart.
+    //
+    // Deliberately no explicit `channel`: with `allowPrerelease` and a stable
+    // current version, the GitHub provider takes the newest entry from the
+    // releases feed and derives the channel file from that tag's own prerelease
+    // component (`v0.8.0-beta.7` → `beta.yml`). Pinning a channel here would
+    // instead demand `beta.yml` from *every* release, including stable ones that
+    // correctly publish `latest.yml`, and every check would fail with
+    // ERR_UPDATER_CHANNEL_FILE_NOT_FOUND. Someone already running a beta gets
+    // their channel from their own version, which is how a beta user keeps
+    // getting betas and still gets the stable release that supersedes them.
+    const beta = (await readSettings()).betaUpdates
+    autoUpdater.allowPrerelease = beta
     // A downgrade is an attack, not an update (F-10).
     autoUpdater.allowDowngrade = false
     autoUpdater.logger = null
@@ -79,15 +103,17 @@ export async function checkForUpdates(manual: boolean): Promise<UpdateStatus> {
     const result = await autoUpdater.checkForUpdates()
     const version = result?.updateInfo?.version ?? null
     if (version && version !== app.getVersion()) {
+      const isBeta = /-(?:beta|alpha|rc)\./.test(version)
       const status: UpdateStatus = {
         state: 'available',
         version,
-        url: RELEASES_URL,
+        url: releaseUrl(version),
         // Said plainly in the UI: this is why there is a link instead of a
-        // progress bar.
+        // progress bar. A beta says so, because "available" reads as "ready" and
+        // a pre-release is a build nobody has read the release notes of.
         message: INSTALL_UPDATES
           ? `Polyform ${version} is available.`
-          : `Polyform ${version} is available. Downloads are not signed yet, so Polyform will not install it for you — open the release page to get it.`,
+          : `Polyform ${version}${isBeta ? ' (beta)' : ''} is available. Downloads are not signed yet, so Polyform will not install it for you — open the release page to get it.`,
       }
       push(status)
       return status

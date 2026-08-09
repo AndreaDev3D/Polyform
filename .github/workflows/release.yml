@@ -1,10 +1,21 @@
-# Cutting a release: BUMP THE VERSION in package.json. That is all — this runs on
-# the push, builds installers for all three platforms, and opens a DRAFT GitHub
-# Release with a SHA256SUMS.txt covering every file.
+# Two branches, two kinds of release.
 #
-# Draft on purpose. Bumping a version should be able to produce a release without
-# also announcing one: someone opens the draft, reads the notes, downloads one
-# artifact, checks it runs, and presses Publish. See docs/Releasing.md.
+#   staging     → every push publishes a BETA: `0.8.0-beta.<run>`, marked
+#                 pre-release, PUBLISHED (not draft — see below), and offered only
+#                 to people who ticked "betas" in the app.
+#   production  → a VERSION BUMP in package.json opens a stable DRAFT release for
+#                 a human to read and publish.
+#
+# Why betas are published pre-releases and not drafts. A draft has no tag and
+# GitHub shows it only to callers with push access, so nothing that could ever
+# reach an updater exists: no tag to download from, and an anonymous client sees
+# no release at all. "Pre-release" is the state that is visible, tagged and
+# excluded from `releases/latest` — which is exactly "beta". So the app's beta
+# opt-in is `allowPrerelease`, and the pre-release flag is what gates who sees it.
+#
+# Draft for stable on purpose. Bumping a version should be able to produce a
+# release without also announcing one: someone opens the draft, reads the notes,
+# downloads one artifact, checks it runs, and presses Publish. See docs/Releasing.md.
 #
 # What this does NOT do yet: Authenticode / Developer ID signing (Roadmap 5.2,
 # F-10). Until then the installers trip SmartScreen and Gatekeeper, and the app
@@ -22,10 +33,9 @@
 
 name: Release
 
-# A VERSION BUMP is what makes a release, not a remembered ritual: land a change
-# to package.json's version on main and this runs. Pushing a `v*` tag by hand does
-# the same thing, for a re-cut. Every other push decides "no" in ten seconds and
-# stops.
+# On production a VERSION BUMP is what makes a release, not a remembered ritual.
+# On staging every push makes a beta, so nothing has to be remembered at all. A
+# `v*` tag pushed by hand still works for a re-cut of either kind.
 #
 # Why not a workflow that pushes a tag? A tag created with the default token does
 # not trigger workflows (GitHub's recursion guard), so it would need a stored PAT.
@@ -33,7 +43,7 @@ name: Release
 # secret is needed and there is one fewer moving part.
 on:
   push:
-    branches: [main]
+    branches: [staging, production]
     tags: ['v*']
 
 permissions:
@@ -44,7 +54,9 @@ permissions:
 # a name that already exists, having burnt three platform builds to get there.
 # Queued rather than cancelled: a run that is already uploading should finish.
 concurrency:
-  group: release
+  # Per branch, so a beta cut from staging and a stable cut from production never
+  # race for the same tag — and two quick staging pushes queue rather than fight.
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -62,6 +74,7 @@ jobs:
     outputs:
       version: ${{ steps.check.outputs.version }}
       release: ${{ steps.check.outputs.release }}
+      channel: ${{ steps.check.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -71,22 +84,52 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          version="$(node -p "require('./package.json').version")"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          base="$(node -p "require('./package.json').version")"
+          # Refuse a pre-release version in package.json. The beta suffix is added
+          # here from the run number; a `0.8.0-beta.1` in the file would produce
+          # `0.8.0-beta.1-beta.42`, which is not a version.
+          case "$base" in
+            *-*) echo "package.json version is $base — the branch decides the channel, so keep it plain (0.8.0)" >&2; exit 1 ;;
+          esac
+
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
             # A hand-cut tag must agree with package.json, or v0.7.0 ships files
             # called 0.6.0 and the checksums describe a version nobody asked for.
-            if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
-              echo "tag ${GITHUB_REF_NAME} does not match package.json version $version" >&2
+            # Compared against the tag's BASE, so `v0.8.0-beta.3` is a legal
+            # re-cut of a beta on a 0.8.0 package.
+            if [ "${tag_version%%-*}" != "$base" ]; then
+              echo "tag ${GITHUB_REF_NAME} does not match package.json version $base" >&2
               exit 1
             fi
+            case "$tag_version" in
+              *-*) channel=beta ;;
+              *) channel=stable ;;
+            esac
+            echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+            echo "channel=$channel" >> "$GITHUB_OUTPUT"
             echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "releasing $version from tag ${GITHUB_REF_NAME}"
+            echo "releasing $tag_version ($channel) from tag ${GITHUB_REF_NAME}"
             exit 0
           fi
-          # On main: release only if this version has no release yet.
+
+          if [ "${GITHUB_REF_NAME}" = "staging" ]; then
+            # A beta per push, ordered by the run number — which only ever
+            # increases, so `0.8.0-beta.41` < `0.8.0-beta.42` by semver's own rule
+            # for numeric pre-release identifiers, and every one of them is below
+            # the eventual `0.8.0`. No "is it released yet" question to ask: the
+            # version is new by construction.
+            echo "version=$base-beta.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "cutting beta $base-beta.${GITHUB_RUN_NUMBER}"
+            exit 0
+          fi
+
+          # production: release only if this version has no release yet.
           #
-          # Listing releases, NOT `gh release view "v$version"`: the tags endpoint
+          # Listing releases, NOT `gh release view "v$base"`: the tags endpoint
           # that backs `view` only matches PUBLISHED releases, so it cannot see a
           # draft — and a draft is exactly the state this pipeline leaves behind.
           # The blind check re-ran the whole release on every push and would have
@@ -94,19 +137,21 @@ jobs:
           # Fetched into a variable first: piping straight into grep hides an API
           # failure as "no match", and "no match" here means RELEASE — the one
           # default a broken query must not have.
+          echo "version=$base" >> "$GITHUB_OUTPUT"
+          echo "channel=stable" >> "$GITHUB_OUTPUT"
           if ! existing="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')"; then
-            echo "could not list releases — refusing to guess whether v$version is released" >&2
+            echo "could not list releases — refusing to guess whether v$base is released" >&2
             exit 1
           fi
-          if grep -qx "v$version" <<<"$existing"; then
+          if grep -qx "v$base" <<<"$existing"; then
             echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "v$version already has a release (draft or published) — nothing to do"
-          elif git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$base already has a release (draft or published) — nothing to do"
+          elif git rev-parse -q --verify "refs/tags/v$base" >/dev/null; then
             echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "tag v$version already exists — push it, or bump the version"
+            echo "tag v$base already exists — push it, or bump the version"
           else
             echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "version bumped to $version and never released — releasing"
+            echo "version bumped to $base and never released — releasing"
           fi
 
   # Everything CI does on a normal push, before a single artifact is built. A
@@ -150,17 +195,28 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # package.json names the FILES. If this runner disagrees with what `decide`
-      # resolved, the artifacts would carry a version nobody asked for.
+      # package.json names the FILES — the installers, the app's own About box and
+      # the update feed all read it — so it has to say what this run is releasing.
+      #
+      # For a beta that means WRITING it: the branch and the run number decide the
+      # version, not the file. It is set with --no-git-tag-version and never
+      # committed; the tag comes from `gh release create` against this commit.
       - name: Version being released
         shell: bash
+        env:
+          VERSION: ${{ needs.decide.outputs.version }}
         run: |
+          set -euo pipefail
           pkg="$(node -p "require('./package.json').version")"
-          if [ "$pkg" != "${{ needs.decide.outputs.version }}" ]; then
-            echo "package.json says $pkg, this run releases ${{ needs.decide.outputs.version }}" >&2
+          if [ "${VERSION%%-*}" != "$pkg" ]; then
+            echo "package.json says $pkg, this run releases $VERSION — the base versions must agree" >&2
             exit 1
           fi
-          echo "releasing $pkg"
+          if [ "$VERSION" != "$pkg" ]; then
+            npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null
+            echo "package.json set to $(node -p "require('./package.json').version") for this build only"
+          fi
+          echo "releasing $VERSION"
       - run: npm ci
       - run: npx electron-vite build
       - run: npx electron-builder --${{ matrix.target }} --publish never
@@ -224,6 +280,47 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
+      # THE UPDATE FEED — the file electron-updater actually fetches, and the one
+      # thing this pipeline never published. Without it every check dies with
+      # ERR_UPDATER_CHANNEL_FILE_NOT_FOUND (F-29).
+      #
+      # BOTH channel names, from one build, because the two halves disagree about
+      # naming and only one of them is ours to change:
+      #
+      #   * electron-builder writes ONE file for the github provider — `latest.yml`
+      #     (`latest-mac.yml`, `latest-linux.yml`) — whatever the version says.
+      #     `computeChannelNames` returns `[currentChannel]` unconditionally for
+      #     github, and `generateUpdatesFilesForAllChannels` is ignored there. Its
+      #     own docs say the channel is "never auto-detected" for github.
+      #   * electron-updater asks for `${channel}.yml`, and when the release it
+      #     picked is a PRE-RELEASE it derives the channel from that tag —
+      #     `v0.8.0-beta.7` → `beta.yml` (`beta-mac.yml`, `beta-linux.yml`).
+      #
+      # So a beta release needs `beta*.yml` and a stable release needs `latest*.yml`
+      # — and a stable release ALSO needs `beta*.yml`, for the beta user who is
+      # offered the stable version that supersedes their build. Copying is exact:
+      # the file describes the artifact, not the channel.
+      - name: Update feed for both channels
+        shell: bash
+        env:
+          VERSION: ${{ needs.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          latest=(release/latest*.yml)
+          if [ ${#latest[@]} -eq 0 ]; then
+            echo "electron-builder wrote no latest*.yml — the updater would have nothing to read" >&2
+            ls -la release/ >&2
+            exit 1
+          fi
+          for f in "${latest[@]}"; do
+            grep -q "version: $VERSION" "$f" || { echo "$f does not name version $VERSION" >&2; cat "$f" >&2; exit 1; }
+            cp "$f" "${f/latest/beta}"
+          done
+          for f in release/latest*.yml release/beta*.yml; do
+            echo "--- $f"
+            cat "$f"
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-${{ matrix.target }}
@@ -232,6 +329,7 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
+            release/*.yml
             release/SHA256SUMS-${{ matrix.target }}.txt
           if-no-files-found: error
 
@@ -242,6 +340,7 @@ jobs:
     timeout-minutes: 15
     env:
       TAG: v${{ needs.decide.outputs.version }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
     permissions:
       # The only write in either workflow, and only for a release.
       contents: write
@@ -272,6 +371,16 @@ jobs:
           {
             echo "## Polyform ${TAG}"
             echo
+            if [ "$CHANNEL" = "beta" ]; then
+              echo "**This is a beta**, cut automatically from \`staging\` at \`${GITHUB_SHA:0:7}\`."
+              echo "It passed the same gates a release does — unit tests, the input-layer e2e"
+              echo "gates, the CLI gate and a packaging smoke test on all three platforms — but"
+              echo "no human has read it. Keep a backup of anything you care about."
+              echo
+              echo "Tick **betas** next to *Check for updates* on Polyform's welcome screen to be"
+              echo "told when one of these appears. Untick it and you are back on stable only."
+              echo
+            fi
             echo "Changes: see [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md)."
             echo
             echo "### Verify your download"
@@ -313,14 +422,61 @@ jobs:
       # using it produced a draft release literally tagged "main". `--target` pins
       # the tag to the commit being released, and gh creates that tag when the
       # draft is published.
-      - name: Create draft release
+      #
+      # A beta is PUBLISHED and flagged pre-release, because that is the only state
+      # an updater can reach: a draft has no tag to download from and GitHub hides
+      # it from anyone without push access. Pre-release is also what makes the
+      # opt-in work — it keeps the build out of `releases/latest`, which is the
+      # endpoint a client with `allowPrerelease: false` resolves.
+      #
+      # Stable stays a DRAFT for a human to read and publish.
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ "$CHANNEL" = "beta" ]; then
+            visibility=--prerelease
+            kind="Pre-release"
+          else
+            visibility=--draft
+            kind="Draft release"
+          fi
           gh release create "$TAG" \
-            --draft \
+            $visibility \
             --target "$GITHUB_SHA" \
             --title "Polyform $TAG" \
             --notes-file NOTES.md \
             dist/*
-          echo "Draft release: $(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
+          echo "$kind: $(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
+      # Every push to staging mints a release, so without this the list becomes
+      # hundreds of betas and the stable ones get hard to find. Keep the newest ten;
+      # delete older betas AND their tags, because a tag left behind is a dangling
+      # ref that every `git fetch --tags` keeps forever.
+      #
+      # Only ever touches `v*-beta.N` pre-releases: never a stable release, never a
+      # draft, and never the one just created.
+      # The round trip, against the release that now exists: ask GitHub for the feed
+      # file the app will ask for, read the version out of it, and HEAD every file it
+      # names. Only for a beta — a draft's assets are not public, so a stable draft
+      # cannot be checked until someone publishes it (`npm run test:feed` after).
+      - name: Update feed answers the way the app will ask
+        if: needs.decide.outputs.channel == 'beta'
+        run: npm run test:feed -- --repo "$GITHUB_REPOSITORY" --expect-version "${{ needs.decide.outputs.version }}"
+      - name: Prune old betas
+        if: needs.decide.outputs.channel == 'beta'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: 10
+        run: |
+          set -euo pipefail
+          mapfile -t betas < <(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | select(.prerelease == true and .draft == false) | select(.tag_name | test("^v[0-9].*-beta\\.[0-9]+$")) | .tag_name')
+          echo "${#betas[@]} beta release(s) exist; keeping the newest $KEEP"
+          i=0
+          for tag in "${betas[@]}"; do
+            i=$((i+1))
+            if [ "$i" -le "$KEEP" ] || [ "$tag" = "$TAG" ]; then continue; fi
+            echo "deleting $tag and its tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          done

@@ -74,6 +74,7 @@ export function WelcomeScreen() {
   const [version, setVersion] = useState('')
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const [onLaunch, setOnLaunch] = useState(false)
+  const [beta, setBeta] = useState(false)
   const thumbs = useThumbnails(recents)
   const { height: titlebarHeight } = useTitlebarGeometry()
   const mod = window.polyform.platform === 'darwin' ? '⌘' : 'Ctrl'
@@ -82,6 +83,7 @@ export function WelcomeScreen() {
     void window.polyform.recentsList().then(setRecents)
     void window.polyform.appVersion().then(setVersion)
     void window.polyform.updateOnLaunch().then(setOnLaunch)
+    void window.polyform.updateBeta().then(setBeta)
     // A launch check reports through the same line this button writes to.
     return window.polyform.onUpdateStatus(setUpdate)
   }, [])
@@ -163,6 +165,28 @@ export function WelcomeScreen() {
                   }}
                 />
                 on launch
+              </label>
+              {/* Beta opt-in. Named "pre-release" in the tooltip rather than
+                  "unstable": these builds pass the same gates a release does —
+                  what they have not had is a human reading the release. */}
+              <label
+                className="flex items-center gap-1.5 cursor-default"
+                title="Offer pre-release builds (0.8.0-beta.N) from the staging branch. Polyform still only tells you — it never installs."
+              >
+                <input
+                  type="checkbox"
+                  className="accent-[var(--pf-accent-solid)]"
+                  checked={beta}
+                  onChange={(e) => {
+                    setBeta(e.target.checked)
+                    void window.polyform.updateBeta(e.target.checked)
+                    // Re-check straight away: the point of ticking this is to find
+                    // out whether there IS a beta, and making someone press the
+                    // button again to learn that is a worse answer than an answer.
+                    if (e.target.checked) void runCheck()
+                  }}
+                />
+                betas
               </label>
             </div>
             {update && update.state !== 'checking' && (

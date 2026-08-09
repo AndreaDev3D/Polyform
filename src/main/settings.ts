@@ -17,9 +17,20 @@ export interface Settings {
    * and turning this on is one click in the same menu.
    */
   checkUpdatesOnLaunch: boolean
+  /**
+   * Offer pre-release builds. Every push to `staging` publishes one as a GitHub
+   * **pre-release** (not a draft — a draft has no tag and is invisible to anyone
+   * without push access, so no updater can ever see one), versioned
+   * `0.8.0-beta.<run>`. With this on, the updater is allowed to consider those;
+   * with it off, GitHub's "latest release" excludes them and nothing changes.
+   *
+   * Off by default for the same reason as the launch check: a beta is a build
+   * whose gates passed and whose *release* nobody read.
+   */
+  betaUpdates: boolean
 }
 
-const DEFAULTS: Settings = { checkUpdatesOnLaunch: false }
+const DEFAULTS: Settings = { checkUpdatesOnLaunch: false, betaUpdates: false }
 
 let cache: Settings | null = null
 

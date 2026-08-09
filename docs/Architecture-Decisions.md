@@ -589,7 +589,13 @@ Flipping that one constant is the last step of shipping signing, not a separate 
 
 **Provenance instead of a signature, for now.** Releases carry SHA-256 checksums *and* a Sigstore build-provenance attestation from the release workflow, verifiable with `gh attestation verify <file> --repo AndreaDev3D/Polyform`. That is free, and it answers a different question from a code-signing certificate: not "does the OS trust this publisher" (SmartScreen and Gatekeeper still object) but "did these exact bytes come out of that repo's workflow at that commit". Worth having on its own, and worth keeping after signing lands.
 
-**Revisit when.** A certificate exists — Windows first (SignPath Foundation signs open-source projects for free; Apple has no free path and notarization needs the paid programme). Then: turn on downloads, keep verification on, and only then consider a silent channel.
+**Amendment (v0.8): a beta channel, still notify-only.** Two branches now produce two kinds of release — every push to `staging` publishes `0.8.0-beta.<run>`, and a version bump on `production` opens a stable draft — and the app has a **betas** opt-in beside the launch-check box. Three decisions inside that:
+
+- **A beta is a PUBLISHED pre-release, not a draft.** A draft has no tag and GitHub returns it only to callers holding push access, so there is nothing an updater could ever fetch. "Pre-release" is the state that is visible and tagged yet excluded from `releases/latest` — and `releases/latest` is precisely the endpoint electron-updater resolves when `allowPrerelease` is false. So the GitHub flag and the app's opt-in are two halves of one mechanism: **untick the box and a beta is unreachable, not merely unoffered.**
+- **Installing is still off, for betas too.** The whole argument above is about verifying bytes, and a beta is less reviewed, not more. Ticking "betas" changes which versions Polyform will *tell you about*; it does not change what it will run. Both were offered explicitly; notify-only was chosen.
+- **Every release publishes both channel feeds** (`latest*.yml` *and* `beta*.yml`), because electron-builder writes one name for the GitHub provider and electron-updater asks for another, derived from the tag it picked ([F-29](Findings-and-Concerns.md#f-29-the-update-feed-was-never-published-so-the-feature-could-only-ever-have-failed)). It also covers the case that makes a channel usable: a beta user being offered the stable release that supersedes their build asks for `beta.yml` *from a stable release*.
+
+**Revisit when.** A certificate exists — Windows first (SignPath Foundation signs open-source projects for free; Apple has no free path and notarization needs the paid programme). Then: turn on downloads, keep verification on, and only then consider a silent channel. The beta channel is the natural first place to turn downloads on, because the people on it chose to be.
 
 ---
 

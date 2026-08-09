@@ -13,9 +13,9 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [staging, production]
   pull_request:
-    branches: [main]
+    branches: [staging, production]
   # Called by release.yml, which builds and smoke-tests its OWN installers with
   # attestations — so it asks for the tests and the gates and not the packaging,
   # which would otherwise run three times per release: once for this workflow's

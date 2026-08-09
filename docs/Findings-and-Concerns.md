@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.7 (F-01…F-28)
+**Project:** Polyform — current through v0.8 (F-01…F-29)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -37,6 +37,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-26](#f-26-a-wrong-ci-condition-fails-open-the-gate-skips-and-the-run-goes-green) | A wrong CI condition fails open (fixed v0.7) | Process |
 | [F-27](#f-27-synthetic-input-is-not-a-gesture-the-apps-time-windows-decide-not-the-events) | Synthetic input is not a gesture: time windows decide (fixed v0.7) | Process |
 | [F-28](#f-28-an-importer-can-only-be-checked-against-the-thing-it-imported) | An importer can only be checked against its source (fixed v0.7) | Fixed (High while live) |
+| [F-29](#f-29-the-update-feed-was-never-published-so-the-feature-could-only-ever-have-failed) | The update feed was never published (fixed v0.8) | Fixed (High while live) |
 
 ---
 
@@ -645,6 +646,29 @@ Every one of those checks is a property of *our output alone*. Nonsense has fini
 
 ---
 
+## F-29. The update feed was never published, so the feature could only ever have failed
+
+**Severity: High while live** — "Check for Updates" shipped in v0.7 and could not have succeeded for anybody. Found in v0.8 while adding the beta channel, before any release was published.
+
+electron-updater does not ask GitHub "what is the latest version". It reads a **metadata file out of the release's assets** — `latest.yml` on Windows, `latest-mac.yml`, `latest-linux.yml` — and without it raises `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`. The release workflow uploaded `*.exe`, `*.dmg`, `*.AppImage`, `*.deb` and `SHA256SUMS.txt`. **Not the yml.** So Help → Check for Updates would have reported an error, and the launch check would have failed silently, for every user of every release.
+
+**Why every check we had passed.** The packaging smoke test asserts `app-update.yml` is inside the package and points at this repo — the *client* half. Nothing asked GitHub for the file that client then goes on to fetch. The two halves are produced by different tools, at different times, and were never held against each other. It is F-28's lesson in a new place: we verified our own output and called it a feature.
+
+**And the two halves disagree about naming**, which a single-sided test cannot see:
+
+* **electron-builder** writes exactly one channel file for the GitHub provider — `latest*.yml`, whatever the version says. `computeChannelNames` returns `[currentChannel]` unconditionally when `provider === "github"`, `generateUpdatesFilesForAllChannels` is ignored there, and its own option docs note the channel is *"never auto-detected"* for GitHub. A `0.8.0-beta.1` build still writes `latest.yml`; measured, not assumed.
+* **electron-updater** derives the channel from the tag of the release it chose: `v0.8.0-beta.7` → `beta.yml` (`beta-mac.yml`, `beta-linux.yml`). A beta release carrying only `latest.yml` therefore fails for exactly the users who opted into betas.
+
+So each release now publishes **both names** from the one build — the file describes the artifact, not the channel — which also covers the case that makes a beta channel usable at all: a beta user being offered the stable release that supersedes their build asks for `beta.yml` *from a stable release*, and finds it.
+
+**What replaced the checks.** `npm run test:feed` (`scripts/update-feed-check.mjs`) reproduces `GitHubProvider.getLatestVersion()` against the live repo: read `releases.atom`, take the newest tag, derive the channel from that tag, fetch the feed file for each platform, check the version it declares, and **HEAD every file it names**. It runs in the release workflow immediately after a beta is published, so the round trip is exercised on every beta. Run against the repo before the fix it says, correctly, that nothing is published and no updater could work.
+
+It also asserts the property the whole opt-in rests on: **`releases/latest` must not resolve to a pre-release**. That endpoint is what a client with `allowPrerelease: false` reads, so if a beta ever appeared there, every user would be offered dev builds. That is a one-line check on a fact no amount of app-side testing can establish.
+
+**Standing obligation.** A client-side configuration test is not a test of a remote-facing feature. Where the product depends on an artifact *we publish* being fetched by code *we do not control*, the check has to make the same request the real client makes, against the real remote, and read the real response — and it has to run on the pipeline that produces the artifact, not on a developer's machine when someone remembers.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -657,4 +681,5 @@ Three themes run through every entry:
 6. **A correct document is not a correct app.** F-21 was a stale cache over right data, F-23 was the right answer computed and then not applied, and F-22 is the reason both now have checks that can actually fail: a regression test is finished when it has been shown to go red without its fix, not when it first goes green.
 7. **A green pipeline is not a running one.** F-26 removed a gate and reported success, and F-24/F-25 were both found by reading what actually happened rather than what the summary said. Ask of every check: if the thing it guards were broken right now, would this run be red? For a condition, the question is narrower and sharper — did the job I expected actually *run*?
 8. **A conversion is only verified against its source.** F-28's importer passed every check it had while placing a quarter of its nodes wrongly, because all of them examined our output alone — and one of them had frozen the bug as the expected value. Whenever code converts between representations, at least one check has to hold the output against the *input*, derived independently.
-9. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
+9. **Two halves built by different tools will disagree.** F-29's publisher wrote `latest.yml` while the client asked for `beta.yml`, and each side was self-consistent. Wherever a boundary is crossed by convention rather than by a shared type — file names, wire formats, IPC channel strings, CLI flags — the only test that means anything crosses it too.
+10. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.

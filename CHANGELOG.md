@@ -2,9 +2,56 @@
 
 All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) phases.
 
-## Unreleased
+## Unreleased — 0.8.0
 
-Nothing yet.
+### Added
+
+- **A beta channel you can opt into, and a branch layout that feeds it.** `staging`
+  and `production` now mean two different kinds of release: every push to `staging`
+  publishes `0.8.0-beta.<run>` as a GitHub **pre-release**, and a version bump on
+  `production` opens a stable **draft** for a human to read and publish. In Polyform,
+  tick **betas** next to *Check for updates* on the welcome screen and it starts
+  telling you about those builds; untick it and they are gone.
+  - **Off by default, and "off" means unreachable rather than unoffered.** The
+    checkbox sets `allowPrerelease`, which decides *which GitHub endpoint the updater
+    resolves*: with it off, that is `releases/latest`, and GitHub excludes
+    pre-releases from it. There is no beta to skip.
+  - **A beta is a published pre-release, not a draft** — a draft has no tag and is
+    hidden from anyone without push access, so nothing an updater could fetch exists.
+    That is why "trigger a draft build" cannot drive auto-update, and pre-release can.
+  - **It still only tells you.** Ticking betas changes which versions Polyform will
+    mention, not what it will run: nothing is signed, so there is no signature for
+    electron-updater to verify, and a beta is less reviewed than a release, not more
+    (ADR-028 amendment, F-10).
+  - Every beta passes the same gates a release does — unit tests, the input-layer e2e
+    gates, the CLI gate, and a packaging smoke test on all three platforms — and old
+    betas beyond the newest ten are deleted with their tags, so the release list stays
+    readable.
+
+### Fixed
+
+- **The update feed was never published, so "Check for Updates" could not have
+  worked for anybody** (F-29). electron-updater does not ask GitHub for a version
+  number; it fetches a metadata file out of the release's assets (`latest.yml`,
+  `latest-mac.yml`, `latest-linux.yml`) and raises
+  `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` without it. The release workflow uploaded the
+  installers and the checksums — **not the yml**. Every check we had looked at the
+  app side (`app-update.yml` is present and points here) and nothing ever asked
+  GitHub for the file that app then goes on to fetch.
+  - The two halves also disagree about the *name*: electron-builder writes one
+    channel file for the GitHub provider (`latest*.yml`, whatever the version says —
+    `computeChannelNames` returns `[currentChannel]` unconditionally there, and its
+    docs say the channel is "never auto-detected"), while the updater derives the name
+    from the tag it picked (`v0.8.0-beta.7` → `beta.yml`). So each release now
+    publishes **both** names from the one build, which also covers the beta user being
+    offered the stable release that supersedes their build.
+  - `npm run test:feed` reproduces `GitHubProvider.getLatestVersion()` against the
+    live repo — read `releases.atom`, derive the channel from the newest tag, fetch
+    each platform's feed file, check the version it declares, HEAD every file it names
+    — and runs in the pipeline on every beta. It also asserts the property the opt-in
+    rests on: `releases/latest` must never resolve to a pre-release.
+- **Both workflows pointed at `main`, which no longer exists**, so nothing would have
+  run at all on either new branch.
 
 ## 0.7.0 — "Distribution & .fig Import" — 2026-08-05
 
