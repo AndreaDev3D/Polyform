@@ -368,7 +368,9 @@ export class InteractionController {
     }
 
     // 4. Frame name labels.
-    for (const label of frameLabels(this.scene, state.camera)) {
+    // Same viewport the overlay draws with, or this would offer a click target
+    // for a name that is not on screen.
+    for (const label of frameLabels(this.scene, state.camera, undefined, state.viewportSize)) {
       if (
         screen.x >= label.x - 2 &&
         screen.x <= label.x + label.width + 4 &&

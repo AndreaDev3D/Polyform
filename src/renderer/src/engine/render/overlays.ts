@@ -581,34 +581,129 @@ export interface FrameLabel {
   y: number
   width: number
   height: number
+  /** Screen px; shrinks with zoom, so the caller must not assume LABEL_FONT_PX. */
+  fontSize: number
   /** Components/instances get the purple treatment. */
   isComponent: boolean
 }
 
-/** Screen-space name labels for root-level frames/components/instances. */
-export function frameLabels(scene: SceneGraph, camera: Camera, ctx?: CanvasRenderingContext2D): FrameLabel[] {
-  const labels: FrameLabel[] = []
+/** Label size at 100% zoom, in screen px. */
+export const LABEL_FONT_PX = 11
+/** Small but still a word. Below this, shrinking further only makes the names
+ *  unreadable without making them fit, so they get dropped instead. */
+const LABEL_FONT_MIN_PX = 8
+/** A frame narrower than this on screen has nothing worth naming. */
+const LABEL_MIN_FRAME_PX = 16
+/** Longest label drawn, in screen px, at any zoom. */
+const LABEL_MAX_WIDTH = 240
+/** Padding used when deciding whether two labels collide. */
+const LABEL_GAP = 3
+
+/**
+ * Labels shrink below 100% zoom and hold at a floor — a name pinned at 11px
+ * while its frame shrinks to a thumbnail is how a hundred frames end up writing
+ * over each other.
+ *
+ * The scale is `sqrt(zoom)`, not `zoom`: tracking the camera exactly puts the
+ * name at 5px by the time you are at half size, which is unreadable at a zoom
+ * people work at. Half the canvas scale gives 8.8px at 64%, reaches the floor
+ * near 50%, and leaves the rest of the job to dropping labels.
+ */
+export function labelFontSize(zoom: number): number {
+  return Math.max(LABEL_FONT_MIN_PX, Math.min(LABEL_FONT_PX, LABEL_FONT_PX * Math.sqrt(Math.max(zoom, 0))))
+}
+
+export function labelFont(zoom: number): string {
+  return `${labelFontSize(zoom)}px "Segoe UI", system-ui, sans-serif`
+}
+
+/**
+ * Screen-space name labels for root-level frames/components/instances.
+ *
+ * Shrinking alone does not stop the pile-up: at 10% zoom the floor is reached
+ * and neighbouring names still overlap. So a label is dropped when its frame is
+ * too small on screen to be worth naming, and when it would be drawn over a
+ * label already kept. Fewer names appear the further out you go, which is the
+ * point — an unreadable stack of them says less than nothing.
+ *
+ * The pointer path calls this too, so what is clickable is exactly what is
+ * drawn. Order is decided in WORLD space: pan and zoom are affine, so the same
+ * label wins every time and names do not flicker as the camera moves.
+ *
+ * `viewport` (screen px) drops names that are not on screen. Both callers should
+ * pass it and pass the same thing: the collision pass compares each label
+ * against the ones already kept, so with it the work is bounded by the screen
+ * rather than by the size of the document — and an off-screen label that had
+ * been allowed to win would suppress a visible one.
+ */
+export function frameLabels(
+  scene: SceneGraph,
+  camera: Camera,
+  ctx?: CanvasRenderingContext2D,
+  viewport?: { w: number; h: number },
+): FrameLabel[] {
+  const fontSize = labelFontSize(camera.zoom)
+  if (ctx) ctx.font = labelFont(camera.zoom)
+  const candidates: { label: FrameLabel; wx: number; wy: number }[] = []
   for (const id of scene.rootIds()) {
     const node = scene.getNode(id)
     if (!node || !node.visible) continue
     if (node.type !== 'FRAME' && node.type !== 'COMPONENT' && node.type !== 'INSTANCE') continue
+    if (node.width * camera.zoom < LABEL_MIN_FRAME_PX) continue
     const p = worldToScreen(camera, { x: node.x, y: node.y })
     const isComponent = node.type !== 'FRAME'
     const text = (isComponent ? '◈ ' : '') + node.name
-    const width = ctx ? ctx.measureText(text).width : text.length * 6
-    labels.push({ id, text, x: p.x, y: p.y - 8, width: Math.min(width, 240), height: 12, isComponent })
+    // Without a ctx to measure with, 0.55em per character is the same estimate
+    // the old constant 6 made at 11px — it has to track the font or the click
+    // target drifts away from the drawn name.
+    const measured = ctx ? ctx.measureText(text).width : text.length * fontSize * 0.55
+    const label: FrameLabel = {
+      id,
+      text,
+      x: p.x,
+      // Sits just clear of the frame's top edge; scaled so a 6px name is not
+      // floating where an 11px one belongs. 7.95 at 100%, i.e. the old 8.
+      y: p.y - (3 + fontSize * 0.45),
+      width: Math.min(measured, LABEL_MAX_WIDTH),
+      height: fontSize + 1,
+      fontSize,
+      isComponent,
+    }
+    if (
+      viewport &&
+      (label.x > viewport.w ||
+        label.x + label.width < 0 ||
+        label.y < 0 ||
+        label.y - label.height > viewport.h)
+    ) {
+      continue
+    }
+    candidates.push({ label, wx: node.x, wy: node.y })
   }
-  return labels
+  candidates.sort((a, b) => a.wy - b.wy || a.wx - b.wx || (a.label.id < b.label.id ? -1 : 1))
+
+  const kept: FrameLabel[] = []
+  for (const { label } of candidates) {
+    const collides = kept.some(
+      (k) =>
+        label.x < k.x + k.width + LABEL_GAP &&
+        k.x < label.x + label.width + LABEL_GAP &&
+        label.y - label.height < k.y + LABEL_GAP &&
+        k.y - k.height < label.y + LABEL_GAP,
+    )
+    if (!collides) kept.push(label)
+  }
+  return kept
 }
 
 export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, state: OverlayState): void {
   const { camera, dpr } = state
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-  // Frame labels
-  ctx.font = '11px "Segoe UI", system-ui, sans-serif'
+  // Frame labels. frameLabels() sets the font it measured with; drawing with a
+  // different one would put the click target somewhere else than the name.
   ctx.textBaseline = 'alphabetic'
-  for (const label of frameLabels(scene, camera, ctx)) {
+  for (const label of frameLabels(scene, camera, ctx, { w: state.width, h: state.height })) {
     ctx.fillStyle = state.selection.includes(label.id)
       ? label.isComponent
         ? COMPONENT_COLOR
@@ -616,7 +711,7 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
       : label.isComponent
         ? 'rgba(167, 139, 250, 0.85)'
         : '#9a9a9a'
-    ctx.fillText(label.text, label.x, label.y - 2, 240)
+    ctx.fillText(label.text, label.x, label.y - 2, LABEL_MAX_WIDTH)
   }
 
   // Hover outline

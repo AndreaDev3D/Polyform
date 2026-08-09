@@ -68,6 +68,21 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **Frame names no longer pile into each other when you zoom out.** They were drawn
+  at a fixed 11px whatever the zoom, so a sheet of a hundred small frames became a
+  wall of overlapping text with the artwork somewhere underneath. Names now shrink as
+  you zoom out — `sqrt(zoom)`, not `zoom`, because tracking the camera exactly puts a
+  name at 5px by the time you are at half size, which is a zoom people work at — and
+  hold at 8px rather than dwindling to nothing. Below that the answer is fewer names,
+  not smaller ones: a name is dropped when its frame is under 16px wide on screen, and
+  when it would be drawn over a name already placed. Zoomed out on a 72-frame sheet
+  that is 31 names with no overlap instead of 72 in a heap; at 100% nothing changed.
+  - **What you can click is exactly what you can see.** The pointer path shares this
+    function, so a dropped name is not a hidden click target — and both sides now pass
+    the viewport, which keeps the collision pass proportional to the screen instead of
+    the document.
+  - **Which names survive is decided in world space**, so panning and zooming cannot
+    make them flicker in and out; only a real change in what overlaps does.
 - **Shared styles could never be created, so the whole feature was unreachable**
   (F-31). Both "+ Style" buttons — Fill and Text — started with `window.prompt`, and
   **Electron does not implement `prompt()`**: it throws. The throw landed in devtools,

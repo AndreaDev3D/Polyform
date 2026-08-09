@@ -9,6 +9,7 @@ import { createNode } from '../types'
 import type { EllipseNode } from '../types'
 import {
   HANDLE_SIZE,
+  LABEL_FONT_PX,
   ROTATE_CURSOR,
   ROTATE_STEM,
   arcEditTarget,
@@ -20,9 +21,11 @@ import {
   cornerEditTarget,
   cornerHandles,
   cornerRadiusFromLocal,
+  frameLabels,
   hitArcHandle,
   hitCornerHandle,
   hitHandle,
+  labelFontSize,
 } from './overlays'
 
 const CAMERA = { x: 0, y: 0, zoom: 1 }
@@ -407,5 +410,125 @@ describe('hitCornerHandle', () => {
     const hs = [{ kind: 'radius-tl' as const, x: 20, y: 20 }]
     expect(hitCornerHandle(hs, { x: 24, y: 23 })?.kind).toBe('radius-tl')
     expect(hitCornerHandle(hs, { x: 40, y: 20 })).toBeNull()
+  })
+})
+
+// Frame names, zoomed out: a label pinned at 11px over a frame the size of a
+// thumbnail writes over its neighbours. What the tests hold is the pile-up
+// itself, not just the arithmetic that causes it.
+describe('frame labels', () => {
+  /** `count` frames of `w`×80, laid out in a row `gap` apart, each with a long name. */
+  function row(count: number, w = 200, gap = 40): SceneGraph {
+    const scene = new SceneGraph()
+    for (let i = 0; i < count; i++) {
+      const f = createNode('FRAME', `Asset_Sheet_Name_${i}`)
+      f.x = i * (w + gap)
+      f.y = 500
+      f.width = w
+      f.height = 80
+      scene.addNode(f, null, i)
+    }
+    return scene
+  }
+
+  /** A ctx stand-in that measures like a 0.55em monospace font would. */
+  const measurer = (size: number): CanvasRenderingContext2D =>
+    ({
+      font: '',
+      measureText: (t: string) => ({ width: t.length * size * 0.55 }),
+    }) as unknown as CanvasRenderingContext2D
+
+  it('shrinks the label as you zoom out, down to a floor', () => {
+    expect(labelFontSize(1)).toBe(LABEL_FONT_PX)
+    // Zooming IN never inflates the name — it stays the size of the UI around it.
+    expect(labelFontSize(4)).toBe(LABEL_FONT_PX)
+    // sqrt(0.64) = 0.8, so 8.8px: smaller, and still a word.
+    expect(labelFontSize(0.64)).toBeCloseTo(8.8, 6)
+    expect(labelFontSize(0.81)).toBeCloseTo(9.9, 6)
+    // Past the floor it stops shrinking — a 0.5px name is not a name.
+    expect(labelFontSize(0.25)).toBe(8)
+    expect(labelFontSize(0.001)).toBe(8)
+    expect(labelFontSize(0)).toBe(8)
+  })
+
+  it('keeps every label when the frames are far enough apart', () => {
+    const scene = row(4)
+    const labels = frameLabels(scene, { x: 0, y: 0, zoom: 1 }, measurer(LABEL_FONT_PX))
+    expect(labels).toHaveLength(4)
+    // 19 chars at 0.55em, 11px: ~115px, and the frames are 240 apart.
+    expect(labels[0].width).toBeCloseTo('Asset_Sheet_Name_0'.length * LABEL_FONT_PX * 0.55, 6)
+    expect(labels.every((l) => l.fontSize === LABEL_FONT_PX)).toBe(true)
+  })
+
+  it('drops the labels that would be drawn over each other', () => {
+    // The screenshot's situation: 12 frames, zoomed way out. At the old fixed
+    // 11px every one of these was drawn, all inside ~290px of screen.
+    const scene = row(12)
+    const zoom = 0.1
+    const all = frameLabels(scene, { x: 0, y: 0, zoom }, measurer(labelFontSize(zoom)))
+    expect(all.length).toBeGreaterThan(0)
+    expect(all.length).toBeLessThan(12)
+    // Whatever survived does not touch anything else that survived.
+    for (let i = 0; i < all.length; i++) {
+      for (let k = i + 1; k < all.length; k++) {
+        const a = all[i]
+        const b = all[k]
+        const overlaps =
+          a.x < b.x + b.width && b.x < a.x + a.width && a.y - a.height < b.y && b.y - b.height < a.y
+        expect(overlaps, `${a.text} overlaps ${b.text}`).toBe(false)
+      }
+    }
+  })
+
+  it('says nothing about a frame too small on screen to name', () => {
+    const scene = row(1, 100)
+    // 100 world px at 10% is 10 screen px: a thumbnail, not a labelled frame.
+    expect(frameLabels(scene, { x: 0, y: 0, zoom: 0.1 }, measurer(6))).toHaveLength(0)
+    expect(frameLabels(scene, { x: 0, y: 0, zoom: 0.2 }, measurer(6))).toHaveLength(1)
+  })
+
+  it('picks the same survivors however the camera is placed', () => {
+    // Pan and zoom are affine, so the winners are decided in world space and do
+    // not change underfoot — labels flickering as you drag would be worse than
+    // labels overlapping.
+    const scene = row(10)
+    const at = (c: { x: number; y: number; zoom: number }) =>
+      frameLabels(scene, c, measurer(labelFontSize(c.zoom)))
+        .map((l) => l.text)
+        .join()
+    const base = at({ x: 0, y: 0, zoom: 0.25 })
+    expect(at({ x: 137, y: -400, zoom: 0.25 })).toBe(base)
+    expect(at({ x: -1000, y: 900, zoom: 0.25 })).toBe(base)
+    // Zooming does change it — that is the feature, not a wobble.
+    expect(at({ x: 0, y: 0, zoom: 1 })).not.toBe(base)
+  })
+
+  it('does not consider a name that is off screen', () => {
+    // Both the drawing and the pointer path pass a viewport, and must agree: an
+    // off-screen label allowed to win the collision pass would silently suppress
+    // a visible one, and the cull would cost the whole document per frame.
+    const scene = row(40, 200, 40)
+    const camera = { x: 0, y: 0, zoom: 1 }
+    const viewport = { w: 1200, h: 800 }
+    const onscreen = frameLabels(scene, camera, measurer(LABEL_FONT_PX), viewport)
+    expect(onscreen.length).toBeLessThan(40)
+    expect(onscreen.every((l) => l.x <= viewport.w && l.x + l.width >= 0)).toBe(true)
+    // The visible ones are the same either way — the viewport only removes what
+    // could not have been drawn.
+    const all = frameLabels(scene, camera, measurer(LABEL_FONT_PX))
+    expect(onscreen.map((l) => l.text)).toEqual(
+      all.filter((l) => l.x <= viewport.w && l.x + l.width >= 0).map((l) => l.text),
+    )
+  })
+
+  it('estimates the width the same way with no ctx to measure with', () => {
+    // The pointer path calls this without a canvas: if the estimate ignored the
+    // font size, the click target would sit beside the name it belongs to.
+    const scene = row(1)
+    const zoom = 0.3
+    const [drawn] = frameLabels(scene, { x: 0, y: 0, zoom }, measurer(labelFontSize(zoom)))
+    const [clicked] = frameLabels(scene, { x: 0, y: 0, zoom })
+    expect(clicked.width).toBeCloseTo(drawn.width, 6)
+    expect(clicked.y).toBeCloseTo(drawn.y, 6)
   })
 })
