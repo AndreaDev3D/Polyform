@@ -2,7 +2,7 @@
 // everything paints into a GPU-composited <canvas>. The draw path is kept
 // behind plain functions so a WebGPU backend can replace it (ADR-003).
 
-import type { NodeId, Paint, SceneNode, BlendMode, Model3dNode, DropShadowEffect } from '../types'
+import type { NodeId, Paint, SceneNode, BlendMode, Model3dNode, DropShadowEffect, StrokeAlign } from '../types'
 import { isContainer } from '../types'
 import type { SceneGraph } from '../scene'
 import type { SpatialIndex } from '../spatial-index'
@@ -13,7 +13,7 @@ import { fillPaintBox, openStrokeOffset, paintPoint, strokePaintBox, type PaintB
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
-import { perSideStroke, strokeSideOutline } from '../strokesides'
+import { perSideStroke, strokeSideBands, strokeSideOutline, usesSideRegion } from '../strokesides'
 import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
@@ -218,30 +218,57 @@ function strokePath(
   path: Path2D,
   hasClosedGeometry: boolean,
 ): void {
-  // Per-side weights are not a stroke the rasterizer can draw — there is no one
-  // width to hand it — so they are a region to fill instead (engine/strokesides).
   if (hasClosedGeometry && perSideStroke(node)) {
-    const region = subPathsToPath2D(strokeSideOutline(node))
-    for (const paint of node.strokes) {
-      if (!paint.visible || paint.type === 'IMAGE') continue
-      const style = paintStyle(ctx, paint, strokePaintBox(node))
-      if (!style) continue
-      ctx.fillStyle = style
-      // EVEN-ODD: the two contours are a ring, and the hole is the shape.
-      ctx.fill(region, 'evenodd')
+    if (usesSideRegion(node)) {
+      // A box: four widths are not a stroke the rasterizer can draw — there is no
+      // one width to hand it — so they are a region to fill (engine/strokesides).
+      const region = subPathsToPath2D(strokeSideOutline(node))
+      for (const paint of node.strokes) {
+        if (!paint.visible || paint.type === 'IMAGE') continue
+        const style = paintStyle(ctx, paint, strokePaintBox(node))
+        if (!style) continue
+        ctx.fillStyle = style
+        // EVEN-ODD: the two contours are a ring, and the hole is the shape.
+        ctx.fill(region, 'evenodd')
+      }
+      return
+    }
+    // Any other closed shape: an ordinary stroke at each side's weight, clipped to
+    // that side's wedge of the bounding box. The wedges meet along the diagonals,
+    // which is where the mitre belongs, so the four bands butt together with no
+    // seam and no overlap.
+    for (const band of strokeSideBands(node)) {
+      ctx.save()
+      ctx.clip(subPathsToPath2D([band.wedge]))
+      paintStrokeBand(ctx, node, path, band.weight, node.strokeAlign)
+      ctx.restore()
     }
     return
   }
-  const weight = node.strokeWeight
-  if (weight <= 0) return
+  if (node.strokeWeight <= 0) return
   // Closed geometry gets alignment by clipping (below). Open geometry gets it by
   // moving the band off the path — exact for a LINE, which is a straight segment —
   // and then stroking that centred. One function decides the offset for both
   // renderers and for the gradient box, so the three cannot disagree.
+  paintStrokeBand(ctx, node, path, node.strokeWeight, hasClosedGeometry ? node.strokeAlign : 'CENTER')
+}
+
+/**
+ * One stroke band at a given weight and alignment. Split out of `strokePath` so
+ * the per-side path can draw the same band four times at four widths inside four
+ * clips — the alignment rules have to be identical whichever way we got here.
+ */
+function paintStrokeBand(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  path: Path2D,
+  weight: number,
+  align: StrokeAlign,
+): void {
+  if (weight <= 0) return
   const offset = openStrokeOffset(node)
   const target = offset === 0 ? path : new Path2D()
   if (offset !== 0) target.addPath(path, new DOMMatrix().translate(0, offset))
-  const align = hasClosedGeometry ? node.strokeAlign : 'CENTER'
   for (const paint of node.strokes) {
     if (!paint.visible || paint.type === 'IMAGE') continue
     // The stroke's own box, not the node's: on a line the node has no height.

@@ -10,7 +10,7 @@ import { nodeOutline, type SubPath } from '../../shapes'
 import { openStrokeOffset } from '../../paintbox'
 import { booleanRings } from '../../booleans'
 import { maskShape } from '../../mask'
-import { perSideStroke, strokeSideOutline } from '../../strokesides'
+import { perSideStroke, strokeSideOutline, usesSideRegion } from '../../strokesides'
 import { encodeSubPaths } from '../../wasm/codec'
 import { wasmHandle } from '../../backend'
 
@@ -25,6 +25,13 @@ export interface NodeMesh {
 
 const EMPTY = new Float32Array(0)
 const EMPTY_IDX = new Uint32Array(0)
+
+function ringsAsSubPaths(scene: SceneGraph, node: SceneNode): SubPath[] {
+  if (node.type !== 'BOOLEAN') return []
+  return booleanRings(scene, node)
+    .filter((r: Vec2[]) => r.length >= 3)
+    .map((ring: Vec2[]) => ({ closed: true, anchors: ring.map((p) => ({ p, cpIn: null, cpOut: null })) }))
+}
 
 function emptyMesh(): NodeMesh {
   return {
@@ -118,6 +125,47 @@ export class MeshCache {
     return mesh
   }
 
+  /**
+   * The node's stroke band at a weight that is not its own `strokeWeight`.
+   *
+   * A per-side stroke on a shape that is not a box draws the same outline four
+   * times at four widths, each clipped to one wedge of the bounding box, so the
+   * cache has to be able to hold four bands for one node — hence the weight in the
+   * key rather than a second entry that quietly overwrites the first.
+   */
+  getStrokeAt(scene: SceneGraph, node: SceneNode, zoom: number, weight: number): NodeMesh {
+    const bucket = zoomBucket(zoom)
+    const key = `w${weight}|${geometryKey(scene, node, bucket)}`
+    const cached = this.entries.get(key)
+    if (cached) return cached
+    const subpaths = node.type === 'BOOLEAN' ? ringsAsSubPaths(scene, node) : nodeOutline(node)
+    const evenOdd = node.type === 'BOOLEAN' || (node.type === 'VECTOR' && node.windingRule === 'EVENODD')
+    const alignCode = node.strokeAlign === 'INSIDE' ? 1 : node.strokeAlign === 'OUTSIDE' ? 2 : 0
+    let mesh = emptyMesh()
+    if (subpaths.length > 0) {
+      const built = wasmHandle().tessellateNode(
+        encodeSubPaths(subpaths),
+        evenOdd,
+        weight,
+        alignCode,
+        new Float64Array(node.strokeDash),
+        0.25 / bucket,
+        true,
+        true,
+      )
+      mesh = {
+        fillPositions: built.fillPositions(),
+        fillIndices: built.fillIndices(),
+        strokePositions: built.strokePositions(),
+        strokeIndices: built.strokeIndices(),
+        strokeAlignCode: alignCode,
+      }
+      built.free()
+    }
+    this.entries.set(key, mesh)
+    return mesh
+  }
+
   /** Fill-only tessellation of arbitrary subpaths (no stroke, no node props). */
   private static tessellateFill(subpaths: SubPath[], evenOdd: boolean, bucket: number): NodeMesh {
     if (subpaths.length === 0) return emptyMesh()
@@ -179,7 +227,7 @@ export class MeshCache {
     wantFill: boolean,
     wantStroke: boolean,
   ): NodeMesh {
-    const sides = wantStroke && perSideStroke(node)
+    const sides = wantStroke && usesSideRegion(node) && perSideStroke(node)
     if (sides) {
       // Four widths is a region, not a band (engine/strokesides). The fill mesh
       // still comes from the outline; the stroke mesh is that region tessellated

@@ -49,7 +49,7 @@ import type { RenderOptions } from '../canvas2d'
 import { drawTextInto } from '../canvas2d'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
 import { GlyphAtlas } from './glyphatlas'
-import { effectiveStrokeWeight } from '../../strokesides'
+import { effectiveStrokeWeight, strokeSideBands, usesSideRegion } from '../../strokesides'
 import {
   BLUR_WGSL,
   COMPOSITE_WGSL,
@@ -220,6 +220,18 @@ function parseColor(css: string): [number, number, number, number] {
     return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255, 1]
   }
   return [0.12, 0.12, 0.12, 1]
+}
+
+/** A wedge clip as a mesh: three points, one triangle, no tessellator needed. */
+function wedgeMesh(wedge: { anchors: { p: { x: number; y: number } }[] }): {
+  positions: Float32Array
+  indices: Uint32Array
+} {
+  const p = wedge.anchors
+  return {
+    positions: new Float32Array([p[0].p.x, p[0].p.y, p[1].p.x, p[1].p.y, p[2].p.x, p[2].p.y]),
+    indices: new Uint32Array([0, 1, 2]),
+  }
 }
 
 export class WebGPURenderer {
@@ -1253,8 +1265,33 @@ export class WebGPURenderer {
   }
 
   private bakeStrokes(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
-    if (effectiveStrokeWeight(node) <= 0 || mesh.strokeIndices.length === 0) return
+    if (effectiveStrokeWeight(node) <= 0) return
     if (!node.strokes.some((s) => s.visible && s.type !== 'IMAGE')) return
+    // Per-side weights on a shape that is not a box: the same outline stroked four
+    // times at four widths, each inside one wedge of the bounding box. The wedges
+    // meet along the diagonals, so the bands butt together where the mitre goes.
+    // (A box gets an exact filled region instead, already baked into `mesh`.)
+    if (!usesSideRegion(node)) {
+      const bands = strokeSideBands(node)
+      if (bands.length > 0) {
+        for (const band of bands) {
+          const bandMesh = this.meshCache.getStrokeAt(this.bakeScene, node, this.bakeOpts.camera.zoom, band.weight)
+          if (bandMesh.strokeIndices.length === 0) continue
+          const wedge = wedgeMesh(band.wedge)
+          this.appendStencil(wedge.positions, wedge.indices, m, 'push')
+          this.bakeStrokeBand(node, bandMesh, m, opacity, blend)
+          this.endBatch()
+          this.segments.push({ kind: 'stencil', op: 'pop', firstIndex: -1, indexCount: -1 })
+        }
+        return
+      }
+    }
+    if (mesh.strokeIndices.length === 0) return
+    this.bakeStrokeBand(node, mesh, m, opacity, blend)
+  }
+
+  /** One stroke band, with its own alignment clip. */
+  private bakeStrokeBand(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
     const needsClip = mesh.strokeAlignCode !== 0 && mesh.fillIndices.length > 0
     if (needsClip) {
       // Push the fill region. Execute-side draws default to ref=stencilDepth

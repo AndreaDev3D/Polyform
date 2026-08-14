@@ -26,12 +26,13 @@ import type {
   TextNode,
   VectorNode,
 } from '../engine/types'
-import { defaultPose, solid, strokeSidesApply } from '../engine/types'
+import { defaultPose, solid } from '../engine/types'
 import { perSideStroke, seedSides } from '../engine/strokesides'
 import {
   fillPaintBox,
   gradientAngle,
   strokeAlignApplies,
+  strokeSidesApply,
   strokePaintBox,
   withGradientAngle,
   type PaintBox,

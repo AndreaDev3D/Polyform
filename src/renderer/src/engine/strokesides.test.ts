@@ -7,7 +7,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { createNode, uniformSides, type RectangleNode, type SceneNode, type StrokeSides } from './types'
-import { effectiveStrokeWeight, perSideStroke, strokeSideOutline, strokeSideOutset } from './strokesides'
+import {
+  effectiveStrokeWeight,
+  perSideStroke,
+  strokeSideBands,
+  strokeSideOutline,
+  strokeSideOutset,
+  usesSideRegion,
+} from './strokesides'
 import { flattenSubPath, type SubPath } from './shapes'
 
 function bbox(sp: SubPath): [number, number, number, number] {
@@ -42,9 +49,57 @@ describe('per-side strokes', () => {
     // which is cheaper and better anti-aliased than a region we tessellate.
     expect(perSideStroke(rect())).toBeNull()
     expect(perSideStroke(rect(uniformSides(2)))).toBeNull()
-    const ellipse = createNode('ELLIPSE', 'e')
-    ;(ellipse as unknown as { strokeSides: StrokeSides }).strokeSides = { top: 4, right: 0, bottom: 0, left: 0 }
-    expect(perSideStroke(ellipse)).toBeNull()
+    // Text is not stroked, so sides mean nothing there. This case used to be an
+    // ELLIPSE, asserting that only boxes could carry sides — which is the scope
+    // this feature shipped with and the first thing anyone ran into. A test that
+    // freezes the narrow answer is worse than no test: it argues for the limit.
+    const text = createNode('TEXT', 't')
+    ;(text as unknown as { strokeSides: StrokeSides }).strokeSides = { top: 4, right: 0, bottom: 0, left: 0 }
+    expect(perSideStroke(text)).toBeNull()
+  })
+
+  it('carries sides on any closed shape, not just a box', () => {
+    // The generalisation: an ellipse, a star, a boolean, a closed path all have a
+    // bounding box with four sides. What they do NOT have is four edges to offset,
+    // so they get wedge-clipped bands instead of the exact region (usesSideRegion).
+    for (const type of ['ELLIPSE', 'POLYGON', 'STAR'] as const) {
+      const node = createNode(type, type)
+      node.width = 100
+      node.height = 50
+      node.strokeWeight = 2
+      ;(node as unknown as { strokeSides: StrokeSides }).strokeSides = { top: 10, right: 0, bottom: 4, left: 0 }
+      expect(perSideStroke(node)).toEqual({ top: 10, right: 0, bottom: 4, left: 0 })
+      expect(usesSideRegion(node)).toBe(false)
+      // Only the two sides with a weight are drawn.
+      const bands = strokeSideBands(node)
+      expect(bands.map((b) => b.side)).toEqual(['top', 'bottom'])
+      expect(bands.map((b) => b.weight)).toEqual([10, 4])
+    }
+    expect(usesSideRegion(rect({ top: 4 }))).toBe(true)
+  })
+
+  it('cuts the wedges along the box diagonals, through the centre', () => {
+    const node = createNode('ELLIPSE', 'e')
+    node.width = 100
+    node.height = 50
+    node.strokeWeight = 0
+    ;(node as unknown as { strokeSides: StrokeSides }).strokeSides = { top: 6, right: 6, bottom: 6, left: 6 }
+    const bands = strokeSideBands(node)
+    expect(bands).toHaveLength(4)
+    // Every wedge is a triangle with its apex at the node's centre — that shared
+    // apex is what makes the four bands meet on the diagonals with no overlap.
+    for (const b of bands) {
+      expect(b.wedge.anchors).toHaveLength(3)
+      expect(b.wedge.anchors[2].p).toEqual({ x: 50, y: 25 })
+    }
+    // And they are scaled about that centre, so the diagonals stay put while the
+    // wedge grows past the shape far enough to hold a centred or outside band.
+    const top = bands[0].wedge.anchors
+    expect(top[0].p.x).toBeLessThan(0)
+    expect(top[0].p.y).toBeLessThan(0)
+    expect(top[1].p.x).toBeGreaterThan(100)
+    // The top-left corner stays ON the diagonal: x/y ratio is the box's.
+    expect((50 - top[0].p.x) / (25 - top[0].p.y)).toBeCloseTo(2, 5)
   })
 
   it('takes four equal sides that disagree with the weight', () => {

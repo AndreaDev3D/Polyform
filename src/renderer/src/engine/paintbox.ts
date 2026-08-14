@@ -101,6 +101,24 @@ export function paintPoint(box: PaintBox, p: { x: number; y: number }): { x: num
  * not a translation and we do not do it, so the control is disabled there instead of
  * storing a value the renderer discards.
  */
+/**
+ * Can this node carry per-side stroke weights?
+ *
+ * Any shape that encloses an area, which is a wider net than the first version
+ * cast. That one allowed only the four types carrying a `cornerRadius`, on the
+ * grounds that a box has sides and a path does not — but every closed shape has a
+ * BOUNDING BOX with four sides, and the first thing anyone tries this on is a
+ * rectangle-with-a-wavy-top that wants a rim along the wave.
+ *
+ * Excluded: an open path and a LINE, which have no inside for a side to face;
+ * text, which we do not stroke; a group, which has no stroke of its own; and a 3D
+ * model, whose silhouette is a render rather than geometry.
+ */
+export function strokeSidesApply(node: SceneNode): boolean {
+  if (node.type === 'TEXT' || node.type === 'GROUP' || node.type === 'MODEL3D') return false
+  return hasClosedGeometry(node)
+}
+
 export function strokeAlignApplies(node: SceneNode): boolean {
   if (node.type === 'LINE') return true
   if (node.type === 'VECTOR') return hasClosedGeometry(node)

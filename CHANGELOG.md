@@ -51,6 +51,17 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   - Dashes stay off the table while sides are in use: a dash pattern needs one
     continuous band to run along. The Style dropdown says so rather than storing a
     pattern nothing draws.
+  - **Any closed shape, not just a box.** The first version allowed only the four
+    types carrying a corner radius, on the grounds that a box has four edges to
+    offset and a path does not — and the first thing it was tried on was a
+    rectangle-with-a-wavy-top that wanted a rim along the wave. Every closed shape
+    has a bounding box with four sides, so an ellipse, star, polygon, boolean or
+    closed path now takes per-side weights too: its sides are the four **wedges** of
+    that box, the triangles cut by the diagonals, each clipping an ordinary stroke
+    at that side's weight. For a rectangle those diagonals are exactly where the
+    mitre falls, so the wedges and the box region agree by construction rather than
+    by tuning. Text, groups, 3D models, open paths and lines are still excluded, and
+    the control is absent there rather than inert.
   - Also reachable from the agent surface (`edit_document`'s `strokeSides`), and
     inherited by instances like any other visual prop.
 - **A shape's layer icon is the shape.** Rectangles, ellipses, polygons, stars,

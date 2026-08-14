@@ -19,7 +19,8 @@
 // is pinched to nothing there, and the two neighbouring sides mitre into the
 // corner on their own. No special case, no seam.
 
-import { uniformSides, strokeSidesApply, type CornerRadius, type SceneNode, type StrokeSides } from './types'
+import { uniformSides, type CornerRadius, type SceneNode, type StrokeSides } from './types'
+import { strokeSidesApply } from './paintbox'
 import { matTranslate } from './geometry'
 import { roundedRectPath, transformSubPath, type SubPath } from './shapes'
 
@@ -102,6 +103,67 @@ export function strokeSideOutline(node: SceneNode): SubPath[] {
     bl: Math.max(0, r.bl - Math.max(inn.bottom, inn.left)),
   })
   return [outer, inner]
+}
+
+/**
+ * Is this node's per-side stroke the exact box region above, or wedge-clipped
+ * bands? A box knows where its four edges are and can be offset per side. Any
+ * other closed shape cannot, so its sides are the four WEDGES of its bounding box
+ * — the triangles cut by the box's diagonals — and each one clips an ordinary
+ * stroke drawn at that side's weight.
+ *
+ * The wedges are not an approximation of the box case, they ARE it: for a
+ * rectangle the diagonals meet each corner exactly where the mitre falls.
+ */
+export function usesSideRegion(node: SceneNode): boolean {
+  return (
+    node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE'
+  )
+}
+
+export interface SideBand {
+  side: 'top' | 'right' | 'bottom' | 'left'
+  weight: number
+  /** Node-local clip for this side, already big enough to hold the band. */
+  wedge: SubPath
+}
+
+const tri = (a: [number, number], b: [number, number], c: [number, number]): SubPath => ({
+  closed: true,
+  anchors: [a, b, c].map(([x, y]) => ({ p: { x, y }, cpIn: null, cpOut: null })),
+})
+
+/**
+ * One clip per side with a stroke on it, for a shape that is not a box.
+ *
+ * Each wedge is scaled about the node's CENTRE rather than padded outward,
+ * because scaling about the centre leaves the diagonals where they are — the
+ * mitre stays put while the wedge grows past the shape far enough to hold a
+ * centred or outside band.
+ */
+export function strokeSideBands(node: SceneNode): SideBand[] {
+  const sides = perSideStroke(node)
+  if (!sides) return []
+  const w = node.width
+  const h = node.height
+  if (w <= 0 || h <= 0) return []
+  const pad = Math.max(sides.top, sides.right, sides.bottom, sides.left)
+  const k = 1 + (4 * pad) / Math.max(1e-3, Math.min(w, h))
+  const cx = w / 2
+  const cy = h / 2
+  const out = (x: number, y: number): [number, number] => [cx + (x - cx) * k, cy + (y - cy) * k]
+  const tl = out(0, 0)
+  const tr = out(w, 0)
+  const br = out(w, h)
+  const bl = out(0, h)
+  const c: [number, number] = [cx, cy]
+  const bands: SideBand[] = [
+    { side: 'top', weight: sides.top, wedge: tri(tl, tr, c) },
+    { side: 'right', weight: sides.right, wedge: tri(tr, br, c) },
+    { side: 'bottom', weight: sides.bottom, wedge: tri(br, bl, c) },
+    { side: 'left', weight: sides.left, wedge: tri(bl, tl, c) },
+  ]
+  return bands.filter((b) => b.weight > 0)
 }
 
 /**

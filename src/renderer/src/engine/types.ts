@@ -607,15 +607,6 @@ export function uniformSides(v: number): StrokeSides {
   return { top: v, right: v, bottom: v, left: v }
 }
 
-/**
- * Can this node carry per-side stroke weights? The same four types that carry a
- * corner radius: a box has sides, an ellipse and an arbitrary path do not.
- */
-export function strokeSidesApply(node: SceneNode): boolean {
-  return (
-    node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE'
-  )
-}
 
 export function defaultLayout(): AutoLayout {
   return {

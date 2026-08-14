@@ -9,7 +9,7 @@ import { aabbIsEmpty, aabbUnion, emptyAABB } from '../geometry'
 import { nodeOutline, subPathsToSvg } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
-import { perSideStroke, strokeSideOutline } from '../strokesides'
+import { perSideStroke, strokeSideBands, strokeSideOutline, usesSideRegion } from '../strokesides'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
@@ -84,15 +84,30 @@ function paintToSvgFill(ctx: SvgCtx, paint: Paint, node: SceneNode): string | nu
  * there is no attribute that could carry four — writing one would export a stroke
  * the document does not have.
  */
-function strokeSideElement(ctx: SvgCtx, node: SceneNode): string {
+function strokeSideElement(ctx: SvgCtx, node: SceneNode, outline: string): string {
   if (!perSideStroke(node)) return ''
-  const region = subPathsToSvg(strokeSideOutline(node))
-  if (!region) return ''
   const paint = node.strokes.find((s) => s.visible && s.type !== 'IMAGE')
   if (!paint) return ''
-  const fill = paintToSvgFill(ctx, paint, node)
-  if (!fill) return ''
-  return `<path d="${region}" fill="${fill}" fill-rule="evenodd"/>`
+  const paintRef = paintToSvgFill(ctx, paint, node)
+  if (!paintRef) return ''
+  if (usesSideRegion(node)) {
+    const region = subPathsToSvg(strokeSideOutline(node))
+    return region ? `<path d="${region}" fill="${paintRef}" fill-rule="evenodd"/>` : ''
+  }
+  // Not a box: the outline stroked once per side at that side's weight, each one
+  // clipped to its wedge of the bounding box. `stroke-width` is singular, so four
+  // widths are four elements — there is no attribute that could carry them.
+  let out = ''
+  for (const band of strokeSideBands(node)) {
+    const wedge = subPathsToSvg([band.wedge])
+    if (!wedge) continue
+    const clipId = `side${++defsCounter}`
+    ctx.defs.push(`<clipPath id="${clipId}"><path d="${wedge}"/></clipPath>`)
+    let attrs = ` stroke="${paintRef}" stroke-width="${num(band.weight)}"`
+    if (node.strokeDash.length > 0) attrs += ` stroke-dasharray="${node.strokeDash.map(num).join(' ')}"`
+    out += `<path d="${outline}" fill="none"${attrs} clip-path="url(#${clipId})"/>`
+  }
+  return out
 }
 
 function strokeAttrs(ctx: SvgCtx, node: SceneNode): string {
@@ -237,7 +252,7 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
       clipAttr = ` clip-path="url(#${clipId})"`
     }
     const children = await childrenToSvg(ctx, node.children)
-    const sideStroke = strokeSideElement(ctx, node)
+    const sideStroke = strokeSideElement(ctx, node, d)
     const stroke = sideStroke ? '' : strokeAttrs(ctx, node)
     const border = sideStroke || (stroke ? `<path d="${d}" fill="none"${stroke}/>` : '')
     return `<g${tf}${common}><g${clipAttr}>${inner}${children}</g>${border}</g>`
@@ -280,7 +295,7 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
   const isOpen = node.type === 'LINE'
   const fillRule = node.type === 'VECTOR' && node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
   const fills = isOpen ? '' : await fillElements(ctx, node, d, fillRule)
-  const sideStroke = strokeSideElement(ctx, node)
+  const sideStroke = strokeSideElement(ctx, node, d)
   const stroke = sideStroke ? '' : strokeAttrs(ctx, node)
   const border = sideStroke || (stroke ? `<path d="${d}" fill="none"${stroke}/>` : '')
   return `<g${tf}${common}>${fills}${border}</g>`

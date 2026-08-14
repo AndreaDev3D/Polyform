@@ -363,6 +363,68 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Per-side weights on shapes that are NOT boxes: their sides are the four
+    // WEDGES of the bounding box rather than four offsettable edges. Canvas2D clips
+    // an ordinary stroke to each wedge; the GPU pushes the wedge as a stencil and
+    // draws a band tessellated at that width. Two completely different mechanisms
+    // for one picture, which is the pair most likely to drift.
+    //
+    // Its own fixture, and the shapes fill the frame ON PURPOSE. Sharing the box
+    // fixture, an ellipse and a star left so little ink that disabling the GPU's
+    // wedge path entirely still measured 2.18% against a 3% limit — a gate that
+    // passes while the thing it guards is switched off is not a gate (F-22).
+    name: 'stroke-per-side-path',
+    badLimit: 0.03,
+    build: (s) => {
+      const ink = (c: [number, number, number]) => [
+        { type: 'SOLID' as const, visible: true, opacity: 1, color: { r: c[0], g: c[1], b: c[2], a: 1 } },
+      ]
+      make(s, 'ELLIPSE', null, {
+        x: 20, y: 20, width: 290, height: 200,
+        fills: ink([0.2, 0.24, 0.3]),
+        strokes: ink([0.95, 0.8, 0.3]),
+        strokeWeight: 0,
+        strokeAlign: 'INSIDE',
+        strokeSides: { top: 34, right: 0, bottom: 14, left: 0 },
+      })
+      make(s, 'STAR', null, {
+        x: 340, y: 15, width: 280, height: 210, pointCount: 5, innerRatio: 0.45,
+        fills: ink([0.26, 0.2, 0.3]),
+        strokes: ink([0.5, 0.9, 0.95]),
+        strokeWeight: 0,
+        strokeAlign: 'CENTER',
+        strokeSides: { top: 22, right: 10, bottom: 0, left: 10 },
+      })
+      // The case this generalisation exists for: a rectangle with a wavy top that
+      // wants a rim along the wave and nothing anywhere else.
+      make(s, 'VECTOR', null, {
+        x: 20, y: 250, width: 600, height: 210,
+        windingRule: 'NONZERO',
+        fills: ink([0.56, 0.63, 0.67]),
+        strokes: ink([0.3, 0.35, 0.4]),
+        strokeWeight: 0,
+        strokeAlign: 'INSIDE',
+        strokeSides: { top: 40, right: 0, bottom: 0, left: 0 },
+        network: {
+          vertices: [
+            { id: 1, x: 0, y: 40 }, { id: 2, x: 150, y: 6 }, { id: 3, x: 300, y: 56 },
+            { id: 4, x: 450, y: 6 }, { id: 5, x: 600, y: 40 },
+            { id: 6, x: 600, y: 210 }, { id: 7, x: 0, y: 210 },
+          ],
+          edges: [
+            { id: 1, v0: 1, v1: 2, cp0: { x: 75, y: 40 }, cp1: { x: 75, y: 6 } },
+            { id: 2, v0: 2, v1: 3, cp0: { x: 225, y: 6 }, cp1: { x: 225, y: 56 } },
+            { id: 3, v0: 3, v1: 4, cp0: { x: 375, y: 56 }, cp1: { x: 375, y: 6 } },
+            { id: 4, v0: 4, v1: 5, cp0: { x: 525, y: 6 }, cp1: { x: 525, y: 40 } },
+            { id: 5, v0: 5, v1: 6, cp0: null, cp1: null },
+            { id: 6, v0: 6, v1: 7, cp0: null, cp1: null },
+            { id: 7, v0: 7, v1: 1, cp0: null, cp1: null },
+          ],
+        },
+      })
+    },
+  },
+  {
     // Flips ride in the node matrix, and the GPU backend bakes its own copy of
     // every transform — so a mirrored node is exactly the sort of thing that can
     // come out right on one rasterizer and backwards on the other. Every shape
