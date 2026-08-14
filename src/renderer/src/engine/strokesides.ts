@@ -22,7 +22,7 @@
 import { uniformSides, type CornerRadius, type SceneNode, type StrokeSides } from './types'
 import { strokeSidesApply } from './paintbox'
 import { matTranslate } from './geometry'
-import { roundedRectPath, transformSubPath, type SubPath } from './shapes'
+import { flattenSubPath, roundedRectPath, transformSubPath, type SubPath } from './shapes'
 
 /**
  * The per-side weights this node actually draws with, or null when it draws a
@@ -33,7 +33,7 @@ import { roundedRectPath, transformSubPath, type SubPath } from './shapes'
  */
 export function perSideStroke(node: SceneNode): StrokeSides | null {
   if (!strokeSidesApply(node)) return null
-  const s = (node as { strokeSides?: StrokeSides }).strokeSides
+  const s = node.strokeSides
   if (!s) return null
   const sides = {
     top: Math.max(0, s.top),
@@ -106,14 +106,9 @@ export function strokeSideOutline(node: SceneNode): SubPath[] {
 }
 
 /**
- * Is this node's per-side stroke the exact box region above, or wedge-clipped
- * bands? A box knows where its four edges are and can be offset per side. Any
- * other closed shape cannot, so its sides are the four WEDGES of its bounding box
- * — the triangles cut by the box's diagonals — and each one clips an ordinary
- * stroke drawn at that side's weight.
- *
- * The wedges are not an approximation of the box case, they ARE it: for a
- * rectangle the diagonals meet each corner exactly where the mitre falls.
+ * Is this node's per-side stroke the exact box region above, or per-run stroking?
+ * A box knows where its four edges are and can be offset per side, which gives
+ * mitred corners for free. Any other closed shape has no edges to offset.
  */
 export function usesSideRegion(node: SceneNode): boolean {
   return (
@@ -121,49 +116,107 @@ export function usesSideRegion(node: SceneNode): boolean {
   )
 }
 
-export interface SideBand {
-  side: 'top' | 'right' | 'bottom' | 'left'
+export interface SideRun {
   weight: number
-  /** Node-local clip for this side, already big enough to hold the band. */
-  wedge: SubPath
+  /** The stretch of outline this weight applies to. Open unless it wraps. */
+  path: SubPath
 }
 
-const tri = (a: [number, number], b: [number, number], c: [number, number]): SubPath => ({
-  closed: true,
-  anchors: [a, b, c].map(([x, y]) => ({ p: { x, y }, cpIn: null, cpOut: null })),
-})
+/** How fine the outline is chopped before each piece is asked which way it faces. */
+const RUN_TOLERANCE = 0.1
 
 /**
- * One clip per side with a stroke on it, for a shape that is not a box.
+ * The outline split into runs, one per stretch that shares a weight.
  *
- * Each wedge is scaled about the node's CENTRE rather than padded outward,
- * because scaling about the centre leaves the diagonals where they are — the
- * mitre stays put while the wedge grows past the shape far enough to hold a
- * centred or outside band.
+ * **Which side is a piece of outline on? The way it FACES.** A segment whose
+ * outward normal points up is on the top, within 45° either way; right, bottom and
+ * left follow. Purely directional — no reference to the centre — so it reads the
+ * same on a wavy edge, an arc or a diagonal, and every part of a wavy top counts
+ * as top however much it undulates.
+ *
+ * This replaced clipping the whole stroke to a wedge of the bounding box. Wedges
+ * are right only when all four sides are stroked, because the diagonal cut IS the
+ * mitre — with a neighbour at 0 there is nothing to mitre against and the diagonal
+ * is left showing, slicing the band off at 45° near the corner instead of letting
+ * it run to the edge and stop square. Reported the day it shipped, on a rectangle
+ * with a wavy top and a rim on the wave.
+ *
+ * Consecutive pieces are grouped by WEIGHT rather than by side, so two adjacent
+ * sides set to the same number stay one continuous run with a proper join, and
+ * four equal sides collapse to the original closed outline — curves and all,
+ * unflattened.
  */
-export function strokeSideBands(node: SceneNode): SideBand[] {
+export function strokeSideRuns(node: SceneNode, outline: SubPath[]): SideRun[] {
   const sides = perSideStroke(node)
   if (!sides) return []
-  const w = node.width
-  const h = node.height
-  if (w <= 0 || h <= 0) return []
-  const pad = Math.max(sides.top, sides.right, sides.bottom, sides.left)
-  const k = 1 + (4 * pad) / Math.max(1e-3, Math.min(w, h))
-  const cx = w / 2
-  const cy = h / 2
-  const out = (x: number, y: number): [number, number] => [cx + (x - cx) * k, cy + (y - cy) * k]
-  const tl = out(0, 0)
-  const tr = out(w, 0)
-  const br = out(w, h)
-  const bl = out(0, h)
-  const c: [number, number] = [cx, cy]
-  const bands: SideBand[] = [
-    { side: 'top', weight: sides.top, wedge: tri(tl, tr, c) },
-    { side: 'right', weight: sides.right, wedge: tri(tr, br, c) },
-    { side: 'bottom', weight: sides.bottom, wedge: tri(br, bl, c) },
-    { side: 'left', weight: sides.left, wedge: tri(bl, tl, c) },
-  ]
-  return bands.filter((b) => b.weight > 0)
+  const runs: SideRun[] = []
+  for (const sp of outline) {
+    const pts = flattenSubPath(sp, RUN_TOLERANCE)
+    const n = pts.length
+    if (n < 2) continue
+    // Winding decides which of the two normals points out of the material.
+    let area = 0
+    for (let i = 0; i < n; i++) {
+      const p = pts[i]
+      const q = pts[(i + 1) % n]
+      area += p.x * q.y - q.x * p.y
+    }
+    const flip = area < 0
+    const segs = sp.closed ? n : n - 1
+    const weightOf = (i: number): number => {
+      const p = pts[i]
+      const q = pts[(i + 1) % n]
+      let nx = q.y - p.y
+      let ny = -(q.x - p.x)
+      if (flip) {
+        nx = -nx
+        ny = -ny
+      }
+      if (Math.abs(ny) >= Math.abs(nx)) return ny < 0 ? sides.top : sides.bottom
+      return nx > 0 ? sides.right : sides.left
+    }
+    const weights: number[] = []
+    for (let i = 0; i < segs; i++) weights.push(weightOf(i))
+
+    // One weight the whole way round: hand back the ORIGINAL subpath, so a shape
+    // whose sides happen to agree keeps its curves instead of a polyline of them.
+    if (weights.every((w) => w === weights[0])) {
+      if (weights[0] > 0) runs.push({ weight: weights[0], path: sp })
+      continue
+    }
+
+    // Start walking at a weight change, so a run that straddles the seam is not
+    // reported as two.
+    let startSeg = 0
+    if (sp.closed) {
+      for (let i = 0; i < segs; i++) {
+        if (weights[i] !== weights[(i - 1 + segs) % segs]) {
+          startSeg = i
+          break
+        }
+      }
+    }
+    let current: { weight: number; anchors: { p: { x: number; y: number }; cpIn: null; cpOut: null }[] } | null = null
+    const flush = () => {
+      if (current && current.weight > 0 && current.anchors.length >= 2) {
+        runs.push({ weight: current.weight, path: { closed: false, anchors: current.anchors } })
+      }
+      current = null
+    }
+    for (let k = 0; k < segs; k++) {
+      const i = (startSeg + k) % segs
+      const w = weights[i]
+      const a = pts[i]
+      const b = pts[(i + 1) % n]
+      if (!current || current.weight !== w) {
+        flush()
+        current = { weight: w, anchors: [{ p: { ...a }, cpIn: null, cpOut: null }] }
+      }
+      current.anchors.push({ p: { ...b }, cpIn: null, cpOut: null })
+    }
+    flush()
+  }
+  return runs
 }
 
 /**

@@ -13,7 +13,7 @@ import { fillPaintBox, openStrokeOffset, paintPoint, strokePaintBox, type PaintB
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
-import { perSideStroke, strokeSideBands, strokeSideOutline, usesSideRegion } from '../strokesides'
+import { perSideStroke, strokeSideRuns, strokeSideOutline, usesSideRegion } from '../strokesides'
 import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
@@ -233,15 +233,12 @@ function strokePath(
       }
       return
     }
-    // Any other closed shape: an ordinary stroke at each side's weight, clipped to
-    // that side's wedge of the bounding box. The wedges meet along the diagonals,
-    // which is where the mitre belongs, so the four bands butt together with no
-    // seam and no overlap.
-    for (const band of strokeSideBands(node)) {
-      ctx.save()
-      ctx.clip(subPathsToPath2D([band.wedge]))
-      paintStrokeBand(ctx, node, path, band.weight, node.strokeAlign)
-      ctx.restore()
+    // Any other closed shape: the outline split into runs by the way each stretch
+    // FACES, each stroked at its own weight. The run ends square, which is the
+    // whole point — clipping the stroke to a wedge of the bounding box instead
+    // sliced the band off diagonally wherever the neighbouring side was 0.
+    for (const run of strokeSideRuns(node, nodeOutline(node))) {
+      paintStrokeBand(ctx, node, subPathsToPath2D([run.path]), run.weight, node.strokeAlign, path)
     }
     return
   }
@@ -264,6 +261,10 @@ function paintStrokeBand(
   path: Path2D,
   weight: number,
   align: StrokeAlign,
+  // What INSIDE/OUTSIDE clips against. Normally the path being stroked; for one
+  // run of a per-side stroke it is the WHOLE shape, because "inside" means inside
+  // the shape and a run of its outline encloses nothing.
+  clipTo: Path2D = path,
 ): void {
   if (weight <= 0) return
   const offset = openStrokeOffset(node)
@@ -281,19 +282,19 @@ function paintStrokeBand(
       ctx.stroke(target)
     } else if (align === 'INSIDE') {
       ctx.save()
-      ctx.clip(path)
+      ctx.clip(clipTo)
       ctx.lineWidth = weight * 2
-      ctx.stroke(path)
+      ctx.stroke(target)
       ctx.restore()
     } else {
       // OUTSIDE: clip to everything except the shape, stroke double-width.
       ctx.save()
       const outer = new Path2D()
       outer.rect(-1e6, -1e6, 2e6, 2e6)
-      outer.addPath(path)
+      outer.addPath(clipTo)
       ctx.clip(outer, 'evenodd')
       ctx.lineWidth = weight * 2
-      ctx.stroke(path)
+      ctx.stroke(target)
       ctx.restore()
     }
     ctx.setLineDash([])

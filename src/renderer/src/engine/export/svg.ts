@@ -9,7 +9,7 @@ import { aabbIsEmpty, aabbUnion, emptyAABB } from '../geometry'
 import { nodeOutline, subPathsToSvg } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
-import { perSideStroke, strokeSideBands, strokeSideOutline, usesSideRegion } from '../strokesides'
+import { perSideStroke, strokeSideRuns, strokeSideOutline, usesSideRegion } from '../strokesides'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
@@ -94,18 +94,16 @@ function strokeSideElement(ctx: SvgCtx, node: SceneNode, outline: string): strin
     const region = subPathsToSvg(strokeSideOutline(node))
     return region ? `<path d="${region}" fill="${paintRef}" fill-rule="evenodd"/>` : ''
   }
-  // Not a box: the outline stroked once per side at that side's weight, each one
-  // clipped to its wedge of the bounding box. `stroke-width` is singular, so four
-  // widths are four elements — there is no attribute that could carry them.
+  // Not a box: one element per run of outline that shares a weight, because
+  // `stroke-width` is singular and there is no attribute that could carry four.
+  void outline
   let out = ''
-  for (const band of strokeSideBands(node)) {
-    const wedge = subPathsToSvg([band.wedge])
-    if (!wedge) continue
-    const clipId = `side${++defsCounter}`
-    ctx.defs.push(`<clipPath id="${clipId}"><path d="${wedge}"/></clipPath>`)
-    let attrs = ` stroke="${paintRef}" stroke-width="${num(band.weight)}"`
+  for (const run of strokeSideRuns(node, nodeOutline(node))) {
+    const d = subPathsToSvg([run.path])
+    if (!d) continue
+    let attrs = ` stroke="${paintRef}" stroke-width="${num(run.weight)}" fill="none"`
     if (node.strokeDash.length > 0) attrs += ` stroke-dasharray="${node.strokeDash.map(num).join(' ')}"`
-    out += `<path d="${outline}" fill="none"${attrs} clip-path="url(#${clipId})"/>`
+    out += `<path d="${d}"${attrs}/>`
   }
   return out
 }

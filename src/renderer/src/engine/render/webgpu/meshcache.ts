@@ -126,6 +126,53 @@ export class MeshCache {
   }
 
   /**
+   * The stroke band for one RUN of a per-side stroke: an open polyline at that
+   * run's weight, tessellated on its own.
+   *
+   * Keyed by the run's index alongside the node's geometry, because one node now
+   * holds several bands and a single entry would have them overwriting each other
+   * frame after frame. The index is enough: the runs are derived from the same
+   * geometry the key already covers, in a fixed order.
+   */
+  getRunStroke(
+    scene: SceneGraph,
+    node: SceneNode,
+    zoom: number,
+    run: { weight: number; path: SubPath },
+    index: number,
+  ): NodeMesh {
+    const bucket = zoomBucket(zoom)
+    const key = `run${index}|${run.weight}|${geometryKey(scene, node, bucket)}`
+    const cached = this.entries.get(key)
+    if (cached) return cached
+    const alignCode = node.strokeAlign === 'INSIDE' ? 1 : node.strokeAlign === 'OUTSIDE' ? 2 : 0
+    // Double width for INSIDE/OUTSIDE: the band is centred on the outline and then
+    // clipped to the fill by the stencil, the same trick the closed case uses.
+    const weight = alignCode === 0 ? run.weight : run.weight * 2
+    let mesh = emptyMesh()
+    const built = wasmHandle().tessellateNode(
+      encodeSubPaths([run.path]),
+      false,
+      weight,
+      0,
+      new Float64Array(node.strokeDash),
+      0.25 / bucket,
+      false,
+      true,
+    )
+    mesh = {
+      fillPositions: EMPTY,
+      fillIndices: EMPTY_IDX,
+      strokePositions: built.strokePositions(),
+      strokeIndices: built.strokeIndices(),
+      strokeAlignCode: 0,
+    }
+    built.free()
+    this.entries.set(key, mesh)
+    return mesh
+  }
+
+  /**
    * The node's stroke band at a weight that is not its own `strokeWeight`.
    *
    * A per-side stroke on a shape that is not a box draws the same outline four

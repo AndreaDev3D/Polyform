@@ -858,6 +858,29 @@ So 538 nodes stopped being clipping frames, and the logo's mask became a group. 
 
 ---
 
+## F-35. A rule that unifies the mitre and the end cap is right only when every side is stroked
+
+**Severity: Low** — a per-side stroke on any shape that was not a box ended in a 45° slice instead of a square cut. Shipped and reported within minutes, by the user who had asked for the feature, on the first shape they tried it on. Fixed the same day.
+
+Per-side stroke weights landed for boxes as an exact region: the shape grown per side minus the shape shrunk per side. Generalising to other closed shapes needed an answer to "which part of an arbitrary outline is the top?", and the answer I picked was **the top wedge of the bounding box** — the triangle cut by the box's two diagonals — clipping an ordinary stroke drawn at that side's weight.
+
+It has a real attraction: for a rectangle the diagonals fall exactly where the mitre goes, so the wedges reproduce the box case rather than approximating it. Four sides stroked, and it is right.
+
+**The case it is wrong in is the case the feature exists for.** Set one side and leave the rest at 0 and there is no neighbouring band to mitre against — so the diagonal is not a mitre any more, it is just a diagonal, and it slices the band off at 45° as it approaches each corner. The user's shape was a rectangle with a wavy top wanting a rim along the wave; the rim faded out diagonally at both ends instead of running the full width and stopping square. Their question was the diagnosis: *"why is it not finishing straight?"*
+
+The mitre and the end cap are two different problems. A wedge answers the first and silently answers the second wrongly.
+
+**What replaced it.** The outline is split into RUNS by the way each stretch faces: a segment whose outward normal points up belongs to the top, within 45° either way, and right/bottom/left follow. Purely directional, with no reference to the centre, so it reads the same on a wavy edge, an arc or a diagonal — and the whole of a wavy top counts as top however much it undulates. Consecutive pieces are grouped by *weight* rather than by side, which makes two adjacent sides set alike one continuous run with a proper join, and four alike collapse to the original closed outline with its curves unflattened. Each run is stroked at its own weight and ends square, because that is what the end of a run is.
+
+**Both halves of the gate failed to hold, in different ways.**
+
+- The parity fixture was **too small to fail**. Adding an ellipse and a star to the existing per-side fixture measured 0.27% and looked healthy — then disabling the GPU's wedge path *entirely* still measured 2.18% against a 3% limit, because two small shapes do not put enough ink on a 640×480 canvas to breach it. A gate that passes while the thing it guards is switched off is not a gate ([F-22](#f-22)). Split into its own fixture with shapes that fill the frame: 0.30% healthy, 11.94% with the GPU half broken — which is how the *next* bug got caught, an INSIDE band drawn at double width because the run mesh carried no fill for the stencil to clip against.
+- A unit test **argued for the limitation**. It asserted that an ELLIPSE could not carry per-side weights, which was true of the shipped scope and became the thing standing in the way of widening it. Same shape as the `SYMBOL`→`COMPONENT` fixture in [F-33](#f-33): a test that freezes the narrow answer defends it.
+
+**Standing obligation.** When one construction appears to answer two questions at once, check it against the case where only one of them is live. And when a feature is scoped by node type, ask what the scope is standing in for: "a box has four edges to offset" was a fact about the *implementation*, not about what a person means by "the top of this shape".
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -877,3 +900,4 @@ Three themes run through every entry:
 13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
 14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
 15. **A fixture covers the case it contains, not the feature it is named after.** F-34's mask fixture used an ellipse inside a group — a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while the two renderers disagreed about even-odd masks and the GPU ignored masks at the top level of a page. Name the *kinds* a feature has and give the gate one of each; a feature with one fixture is a feature with one case checked.
+16. **A fixture has to be big enough to fail.** F-35's per-side stroke fixture was extended with two small shapes and measured 0.27%; with the code it guarded switched off entirely it still measured 2.18% against a 3% limit, because the shapes put too little ink on the canvas to breach it. Sizing is part of the assertion: after splitting it out with shapes that fill the frame, the same break measured 11.94% and caught a second bug on the way.

@@ -260,6 +260,13 @@ export interface BaseNode {
   strokeWeight: number
   strokeAlign: StrokeAlign
   strokeDash: number[]
+  /**
+   * Per-side stroke weights; absent = `strokeWeight` on every side. Lives here
+   * rather than beside `cornerRadius` on the four box types, which is where it
+   * started: any closed shape can carry sides (see `strokeSidesApply`), and a
+   * wavy-topped path wanting a rim on the wave was the first thing anyone tried.
+   */
+  strokeSides?: StrokeSides
   effects: Effect[]
   // --- v2 fields (optional so v1 documents and journals stay loadable) ---
   /** Horizontal / vertical constraints relative to the parent frame. */
@@ -297,8 +304,6 @@ export interface FrameNode extends BaseNode {
   children: NodeId[]
   clipsContent: boolean
   cornerRadius: CornerRadius
-  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
-  strokeSides?: StrokeSides
   layout: AutoLayout
 }
 
@@ -315,8 +320,6 @@ export interface ComponentNode extends BaseNode {
   children: NodeId[]
   clipsContent: boolean
   cornerRadius: CornerRadius
-  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
-  strokeSides?: StrokeSides
   layout: AutoLayout
   description?: string
   origin?: LibraryOrigin | null
@@ -332,8 +335,6 @@ export interface InstanceNode extends BaseNode {
   children: NodeId[]
   clipsContent: boolean
   cornerRadius: CornerRadius
-  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
-  strokeSides?: StrokeSides
   layout: AutoLayout
   componentId: NodeId
   overrides: Record<NodeId, Record<string, unknown>>
@@ -364,8 +365,6 @@ export interface BooleanNode extends BaseNode {
 export interface RectangleNode extends BaseNode {
   type: 'RECTANGLE'
   cornerRadius: CornerRadius
-  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
-  strokeSides?: StrokeSides
 }
 
 export interface EllipseNode extends BaseNode {

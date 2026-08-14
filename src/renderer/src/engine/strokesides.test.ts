@@ -6,16 +6,16 @@
 // lies between, because that pair fully determines it.
 
 import { describe, expect, it } from 'vitest'
-import { createNode, uniformSides, type RectangleNode, type SceneNode, type StrokeSides } from './types'
+import { createNode, uniformSides, type RectangleNode, type SceneNode, type StrokeSides, type VectorNode } from './types'
 import {
   effectiveStrokeWeight,
   perSideStroke,
-  strokeSideBands,
+  strokeSideRuns,
   strokeSideOutline,
   strokeSideOutset,
   usesSideRegion,
 } from './strokesides'
-import { flattenSubPath, type SubPath } from './shapes'
+import { flattenSubPath, nodeOutline, type SubPath } from './shapes'
 
 function bbox(sp: SubPath): [number, number, number, number] {
   let minX = Infinity
@@ -70,36 +70,64 @@ describe('per-side strokes', () => {
       ;(node as unknown as { strokeSides: StrokeSides }).strokeSides = { top: 10, right: 0, bottom: 4, left: 0 }
       expect(perSideStroke(node)).toEqual({ top: 10, right: 0, bottom: 4, left: 0 })
       expect(usesSideRegion(node)).toBe(false)
-      // Only the two sides with a weight are drawn.
-      const bands = strokeSideBands(node)
-      expect(bands.map((b) => b.side)).toEqual(['top', 'bottom'])
-      expect(bands.map((b) => b.weight)).toEqual([10, 4])
+      // Only the two sides with a weight are drawn, as runs of outline.
+      const runs = strokeSideRuns(node, nodeOutline(node))
+      expect(runs.length).toBeGreaterThan(0)
+      expect(new Set(runs.map((r) => r.weight))).toEqual(new Set([10, 4]))
+      // Every run is an OPEN stretch: a closed one would mean the whole outline
+      // shares a weight, which is not the case here.
+      expect(runs.every((r) => !r.path.closed)).toBe(true)
     }
     expect(usesSideRegion(rect({ top: 4 }))).toBe(true)
   })
 
-  it('cuts the wedges along the box diagonals, through the centre', () => {
+  it('assigns a stretch of outline to the side it FACES', () => {
+    // A rectangle-shaped path, so the four sides are unambiguous and the run each
+    // edge lands in can be checked by where it is.
+    const node = createNode('VECTOR', 'boxish') as VectorNode
+    node.width = 100
+    node.height = 60
+    node.strokeWeight = 0
+    node.windingRule = 'NONZERO'
+    node.network = {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 100, y: 0 },
+        { id: 3, x: 100, y: 60 },
+        { id: 4, x: 0, y: 60 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+        { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+        { id: 3, v0: 3, v1: 4, cp0: null, cp1: null },
+        { id: 4, v0: 4, v1: 1, cp0: null, cp1: null },
+      ],
+    }
+    node.strokeSides = { top: 12, right: 0, bottom: 0, left: 0 }
+    const runs = strokeSideRuns(node, nodeOutline(node))
+    // Exactly one run, along the top edge only, and it spans the FULL width — the
+    // bug this replaced sliced it off diagonally near each corner because the
+    // neighbouring side had no band to mitre against.
+    expect(runs).toHaveLength(1)
+    expect(runs[0].weight).toBe(12)
+    expect(bbox(runs[0].path)).toEqual([0, 0, 100, 0])
+    expect(runs[0].path.closed).toBe(false)
+  })
+
+  it('keeps the whole outline, curves and all, when every side agrees', () => {
     const node = createNode('ELLIPSE', 'e')
     node.width = 100
-    node.height = 50
+    node.height = 60
     node.strokeWeight = 0
-    ;(node as unknown as { strokeSides: StrokeSides }).strokeSides = { top: 6, right: 6, bottom: 6, left: 6 }
-    const bands = strokeSideBands(node)
-    expect(bands).toHaveLength(4)
-    // Every wedge is a triangle with its apex at the node's centre — that shared
-    // apex is what makes the four bands meet on the diagonals with no overlap.
-    for (const b of bands) {
-      expect(b.wedge.anchors).toHaveLength(3)
-      expect(b.wedge.anchors[2].p).toEqual({ x: 50, y: 25 })
-    }
-    // And they are scaled about that centre, so the diagonals stay put while the
-    // wedge grows past the shape far enough to hold a centred or outside band.
-    const top = bands[0].wedge.anchors
-    expect(top[0].p.x).toBeLessThan(0)
-    expect(top[0].p.y).toBeLessThan(0)
-    expect(top[1].p.x).toBeGreaterThan(100)
-    // The top-left corner stays ON the diagonal: x/y ratio is the box's.
-    expect((50 - top[0].p.x) / (25 - top[0].p.y)).toBeCloseTo(2, 5)
+    ;(node as unknown as { strokeSides: StrokeSides }).strokeSides = uniformSides(7)
+    const outline = nodeOutline(node)
+    const runs = strokeSideRuns(node, outline)
+    // One closed run, and it is the ORIGINAL subpath object: four equal sides are
+    // an ordinary stroke, and flattening it to a polyline would cost curve quality
+    // for nothing.
+    expect(runs).toHaveLength(1)
+    expect(runs[0].path).toBe(outline[0])
+    expect(runs[0].path.closed).toBe(true)
   })
 
   it('takes four equal sides that disagree with the weight', () => {
