@@ -18,6 +18,7 @@ import {
   transformedRectAABB,
 } from './geometry'
 import { flattenSubPath, nodeOutline } from './shapes'
+import { perSideStroke, strokeSideOutset } from './strokesides'
 
 export class SceneGraph {
   doc: PolyformDocument
@@ -268,7 +269,14 @@ export class SceneGraph {
   nodePad(node: SceneNode): number {
     let pad = 0
     if (node.strokes.some((s) => s.visible)) {
-      pad = node.strokeAlign === 'INSIDE' ? 0 : node.strokeAlign === 'CENTER' ? node.strokeWeight / 2 : node.strokeWeight
+      const sides = perSideStroke(node)
+      pad = sides
+        ? strokeSideOutset(node)
+        : node.strokeAlign === 'INSIDE'
+          ? 0
+          : node.strokeAlign === 'CENTER'
+            ? node.strokeWeight / 2
+            : node.strokeWeight
     }
     for (const fx of node.effects) {
       if (!fx.visible) continue

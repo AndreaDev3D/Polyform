@@ -30,7 +30,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 15 | 0 | 2 | 0 | 17 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 13 | 6 | 4 | 1 | 24 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 6 | 3 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 3 | 4 | 4 | 1 | 12 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **144** | **28** | **49** | **23** | **244** |
+| **Total** | **145** | **28** | **48** | **23** | **244** |
 
 ---
 
@@ -185,7 +185,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Stroke align: center | Stroke centered on the path | ✅ | |
 | Stroke align: inside / outside | Stroke inset or outset from the path | 🟡 | Clip-based approximation, not true geometric offset |
 | Dashed strokes | Dash pattern control | ✅ | |
-| Per-side strokes | Different weights on top/right/bottom/left | 📋 | |
+| Per-side strokes | Different weights on top/right/bottom/left | ✅ | A weight per side on rectangles, frames, components and instances — the four types that carry a corner radius, because only a box has sides; 0 turns a side off. Four different widths are not a stroke any rasterizer can draw, so all three back ends fill the same **region** instead (`engine/strokesides.ts`): Canvas2D fills it, the GPU tessellates it and skips its stencil clip, SVG export writes it as a filled path (`stroke-width` is singular). Mitred corners and the radius carried through both offsets fall out of that geometry. The `stroke-per-side` parity fixture holds the two renderers to 0.13% differing pixels, and three `test:e2e` checks cover the toggle, a typed value and the collapse that clears the sides. **Not** combinable with a dash pattern, which needs one continuous band — the control is disabled while sides are in use rather than storing a pattern nothing draws |
 | Stroke caps & joins | Cap (butt/round/square) and join controls | 📋 | |
 | Drop shadow | Offset/blur/spread/color shadow effect | ✅ | On a group or an unpainted frame it is cast by the children's union silhouette, as one shape (both renderers; `group-effects` parity fixture) |
 | Inner shadow | Shadow cast inside the shape | 🟡 | Needs a path to clip to, so it is a no-op on groups |
@@ -330,7 +330,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **17/17** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018) and three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page). **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **18/18** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018), three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page) and per-side stroke weights. **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
 | 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) on the WebGPU renderer, which is the default from v0.8; the Canvas2D fallback targets typical documents |
@@ -371,4 +371,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-09: 144 ✅ / 28 🟡 / 49 📋 / 23 ❌ = 244, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-14: 145 ✅ / 28 🟡 / 48 📋 / 23 ❌ = 244, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

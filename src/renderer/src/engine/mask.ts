@@ -26,6 +26,7 @@ import { IDENTITY, matMultiply, type Mat } from './geometry'
 import { nodeOutline, ringsToSubPaths, transformSubPath, type SubPath } from './shapes'
 import { booleanRings } from './booleans'
 import { textSubPaths } from './glyphs'
+import { effectiveStrokeWeight } from './strokesides'
 
 export interface MaskShape {
   /** Coverage in the mask node's own local space. */
@@ -37,7 +38,10 @@ export interface MaskShape {
 /** Does this node put any ink on the canvas of its own? */
 function paintsItself(node: SceneNode): boolean {
   if (node.type === 'GROUP') return false
-  return node.fills.some((f) => f.visible) || (node.strokeWeight > 0 && node.strokes.some((s) => s.visible))
+  return (
+    node.fills.some((f) => f.visible) ||
+    (effectiveStrokeWeight(node) > 0 && node.strokes.some((s) => s.visible))
+  )
 }
 
 /**

@@ -335,6 +335,37 @@ export const CornersIcon = (p: P) => (
     <path d="M2 6V4.5A2.5 2.5 0 014.5 2H6M10 2h1.5A2.5 2.5 0 0114 4.5V6M14 10v1.5A2.5 2.5 0 0111.5 14H10M6 14H4.5A2.5 2.5 0 012 11.5V10" />
   </I>
 )
+/** Four independent sides: the toggle that splits the stroke weight field. */
+export const SidesIcon = (p: P) => (
+  <I {...p}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+    <path d="M2.5 8h11M8 2.5v11" opacity="0.45" />
+  </I>
+)
+export const SideTopIcon = (p: P) => (
+  <I {...p}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" opacity="0.35" />
+    <path d="M2.5 3.2h11" strokeWidth="2.2" />
+  </I>
+)
+export const SideRightIcon = (p: P) => (
+  <I {...p}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" opacity="0.35" />
+    <path d="M12.8 2.5v11" strokeWidth="2.2" />
+  </I>
+)
+export const SideBottomIcon = (p: P) => (
+  <I {...p}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" opacity="0.35" />
+    <path d="M2.5 12.8h11" strokeWidth="2.2" />
+  </I>
+)
+export const SideLeftIcon = (p: P) => (
+  <I {...p}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" opacity="0.35" />
+    <path d="M3.2 2.5v11" strokeWidth="2.2" />
+  </I>
+)
 export const CornerTLIcon = (p: P) => (
   <I {...p}>
     <path d="M3 13V7a4 4 0 014-4h6" />

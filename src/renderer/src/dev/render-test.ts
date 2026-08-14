@@ -292,6 +292,77 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Per-side stroke weights are not a stroke either rasterizer can draw — there
+    // is no single width to hand it — so both back ends fill the same REGION
+    // instead (engine/strokesides). Canvas2D fills a Path2D, the GPU tessellates
+    // it and skips its stencil clip, and this is what proves the two agree about
+    // where a four-weight border sits.
+    name: 'stroke-per-side',
+    badLimit: 0.03,
+    build: (s) => {
+      const ink = (c: [number, number, number]) => [
+        { type: 'SOLID' as const, visible: true, opacity: 1, color: { r: c[0], g: c[1], b: c[2], a: 1 } },
+      ]
+      // One side, inside: the band eats into the shape and nothing else moves.
+      make(s, 'RECTANGLE', null, {
+        x: 30, y: 30, width: 260, height: 110,
+        fills: ink([0.22, 0.28, 0.34]),
+        strokes: ink([1, 0.75, 0.2]),
+        strokeWeight: 0,
+        strokeAlign: 'INSIDE',
+        strokeSides: { top: 0, right: 0, bottom: 0, left: 20 },
+      })
+      // Top and bottom, outside: the band grows past the shape, and the corners
+      // stay square because the sides beside them have no stroke to mitre with.
+      make(s, 'RECTANGLE', null, {
+        x: 350, y: 30, width: 250, height: 110,
+        fills: ink([0.3, 0.22, 0.18]),
+        strokes: ink([0.4, 0.85, 0.95]),
+        strokeWeight: 0,
+        strokeAlign: 'OUTSIDE',
+        strokeSides: { top: 14, right: 0, bottom: 14, left: 0 },
+      })
+      // Rounded, centred, three different weights: the radii travel with the
+      // offsets, so this is where an outer corner that bulged would show.
+      make(s, 'RECTANGLE', null, {
+        x: 30, y: 200, width: 260, height: 120,
+        cornerRadius: { tl: 28, tr: 28, br: 28, bl: 28 },
+        fills: ink([0.18, 0.3, 0.26]),
+        strokes: ink([0.95, 0.45, 0.55]),
+        strokeWeight: 0,
+        strokeAlign: 'CENTER',
+        strokeSides: { top: 8, right: 22, bottom: 8, left: 0 },
+      })
+      // A frame with all four different, and content it clips: a per-side border
+      // must not disturb the clip, and the widest side must not be cropped away.
+      const frame = make(s, 'FRAME', null, {
+        x: 350, y: 200, width: 250, height: 120,
+        clipsContent: true,
+        cornerRadius: { tl: 10, tr: 10, br: 10, bl: 10 },
+        fills: ink([0.24, 0.24, 0.3]),
+        strokes: ink([0.6, 0.95, 0.5]),
+        strokeWeight: 0,
+        strokeAlign: 'INSIDE',
+        strokeSides: { top: 3, right: 10, bottom: 20, left: 30 },
+      })
+      make(s, 'ELLIPSE', frame.id, {
+        x: 60, y: 20, width: 130, height: 80,
+        fills: ink([0.9, 0.6, 0.3]),
+      })
+      // And the uniform path must still be the uniform path: four equal weights
+      // that match strokeWeight fall back to the rasterizer's own band.
+      make(s, 'RECTANGLE', null, {
+        x: 30, y: 370, width: 570, height: 70,
+        cornerRadius: { tl: 12, tr: 12, br: 12, bl: 12 },
+        fills: ink([0.2, 0.2, 0.22]),
+        strokes: ink([0.85, 0.85, 0.9]),
+        strokeWeight: 6,
+        strokeAlign: 'INSIDE',
+        strokeSides: { top: 6, right: 6, bottom: 6, left: 6 },
+      })
+    },
+  },
+  {
     // Flips ride in the node matrix, and the GPU backend bakes its own copy of
     // every transform — so a mirrored node is exactly the sort of thing that can
     // come out right on one rasterizer and backwards on the other. Every shape

@@ -301,7 +301,9 @@ function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
           'props: name, x, y, width, height (parent-relative), rotation, opacity, visible, ' +
           'locked, blendMode, cornerRadius, fill, stroke ("#RRGGBB", "#RRGGBBAA", or ' +
           '{gradient: "LINEAR"|"RADIAL", stops: [{at, color}], start?, end?} in 0..1 node ' +
-          'space; null clears), strokeWeight, strokeAlign, strokeDash, characters, ' +
+          'space; null clears), strokeWeight, strokeAlign, strokeSides ' +
+          '({top,right,bottom,left} weights on a rectangle or frame — a side left out is 0, null clears), ' +
+          'strokeDash, characters, ' +
           'fontFamily, fontWeight, fontSize, lineHeight, letterSpacing, italic, textAlignH, ' +
           'textAlignV, autoResize (set NONE to keep your box — otherwise TEXT shrinks to its ' +
           'content and centring is lost), pointCount, innerRatio, clipsContent. `update`/`move`/`delete` take ' +

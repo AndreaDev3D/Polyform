@@ -10,6 +10,7 @@ import { nodeOutline, type SubPath } from '../../shapes'
 import { openStrokeOffset } from '../../paintbox'
 import { booleanRings } from '../../booleans'
 import { maskShape } from '../../mask'
+import { perSideStroke, strokeSideOutline } from '../../strokesides'
 import { encodeSubPaths } from '../../wasm/codec'
 import { wasmHandle } from '../../backend'
 
@@ -68,7 +69,7 @@ function geometryKey(scene: SceneGraph, node: SceneNode, bucket: number): string
     default:
       break
   }
-  parts.push(node.strokeWeight, node.strokeAlign, node.strokeDash)
+  parts.push(node.strokeWeight, node.strokeAlign, node.strokeDash, (node as { strokeSides?: unknown }).strokeSides)
   return JSON.stringify(parts)
 }
 
@@ -178,6 +179,22 @@ export class MeshCache {
     wantFill: boolean,
     wantStroke: boolean,
   ): NodeMesh {
+    const sides = wantStroke && perSideStroke(node)
+    if (sides) {
+      // Four widths is a region, not a band (engine/strokesides). The fill mesh
+      // still comes from the outline; the stroke mesh is that region tessellated
+      // EVEN-ODD, and alignCode 0 tells the renderer not to stencil-clip it —
+      // the region already knows which side of the outline it is on.
+      const fill = wantFill ? MeshCache.tessellateFill(nodeOutline(node), false, bucket) : emptyMesh()
+      const band = MeshCache.tessellateFill(strokeSideOutline(node), true, bucket)
+      return {
+        fillPositions: fill.fillPositions,
+        fillIndices: fill.fillIndices,
+        strokePositions: band.fillPositions,
+        strokeIndices: band.fillIndices,
+        strokeAlignCode: 0,
+      }
+    }
     const fast = MeshCache.sharpRect(node, wantStroke)
     if (fast) return fast
     let subpaths: SubPath[]

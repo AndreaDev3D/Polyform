@@ -49,6 +49,7 @@ import type { RenderOptions } from '../canvas2d'
 import { drawTextInto } from '../canvas2d'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
 import { GlyphAtlas } from './glyphatlas'
+import { effectiveStrokeWeight } from '../../strokesides'
 import {
   BLUR_WGSL,
   COMPOSITE_WGSL,
@@ -1252,7 +1253,7 @@ export class WebGPURenderer {
   }
 
   private bakeStrokes(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
-    if (node.strokeWeight <= 0 || mesh.strokeIndices.length === 0) return
+    if (effectiveStrokeWeight(node) <= 0 || mesh.strokeIndices.length === 0) return
     if (!node.strokes.some((s) => s.visible && s.type !== 'IMAGE')) return
     const needsClip = mesh.strokeAlignCode !== 0 && mesh.fillIndices.length > 0
     if (needsClip) {

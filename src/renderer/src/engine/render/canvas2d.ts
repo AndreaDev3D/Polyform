@@ -13,6 +13,7 @@ import { fillPaintBox, openStrokeOffset, paintPoint, strokePaintBox, type PaintB
 import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
+import { perSideStroke, strokeSideOutline } from '../strokesides'
 import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
@@ -217,6 +218,20 @@ function strokePath(
   path: Path2D,
   hasClosedGeometry: boolean,
 ): void {
+  // Per-side weights are not a stroke the rasterizer can draw — there is no one
+  // width to hand it — so they are a region to fill instead (engine/strokesides).
+  if (hasClosedGeometry && perSideStroke(node)) {
+    const region = subPathsToPath2D(strokeSideOutline(node))
+    for (const paint of node.strokes) {
+      if (!paint.visible || paint.type === 'IMAGE') continue
+      const style = paintStyle(ctx, paint, strokePaintBox(node))
+      if (!style) continue
+      ctx.fillStyle = style
+      // EVEN-ODD: the two contours are a ring, and the hole is the shape.
+      ctx.fill(region, 'evenodd')
+    }
+    return
+  }
   const weight = node.strokeWeight
   if (weight <= 0) return
   // Closed geometry gets alignment by clipping (below). Open geometry gets it by

@@ -28,6 +28,9 @@
 //      while everything below it stayed correct (F-31).
 //   9. the zoom menu: a typed percentage lands exactly and closes the menu,
 //      and the three bottom-bar controls share one height.
+//  10. per-side strokes: the toggle beside the weight field opens four fields,
+//      typing into one lands on the node, and collapsing CLEARS them rather
+//      than leaving values stored that nothing reads (F-30).
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -966,6 +969,116 @@ try {
             fail(`renaming the style should have stuck, styles are ${renamed}`)
           } else {
             console.log('E2E PASS: a style is renamed in place by double-clicking its name')
+          }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 10. Per-side stroke weights are reachable, and collapsing gives them up.
+  //
+  //     The geometry has unit tests and the two renderers have a parity
+  //     fixture, and neither can see the only door into the feature: one small
+  //     toggle beside the weight field. F-31 was exactly this shape - a
+  //     correct model behind a button that did nothing - so the click is the
+  //     check. The collapse half matters just as much, for the opposite
+  //     reason: it must DELETE the sides, because a per-side weight left in
+  //     the document while the UI shows a single uniform field is a value the
+  //     renderer still draws and the user can no longer see (F-30).
+  // ---------------------------------------------------------------------
+  {
+    const clickAt = async (x, y) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+      await sleep(300)
+    }
+    await evaluate(`(() => {
+      const P = globalThis.__polyform
+      P.documentStore.scene.addNode({
+        id: 'e2e-sides', type: 'RECTANGLE', name: 'E2E Sides', visible: true, locked: false,
+        opacity: 1, blendMode: 'NORMAL', x: 700, y: 420, width: 200, height: 140, rotation: 0,
+        cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.2, g: 0.2, b: 0.25, a: 1 } }],
+        strokes: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+        strokeWeight: 4, strokeAlign: 'INSIDE', strokeDash: [], effects: [],
+      }, null, P.documentStore.scene.rootIds().length)
+      P.editor.set({ selection: ['e2e-sides'], vectorEditId: null, tool: 'select' })
+      P.documentStore.transient()
+    })()`)
+    await sleep(500)
+    const toggle = JSON.parse(await evaluate(`(() => {
+      const b = [...document.querySelectorAll('button')].find((x) =>
+        (x.getAttribute('title') ?? '').includes('each side independently'))
+      if (!b) return 'null'
+      b.scrollIntoView({ block: 'center' })
+      const r = b.getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+    })()`))
+    if (!toggle) {
+      fail('no per-side stroke toggle beside the stroke weight field')
+    } else {
+      await clickAt(toggle.x, toggle.y)
+      // Four fields, seeded from the uniform weight so nothing jumps on open.
+      const opened = JSON.parse(await evaluate(`(() => {
+        const titles = ['Top stroke', 'Right stroke', 'Bottom stroke', 'Left stroke']
+        const found = titles.map((t) => {
+          const el = [...document.querySelectorAll('[title]')].find((x) => x.getAttribute('title') === t)
+          const input = el ? (el.matches('input') ? el : el.querySelector('input')) : null
+          if (!input) return null
+          const r = input.getBoundingClientRect()
+          return { value: input.value, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+        })
+        return JSON.stringify(found)
+      })()`))
+      if (opened.some((f) => !f)) {
+        fail(`the toggle should reveal four side fields, found ${JSON.stringify(opened.map((f) => (f ? f.value : null)))}`)
+      } else if (!opened.every((f) => Number(f.value) === 4)) {
+        fail(`the four fields should seed from the uniform weight (4), got ${JSON.stringify(opened.map((f) => f.value))}`)
+      } else {
+        console.log(`E2E PASS: the stroke toggle opens four side fields seeded at ${opened[0].value}`)
+        await clickAt(opened[0].x, opened[0].y)
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 })
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 })
+        for (const ch of '18') {
+          await send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch })
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch })
+          await sleep(25)
+        }
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+        await sleep(400)
+        const typed = JSON.parse(await evaluate(`(() => {
+          const n = globalThis.__polyform.documentStore.scene.getNode('e2e-sides')
+          return JSON.stringify({ sides: n.strokeSides ?? null, weight: n.strokeWeight })
+        })()`))
+        if (!typed.sides || typed.sides.top !== 18) {
+          fail(`typing 18 into the Top field should set strokeSides.top, got ${JSON.stringify(typed)}`)
+        } else if (typed.sides.left !== 4 || typed.sides.right !== 4 || typed.sides.bottom !== 4) {
+          fail(`the other three sides should keep the uniform weight, got ${JSON.stringify(typed.sides)}`)
+        } else {
+          console.log(`E2E PASS: a per-side weight lands on the node (${JSON.stringify(typed.sides)})`)
+        }
+        const back = JSON.parse(await evaluate(`(() => {
+          const b = [...document.querySelectorAll('button')].find((x) =>
+            (x.getAttribute('title') ?? '').includes('one weight on every side'))
+          if (!b) return 'null'
+          const r = b.getBoundingClientRect()
+          return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+        })()`))
+        if (!back) {
+          fail('the toggle should offer to go back to one weight once it is open')
+        } else {
+          await clickAt(back.x, back.y)
+          const cleared = JSON.parse(await evaluate(`(() => {
+            const n = globalThis.__polyform.documentStore.scene.getNode('e2e-sides')
+            return JSON.stringify({ sides: n.strokeSides ?? null, weight: n.strokeWeight })
+          })()`))
+          if (cleared.sides) {
+            fail(`collapsing must clear the per-side weights, they are still ${JSON.stringify(cleared.sides)}`)
+          } else {
+            console.log(`E2E PASS: collapsing clears the sides and the uniform ${cleared.weight}px weight is back`)
           }
         }
       }

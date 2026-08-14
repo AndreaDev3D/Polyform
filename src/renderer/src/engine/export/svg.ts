@@ -9,6 +9,7 @@ import { aabbIsEmpty, aabbUnion, emptyAABB } from '../geometry'
 import { nodeOutline, subPathsToSvg } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
+import { perSideStroke, strokeSideOutline } from '../strokesides'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
@@ -75,6 +76,23 @@ function paintToSvgFill(ctx: SvgCtx, paint: Paint, node: SceneNode): string | nu
     return `url(#${id})`
   }
   return null
+}
+
+/**
+ * Per-side stroke weights as a FILLED path, because that is what they are: a ring
+ * of varying thickness (engine/strokesides). SVG has `stroke-width`, singular, so
+ * there is no attribute that could carry four — writing one would export a stroke
+ * the document does not have.
+ */
+function strokeSideElement(ctx: SvgCtx, node: SceneNode): string {
+  if (!perSideStroke(node)) return ''
+  const region = subPathsToSvg(strokeSideOutline(node))
+  if (!region) return ''
+  const paint = node.strokes.find((s) => s.visible && s.type !== 'IMAGE')
+  if (!paint) return ''
+  const fill = paintToSvgFill(ctx, paint, node)
+  if (!fill) return ''
+  return `<path d="${region}" fill="${fill}" fill-rule="evenodd"/>`
 }
 
 function strokeAttrs(ctx: SvgCtx, node: SceneNode): string {
@@ -219,8 +237,9 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
       clipAttr = ` clip-path="url(#${clipId})"`
     }
     const children = await childrenToSvg(ctx, node.children)
-    const stroke = strokeAttrs(ctx, node)
-    const border = stroke ? `<path d="${d}" fill="none"${stroke}/>` : ''
+    const sideStroke = strokeSideElement(ctx, node)
+    const stroke = sideStroke ? '' : strokeAttrs(ctx, node)
+    const border = sideStroke || (stroke ? `<path d="${d}" fill="none"${stroke}/>` : '')
     return `<g${tf}${common}><g${clipAttr}>${inner}${children}</g>${border}</g>`
   }
 
@@ -261,8 +280,9 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
   const isOpen = node.type === 'LINE'
   const fillRule = node.type === 'VECTOR' && node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
   const fills = isOpen ? '' : await fillElements(ctx, node, d, fillRule)
-  const stroke = strokeAttrs(ctx, node)
-  const border = stroke ? `<path d="${d}" fill="none"${stroke}/>` : ''
+  const sideStroke = strokeSideElement(ctx, node)
+  const stroke = sideStroke ? '' : strokeAttrs(ctx, node)
+  const border = sideStroke || (stroke ? `<path d="${d}" fill="none"${stroke}/>` : '')
   return `<g${tf}${common}>${fills}${border}</g>`
 }
 

@@ -156,6 +156,24 @@ function sanitize(props: Record<string, unknown>, where: string): Record<string,
       case 'cornerRadius':
         out.cornerRadius = uniformRadius(Math.max(0, num(value, `${where}.cornerRadius`)))
         break
+      case 'strokeSides': {
+        // null goes back to the uniform weight. A side left out of the object is
+        // 0, not "keep whatever was there": {top: 2} has to mean a rule along the
+        // top and nothing else, or a caller can never turn a side off.
+        if (value === null || value === undefined) {
+          out.strokeSides = undefined
+          break
+        }
+        const v = value as Record<string, unknown>
+        if (typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where}.strokeSides must be an object`)
+        out.strokeSides = {
+          top: Math.max(0, v.top === undefined ? 0 : num(v.top, `${where}.strokeSides.top`)),
+          right: Math.max(0, v.right === undefined ? 0 : num(v.right, `${where}.strokeSides.right`)),
+          bottom: Math.max(0, v.bottom === undefined ? 0 : num(v.bottom, `${where}.strokeSides.bottom`)),
+          left: Math.max(0, v.left === undefined ? 0 : num(v.left, `${where}.strokeSides.left`)),
+        }
+        break
+      }
       case 'fill':
         out.fills = value === null ? [] : [parsePaint(value, `${where}.fill`)]
         break

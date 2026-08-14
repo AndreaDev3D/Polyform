@@ -201,6 +201,24 @@ export interface CornerRadius {
 }
 
 /**
+ * Per-side stroke weights — the stroke's answer to `CornerRadius`, and carried by
+ * exactly the same four node types, because "the top side" only means something
+ * for a box. A side set to 0 has no stroke; absent means every side uses the
+ * node's own `strokeWeight`, which is what every node written before this existed
+ * does.
+ *
+ * Weights rather than on/off flags: that is what Figma's individual strokes are,
+ * it makes 0 mean "off" for free, and a border that is 1px on three sides and 4px
+ * on the fourth is the case people actually reach for this to build.
+ */
+export interface StrokeSides {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+/**
  * Constraint of a node relative to its parent frame when the frame resizes.
  * MIN pins to left/top, MAX to right/bottom, STRETCH pins both edges,
  * CENTER keeps the center offset, SCALE resizes proportionally.
@@ -279,6 +297,8 @@ export interface FrameNode extends BaseNode {
   children: NodeId[]
   clipsContent: boolean
   cornerRadius: CornerRadius
+  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
+  strokeSides?: StrokeSides
   layout: AutoLayout
 }
 
@@ -295,6 +315,8 @@ export interface ComponentNode extends BaseNode {
   children: NodeId[]
   clipsContent: boolean
   cornerRadius: CornerRadius
+  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
+  strokeSides?: StrokeSides
   layout: AutoLayout
   description?: string
   origin?: LibraryOrigin | null
@@ -310,6 +332,8 @@ export interface InstanceNode extends BaseNode {
   children: NodeId[]
   clipsContent: boolean
   cornerRadius: CornerRadius
+  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
+  strokeSides?: StrokeSides
   layout: AutoLayout
   componentId: NodeId
   overrides: Record<NodeId, Record<string, unknown>>
@@ -340,6 +364,8 @@ export interface BooleanNode extends BaseNode {
 export interface RectangleNode extends BaseNode {
   type: 'RECTANGLE'
   cornerRadius: CornerRadius
+  /** Per-side stroke weights; absent = `strokeWeight` on every side. */
+  strokeSides?: StrokeSides
 }
 
 export interface EllipseNode extends BaseNode {
@@ -575,6 +601,20 @@ export function solid(color: RGBA): SolidPaint {
 
 export function uniformRadius(v: number): CornerRadius {
   return { tl: v, tr: v, br: v, bl: v }
+}
+
+export function uniformSides(v: number): StrokeSides {
+  return { top: v, right: v, bottom: v, left: v }
+}
+
+/**
+ * Can this node carry per-side stroke weights? The same four types that carry a
+ * corner radius: a box has sides, an ellipse and an arbitrary path do not.
+ */
+export function strokeSidesApply(node: SceneNode): boolean {
+  return (
+    node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE'
+  )
 }
 
 export function defaultLayout(): AutoLayout {

@@ -30,6 +30,7 @@ export const ROOT_INHERITED_KEYS: (keyof ComponentNode)[] = [
   'strokeDash',
   'effects',
   'cornerRadius',
+  'strokeSides',
   'clipsContent',
   'layout',
 ]

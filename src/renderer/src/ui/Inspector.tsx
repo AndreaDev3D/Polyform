@@ -26,7 +26,8 @@ import type {
   TextNode,
   VectorNode,
 } from '../engine/types'
-import { defaultPose, solid } from '../engine/types'
+import { defaultPose, solid, strokeSidesApply } from '../engine/types'
+import { perSideStroke, seedSides } from '../engine/strokesides'
 import {
   fillPaintBox,
   gradientAngle,
@@ -84,6 +85,11 @@ import {
   CornerTLIcon,
   CornerTRIcon,
   CornersIcon,
+  SidesIcon,
+  SideTopIcon,
+  SideRightIcon,
+  SideBottomIcon,
+  SideLeftIcon,
   DistributeHIcon,
   DistributeVIcon,
   ExportIcon,
@@ -132,6 +138,13 @@ interface PickerState {
 }
 
 /** The four corner fields, each with the corner it edits drawn on it. */
+const SIDES = [
+  { key: 'top', Icon: SideTopIcon, label: 'Top' },
+  { key: 'right', Icon: SideRightIcon, label: 'Right' },
+  { key: 'bottom', Icon: SideBottomIcon, label: 'Bottom' },
+  { key: 'left', Icon: SideLeftIcon, label: 'Left' },
+] as const
+
 const CORNERS = [
   { key: 'tl', Icon: CornerTLIcon, label: 'Top left' },
   { key: 'tr', Icon: CornerTRIcon, label: 'Top right' },
@@ -147,6 +160,7 @@ export function Inspector() {
   const [picker, setPicker] = useState<PickerState | null>(null)
   /** null = follow the shape (expand when its corners differ); set = the user decided. */
   const [cornersExpanded, setCornersExpanded] = useState<boolean | null>(null)
+  const [sidesExpanded, setSidesExpanded] = useState<boolean | null>(null)
   const pickerSnapshot = useRef<Map<NodeId, { fills: Paint[]; strokes: Paint[]; effects: Effect[] }> | null>(null)
 
   const scene = documentStore.scene
@@ -179,6 +193,13 @@ export function Inspector() {
    *  expanded — dragging one corner handle on canvas lands here. The toggle
    *  still wins: forcing it open made the button look broken, since collapsing
    *  had no visible effect. Collapsed, the single field reads "Mixed". */
+  // Sides that already differ have four values to show, so they start expanded —
+  // the same rule the corners follow, and for the same reason: a single field
+  // reading "Mixed" is a worse answer than four fields reading the truth.
+  const sidesApply = nodes.every((n) => strokeSidesApply(n))
+  const sidesDiffer = nodes.some((n) => perSideStroke(n) !== null)
+  const showSides = sidesApply && (sidesExpanded ?? sidesDiffer)
+
   const cornersDiffer = nodes.some((n) => {
     const r = (n as { cornerRadius?: { tl: number; tr: number; br: number; bl: number } }).cornerRadius
     return r ? !(r.tl === r.tr && r.tr === r.br && r.br === r.bl) : false
@@ -750,14 +771,37 @@ export function Inspector() {
         ))}
         {first.strokes.length > 0 && (
           <div className="grid grid-cols-3 gap-1.5 mt-2.5">
-            <Field label="Weight">
-              <NumberInput
-                label={<StrokeWeightIcon />}
-                title="Stroke weight"
-                value={common((n) => round(n.strokeWeight))}
-                min={0}
-                onCommit={(v) => commit(() => ({ strokeWeight: v }), 'Set Stroke Weight')}
-              />
+            <Field
+              label="Weight"
+              actions={
+                sidesApply ? (
+                  <button
+                    className={`pf-icon-btn !w-5 !h-5 ${showSides ? 'active' : ''}`}
+                    title={showSides ? 'Use one weight on every side' : 'Set each side independently'}
+                    aria-pressed={showSides}
+                    onClick={() => {
+                      // Collapsing drops the per-side weights rather than leaving
+                      // them stored and ignored: a value the renderer no longer
+                      // reads is the kind of lie F-30 is about. It reverts to the
+                      // uniform weight, which is what the field then shows.
+                      if (showSides) commit(() => ({ strokeSides: undefined }), 'Use One Stroke Weight')
+                      setSidesExpanded(!showSides)
+                    }}
+                  >
+                    <SidesIcon width={12} height={12} />
+                  </button>
+                ) : undefined
+              }
+            >
+              {!showSides && (
+                <NumberInput
+                  label={<StrokeWeightIcon />}
+                  title="Stroke weight"
+                  value={common((n) => round(n.strokeWeight))}
+                  min={0}
+                  onCommit={(v) => commit(() => ({ strokeWeight: v }), 'Set Stroke Weight')}
+                />
+              )}
             </Field>
             {/* Alignment needs an interior. A line has none, and neither does an
                 open path, so both renderers draw those centred whatever is stored —
@@ -785,9 +829,10 @@ export function Inspector() {
                 onChange={(v) => commit(() => ({ strokeAlign: v }), 'Set Stroke Align')}
               />
             </Field>
-            <Field label="Style">
+            <Field label="Style" hint={showSides ? 'A dash pattern needs one continuous band; per-side weights draw a filled border instead' : undefined}>
               <Select
                 value={common((n) => (n.strokeDash.length > 0 ? 'dash' : 'solid')) ?? ''}
+                disabled={showSides}
                 options={[
                   { value: 'solid', label: 'Solid' },
                   { value: 'dash', label: 'Dashed' },
@@ -795,6 +840,20 @@ export function Inspector() {
                 onChange={(v) => commit((n) => ({ strokeDash: v === 'dash' ? [n.strokeWeight * 3, n.strokeWeight * 3] : [] }), 'Set Dash')}
               />
             </Field>
+          </div>
+        )}
+        {first.strokes.length > 0 && showSides && (
+          <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+            {SIDES.map(({ key, Icon, label }) => (
+              <NumberInput
+                key={key}
+                label={<Icon />}
+                title={`${label} stroke`}
+                value={common((n) => round(seedSides(n)[key]))}
+                min={0}
+                onCommit={(v) => commit((n) => ({ strokeSides: { ...seedSides(n), [key]: v } }), 'Set Stroke Side')}
+              />
+            ))}
           </div>
         )}
       </Section>

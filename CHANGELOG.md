@@ -24,6 +24,35 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   of the *whole inspector*, not of the swatch that opened it — measuring from the
   swatch left it three pixels over the panel border, which reads as a bug rather than
   a near miss. It flips to the other side only if the window is too narrow.
+- **A stroke can have a different weight on each side.** Top, right, bottom and
+  left, the way a corner radius already has four corners — the toggle sits beside
+  the weight field and splits it into four. 0 turns a side off, so a rule under a
+  heading or a border open on one edge is two clicks and a number. Rectangles,
+  frames, components and instances: the four types that carry a radius, because
+  only a box has sides, and the control is absent rather than inert elsewhere.
+  - **Four widths are not a stroke.** There is no single width to hand a
+    rasterizer, so the weights become a *region* — the space between the shape
+    grown per side and the shape shrunk per side — and all three back ends fill
+    that same region (`engine/strokesides.ts`): Canvas2D fills it, the GPU
+    tessellates it and skips its stencil clip, SVG export writes it as a filled
+    path because `stroke-width` is singular and writing one would export a border
+    the document does not have. A stroke computed three times is a stroke that
+    comes out different on the GPU (F-34).
+  - Mitred corners and the corner radius carried through both offsets fall out of
+    that geometry rather than being special-cased: a side set to 0 pinches the
+    ring to nothing along that edge and its neighbours meet in the corner on their
+    own. Inside, centre and outside all keep working.
+  - **Collapsing the control clears the weights** instead of leaving them stored
+    and invisible — a per-side weight the renderer still draws while the panel
+    shows one uniform field is exactly the kind of lie F-30 is about. It is an
+    `npm run test:e2e` check, along with the toggle opening and a typed value
+    landing on the node, because a correct model behind a button that does nothing
+    is how the styles feature shipped broken for two releases (F-31).
+  - Dashes stay off the table while sides are in use: a dash pattern needs one
+    continuous band to run along. The Style dropdown says so rather than storing a
+    pattern nothing draws.
+  - Also reachable from the agent surface (`edit_document`'s `strokeSides`), and
+    inherited by instances like any other visual prop.
 - **A shape's layer icon is the shape.** Rectangles, ellipses, polygons, stars,
   vectors and booleans draw their own silhouette as the row icon in the Layers panel,
   the way Figma does — so a group of seven layers all called *Vector* reads as
