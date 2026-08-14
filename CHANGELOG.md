@@ -158,6 +158,17 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **Duplicate puts the copy where the original is.** Ctrl+D inserted into
+  whichever container the viewport had been entered into — the page root unless
+  you had drilled into something — so duplicating a layer inside a frame lifted
+  the copy out of the frame, and out of its clipping and auto layout with it. Each
+  copy now goes in beside its original; a selection spanning several parents is
+  grouped so every copy lands in the right one, still as a single undo entry.
+  Paste is unchanged and still lands in the container you are in, which is the
+  point of paste.
+  - A copy of something *inside an instance* goes beside the instance rather than
+    into it: those children are regenerated from the component on every sync, so a
+    copy placed among them would be wiped by the next pass.
 - **Masks clip to what the mask actually covers** (F-34). Reported as "the subtraction
   isn't working" on an imported `.fig`, and the subtraction was fine: the mask over it
   was clipping to a bounding box. A mask's shape came from `nodeOutline`, which answers

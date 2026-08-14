@@ -29,7 +29,7 @@ import { editor } from './editor'
 import { assetCache } from '../engine/assets'
 import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
-import { findDropFrame, isInsideInstance } from '../engine/hit-test'
+import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../engine/hit-test'
 import { importSvgDocument } from '../engine/import/svg-import'
 import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
 import { nodeOutline, type SubPath } from '../engine/shapes'
@@ -220,11 +220,56 @@ export function paste(): void {
   insertBundleCopy(clipboard, 'Paste')
 }
 
+/**
+ * Where a copy of this node belongs: with its original.
+ *
+ * The exception is a materialized INSTANCE subtree. Those children are
+ * regenerated from the component on every sync, so a copy placed among them is
+ * wiped by the next derived pass — it goes beside the instance instead, which is
+ * the closest place it can legally live. The instance itself is an ordinary child
+ * of its own parent; only its insides are off limits.
+ */
+function duplicateParent(scene: SceneGraph, id: NodeId): NodeId | null {
+  const parent = scene.parentOf(id)
+  if (!parent) return null
+  const owner =
+    scene.getNode(parent)?.type === 'INSTANCE' ? parent : nearestInstanceAncestor(scene, parent)
+  return owner ? scene.parentOf(owner) : parent
+}
+
 /** Duplicate never touches the user's clipboard. */
 export function duplicateSelection(): void {
+  const scene = documentStore.scene
   const ids = byZ(topSelection())
   if (ids.length === 0) return
-  insertBundleCopy(extractBundle(documentStore.scene, ids), 'Duplicate')
+  // Beside the original, not wherever the viewport happens to have been entered.
+  // This went through `insertBundleCopy`, which inserts into `enteredContainer` —
+  // the page root unless you had drilled into something — so duplicating a layer
+  // inside a frame lifted the copy out of the frame, and out of its clipping and
+  // auto layout with it.
+  //
+  // A selection can span parents, so the ids are grouped and each group inserted
+  // under its own. One recorder for all of them keeps it one undo entry.
+  const groups = new Map<NodeId | null, NodeId[]>()
+  for (const id of ids) {
+    const parent = duplicateParent(scene, id)
+    const group = groups.get(parent)
+    if (group) group.push(id)
+    else groups.set(parent, [id])
+  }
+  const rec = new OpRecorder()
+  const made: NodeId[] = []
+  for (const [parent, group] of groups) {
+    const bundle = reIdBundle(extractBundle(scene, group), newId)
+    for (const rid of bundle.rootIds) {
+      bundle.nodes[rid].x += 10
+      bundle.nodes[rid].y += 10
+    }
+    rec.addBundle(bundle, parent, scene.childListOf(parent).length)
+    made.push(...bundle.rootIds)
+  }
+  rec.commit('Duplicate')
+  setSelection(made)
 }
 
 export function deleteSelection(): void {
