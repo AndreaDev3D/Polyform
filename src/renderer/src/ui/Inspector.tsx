@@ -31,6 +31,7 @@ import { perSideStroke, seedSides } from '../engine/strokesides'
 import {
   fillPaintBox,
   gradientAngle,
+  hasClosedGeometry,
   strokeAlignApplies,
   strokeSidesApply,
   strokePaintBox,
@@ -650,6 +651,18 @@ export function Inspector() {
         }
       >
         <FillStyleChip node={first} />
+        {/* An open path throws its fill away, so saying nothing here leaves a
+            colour stored, shown, and ignored — the swatch is set, the shape
+            stays empty, and there is nothing to work it out from (F-30). Two
+            ends sitting on top of each other look exactly like a closed
+            outline, which is when this bites. */}
+        {first.type === 'VECTOR' && !hasClosedGeometry(first) && (
+          <div className="text-[11px] text-[var(--pf-text-dim)] leading-snug">
+            This path is <span className="text-[var(--pf-text)]">open</span>, so a fill has nothing to go inside.
+            Select the two loose ends and press{' '}
+            <span className="text-[var(--pf-text)]">Join</span> on the vector bar to close it.
+          </div>
+        )}
         {first.fills.length === 0 && <div className="text-[11px] text-[var(--pf-text-dim)]">No fill</div>}
         {first.fills.map((paint, i) => (
           <div key={i}>

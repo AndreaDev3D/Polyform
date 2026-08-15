@@ -509,6 +509,15 @@ export const BridgeIcon = (p: P) => (
     <path d="M5.5 3.5h5M5.5 12.5h5" strokeDasharray="2 1.5" />
   </I>
 )
+/** Close path: a loop with its last gap being pulled shut. */
+export const ClosePathIcon = (p: P) => (
+  <I {...p}>
+    <path d="M8 2.5a5.5 5.5 0 1 0 3.4 9.8" />
+    <circle cx="8" cy="2.5" r="1.7" fill="currentColor" stroke="none" />
+    <circle cx="11.4" cy="12.3" r="1.7" fill="currentColor" stroke="none" />
+    <path d="M9.6 2.9 10.8 10.6" strokeDasharray="1.6 1.4" />
+  </I>
+)
 /** Dissolve: two overlapping outlines becoming one, the seam gone dashed. */
 export const DissolveIcon = (p: P) => (
   <I {...p}>

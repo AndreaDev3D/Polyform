@@ -24,6 +24,12 @@ export interface NetworkPart {
    * chain has two ends of degree 1; a branching network has a vertex of degree
    * 3+. Only a closed part encloses an area, which is what Paint and Dissolve
    * both need to know before they can mean anything.
+   *
+   * TWO anchors is enough, not three. A lens — two curves sharing both ends —
+   * is the shape of a leaf, an eye, and the counter of an O, and it encloses an
+   * area perfectly well. Requiring three anchors called every one of them open,
+   * which made them unpaintable and told their owner the fill had nowhere to go
+   * when it did.
    */
   closed: boolean
 }
@@ -78,7 +84,7 @@ export function networkParts(net: VectorNetwork): NetworkPart[] {
     parts.push({
       vertices,
       edges: [...edges].sort((a, b) => a - b),
-      closed: vertices.length >= 3 && vertices.every((vid) => degree.get(vid) === 2),
+      closed: vertices.length >= 2 && vertices.every((vid) => degree.get(vid) === 2),
     })
   }
   parts.sort((a, b) => a.vertices[0] - b.vertices[0])

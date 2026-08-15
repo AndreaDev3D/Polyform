@@ -6,6 +6,28 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **A shape whose fill was "not being respected".** An open path cannot take a
+  fill — every back end strokes it and skips the fill, which is right — but
+  nothing said so: the Fill row went on showing the colour and the hex next to a
+  shape that was plainly not that colour. The Fill section now says the path is
+  open and what to do about it.
+  - It is confusing precisely because the path **looks** closed. An outline that
+    arrives in pieces (an imported `.fig` or `.svg`, or anything drawn one curve
+    at a time) has ends at identical coordinates that are still separate anchors,
+    with a gap of zero width between them.
+  - **Close Path**, on the vector bar, welds those ends together and says whether
+    that actually closed the shape. It had to exist: two anchors in the same place
+    cannot be told apart by clicking, so the selection Join needs is one you
+    cannot make — "join the ends" was advice nobody could follow.
+  - Welding then dropped one edge as a duplicate, because two segments between
+    the same pair of anchors looked like the same segment twice. **A lens is
+    exactly that** — two curves sharing both ends, which is a leaf, an eye, the
+    counter of an O — so the repair deleted half the shape. Duplicates have to
+    match curvature, not just endpoints.
+  - And a part was only called closed at three anchors or more, so every lens
+    was reported open: unpaintable, and told its owner the fill had nowhere to
+    go when it did. Two anchors is a closed outline (F-37).
+
 - **The canvas going blank until you toggled GPU rendering off and on.** WebGPU
   reports its errors **asynchronously**, so `render()` returns normally whether the
   frame drew or was discarded — which meant the `try/catch` around it had never

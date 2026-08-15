@@ -27,7 +27,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | [Canvas & Viewport](#canvas--viewport) | 17 | 1 | 1 | 0 | 19 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 17 | 4 | 1 | 0 | 22 |
+| [Vector Editing](#vector-editing) | 18 | 4 | 1 | 0 | 23 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 6 | 3 | 1 | 24 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **152** | **28** | **47** | **23** | **250** |
+| **Total** | **153** | **28** | **47** | **23** | **251** |
 
 ---
 
@@ -102,6 +102,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Bend tool | Drag a segment and the curve follows | ✅ | Both handles move, split by bernstein influence at the grabbed t, so the curve lands on the pointer; a straight segment gets handles at the thirds first |
 | Per-point handle mirroring | None / angle / angle+length, per vertex | ✅ | Inspector control on the selected point(s); applying it smooths the corner immediately; Alt breaks the pairing for one drag |
 | Add points with a preview | A dot shows where the new point lands before you commit | ✅ | The Add mode of the vector bar: a hollow dot rides the outline as you move, and a click places it there. Clicking an anchor that already exists hands the gesture to Move rather than stacking a second one on it — two anchors in the same place cannot be told apart or selected separately afterwards |
+| Close an open path | Weld ends that sit on top of each other | ✅ | The repair for a path that looks closed and is not — an outline that arrived in pieces has ends at identical coordinates that are still separate anchors, and a fill has nothing to go inside. Join cannot do it: two anchors in the same place cannot be told apart by clicking. Welds ENDS only, and reports whether the shape actually closed (F-37) |
 | Join two points | Connect two anchors with a segment | ✅ | Any two anchors, not only path ends: joining across the middle is the only way to draw a crossbar without leaving the shape. Refuses with a reason (already connected, not two points, gone) |
 | Bridge two parts | Connect detached outlines of one shape, N points at a time | ✅ | Anchors are grouped by which part they belong to; two parts with the same number on each side get one segment per pair, paired by shortest total length so the bridge does not cross itself. Selection ORDER is not a statement about pairing |
 | Knife | Cut a shape into two along a drawn line | ✅ | Drag across it, or click twice; endpoints snap to anchors so dot-to-dot is a real gesture. Topological rather than boolean — De Casteljau splits at the crossings, then the ring is rebuilt as two rings, so every curve the knife did not touch comes through untouched (the CSG binding returns polygons and would have straightened them). One stroke cuts every closed outline it crosses, and the halves are DETACHED parts, so they can be dragged apart |
@@ -377,4 +378,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 152 ✅ / 28 🟡 / 47 📋 / 23 ❌ = 250, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 153 ✅ / 28 🟡 / 47 📋 / 23 ❌ = 251, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

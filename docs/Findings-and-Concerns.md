@@ -912,6 +912,29 @@ Nothing subscribed to `device.lost` at all — the one signal that says, unambig
 
 ---
 
+## F-37. An open path throws its fill away and says nothing
+
+**Severity: Medium** — a user reported a shape whose fill "was not being respected". It was not: the path was open, so the renderer discarded the fill, while the inspector went on showing the colour, the swatch and the hex. Found in an imported `.fig` document, on a wheat leaf.
+
+`hasClosedGeometry` gates the fill in every back end — an outline with no closed subpath is stroked and not filled, which is correct. What was missing is that **nothing said so anywhere**. The Fill row showed `F58043` next to a shape that was plainly not orange, and there was no way to get from what you could see to what was wrong. Exactly [F-30](#f-30): a value stored, shown and ignored is a lie.
+
+The reason it was so confusing is that the path *looked* closed. An outline that arrives in pieces — the usual shape of an imported path, and of anything drawn one curve at a time — has ends at identical coordinates that are still separate anchors, with a gap of zero width between them. There is nothing on screen to see.
+
+**And it could not be repaired by hand.** Join connects two selected anchors, but two anchors in the same place cannot be told apart by clicking: the selection Join needs is one you cannot make. The advice "join the ends" was not actionable.
+
+**Three things were wrong, and the second two were only found by reproducing it.**
+
+- The inspector now says an open path cannot take a fill, in the Fill section, where the colour that is being ignored is.
+- **Close Path** welds loose ends that sit on top of each other, and reports whether that actually closed the shape. Ends only — a mid-path anchor that happens to lie under another is not a join anyone asked for.
+- Welding merged the endpoints and then dropped one edge as a "duplicate", because two segments between the same pair of anchors looked like the same segment twice. **A lens is exactly that**: two curves sharing both ends, bowing opposite ways — a leaf, an eye, the counter of an O. The repair deleted half the shape. Duplicates have to match curvature too.
+- `networkParts` called a part closed only at three anchors or more, so every lens was reported open — unpaintable, and told its owner the fill had nowhere to go when it did. Two anchors is a closed outline.
+
+**The unit test could not see either of the last two.** Its fixture had a middle anchor in each half, so no two edges ever shared both endpoints and the duplicate path never ran; and three anchors cleared the `>= 3` guard. Both bugs needed the user's actual shape — two curves, two anchors, nothing else — which is the plainest closed path there is.
+
+**Standing obligation.** When a renderer declines to honour a property, the UI that offers that property has to say why, next to where it is offered. And when a fixture is built from a *typical* case rather than the *simplest* one, check what the simple one exercises that the typical one does not: here, the smallest possible closed shape was the one that broke.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -931,5 +954,6 @@ Three themes run through every entry:
 13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
 14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
 15. **A fixture covers the case it contains, not the feature it is named after.** F-34's mask fixture used an ellipse inside a group — a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while the two renderers disagreed about even-odd masks and the GPU ignored masks at the top level of a page. Name the *kinds* a feature has and give the gate one of each; a feature with one fixture is a feature with one case checked.
+18. **The smallest case is not the easiest case.** F-37's weld was tested on a path with a middle anchor in each half, which is what a real one usually looks like. The user's shape was two curves between two anchors and nothing else — the plainest closed path there is — and it broke two different assumptions the bigger fixture had quietly satisfied.
 17. **A guard has to be able to fire.** F-36's Canvas2D fallback sat behind a `try/catch` around an API that reports its errors asynchronously, so the catch had never run once and could not. The fallback was unreachable, and read as protection for as long as nobody checked.
 16. **A fixture has to be big enough to fail.** F-35's per-side stroke fixture was extended with two small shapes and measured 0.27%; with the code it guarded switched off entirely it still measured 2.18% against a 3% limit, because the shapes put too little ink on the canvas to breach it. Sizing is part of the assertion: after splitting it out with shapes that fill the frame, the same break measured 11.94% and caught a second bug on the way.

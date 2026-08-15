@@ -15,6 +15,7 @@ import { useEditor, type Tool, type VectorMode } from '../state/editor'
 import {
   booleanSelection,
   bridgeVectorPoints,
+  closeVectorPath,
   dissolveVectorParts,
   carveSelection,
   joinVectorPoints,
@@ -34,6 +35,7 @@ import {
   BendIcon,
   BridgeIcon,
   BucketIcon,
+  ClosePathIcon,
   DissolveIcon,
   JoinIcon,
   KnifeIcon,
@@ -443,6 +445,17 @@ function VectorModes() {
         onClick={() => bridgeVectorPoints()}
       >
         <BridgeIcon />
+      </button>
+      {/* The repair for a path that looks closed and is not. Ungated for the
+          same reason Dissolve is, and because the anchors it welds are exactly
+          the ones you cannot select: two in the same place. */}
+      <button
+        className="pf-tool-btn"
+        title="Close path — weld loose ends that are sitting on top of each other, so a fill has something to fill"
+        aria-label="Close path"
+        onClick={() => closeVectorPath()}
+      >
+        <ClosePathIcon />
       </button>
       {/* Not gated on the selection: dissolve acts on the whole path, because
           which parts overlap is a fact about the shape rather than about what

@@ -48,6 +48,79 @@ export function joinVertices(net: VectorNetwork, vids: readonly number[]): strin
 }
 
 /**
+ * Weld loose ends that are sitting on top of each other into single anchors.
+ *
+ * This is the repair for a path that LOOKS closed and is not. An outline that
+ * arrives in pieces — the usual shape of an imported `.fig` or `.svg` path, and
+ * of anything built by drawing one curve at a time — has ends at identical
+ * coordinates that are still separate anchors, with a gap of zero width between
+ * them. Nothing on screen shows the difference, and the shape refuses to fill,
+ * because a fill needs a closed outline and there is not one.
+ *
+ * Joining them by hand is not a real option either: two anchors in the same
+ * place cannot be told apart by clicking, so the selection needed to Join them
+ * is one you cannot make.
+ *
+ * Only ENDS are welded — a vertex with one edge or none. A point in the middle
+ * of a path that happens to pass under another is not a join anyone asked for,
+ * and merging those would reshape the path rather than close it.
+ *
+ * Returns how many anchors were removed by merging.
+ */
+export function weldLooseEnds(net: VectorNetwork, tolerance: number): number {
+  const degree = new Map<number, number>()
+  for (const v of net.vertices) degree.set(v.id, 0)
+  for (const e of net.edges) {
+    degree.set(e.v0, (degree.get(e.v0) ?? 0) + 1)
+    degree.set(e.v1, (degree.get(e.v1) ?? 0) + 1)
+  }
+  const ends = net.vertices.filter((v) => (degree.get(v.id) ?? 0) <= 1)
+  const gone = new Map<number, number>() // merged id -> id it became
+  for (let i = 0; i < ends.length; i++) {
+    const a = ends[i]
+    if (gone.has(a.id)) continue
+    for (let j = i + 1; j < ends.length; j++) {
+      const b = ends[j]
+      if (gone.has(b.id)) continue
+      if (Math.hypot(a.x - b.x, a.y - b.y) > tolerance) continue
+      // Never weld the two ends of the SAME single segment: that turns a line
+      // into a self-loop enclosing nothing, which is not a shape.
+      if (net.edges.some((e) => (e.v0 === a.id && e.v1 === b.id) || (e.v0 === b.id && e.v1 === a.id))) continue
+      gone.set(b.id, a.id)
+    }
+  }
+  if (gone.size === 0) return 0
+
+  const resolve = (id: number): number => {
+    let cur = id
+    for (let guard = 0; guard < 8 && gone.has(cur); guard++) cur = gone.get(cur)!
+    return cur
+  }
+  const seen = new Set<string>()
+  const kept: VectorNetwork['edges'] = []
+  for (const e of net.edges) {
+    const v0 = resolve(e.v0)
+    const v1 = resolve(e.v1)
+    if (v0 === v1) continue // collapsed to nothing
+    // Two segments between the same pair of anchors are only DUPLICATES if they
+    // also curve the same way. The commonest shape this whole command exists to
+    // repair — a lens, a leaf, a letter O — is exactly two curves sharing both
+    // endpoints and bowing opposite ways. Keying on endpoints alone deleted one
+    // of them and left an open chain, which is worse than the problem: it turns
+    // "your fill is not applying" into "half your shape is gone".
+    const at = (p: { x: number; y: number } | null): string => (p ? `${p.x},${p.y}` : 'n')
+    const key =
+      v0 < v1 ? `${v0}-${v1}|${at(e.cp0)}|${at(e.cp1)}` : `${v1}-${v0}|${at(e.cp1)}|${at(e.cp0)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    kept.push({ ...e, v0, v1 })
+  }
+  net.edges = kept
+  net.vertices = net.vertices.filter((v) => !gone.has(v.id))
+  return gone.size
+}
+
+/**
  * Run one segment per pair between two detached parts of the same shape.
  *
  * The anchors are grouped by which part they belong to, and there must be

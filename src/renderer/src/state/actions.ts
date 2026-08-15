@@ -31,8 +31,9 @@ import { assetCache } from '../engine/assets'
 import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../engine/hit-test'
+import { hasClosedGeometry } from '../engine/paintbox'
 import { collapseAll, expandSelected } from '../engine/layer-collapse'
-import { bridgeVertices, joinVertices } from '../engine/vector-connect'
+import { bridgeVertices, joinVertices, weldLooseEnds } from '../engine/vector-connect'
 import { dissolveParts } from '../engine/vector-dissolve'
 import { networkParts } from '../engine/vector-parts'
 import { partAtPoint, withPartFill } from '../engine/vector-paint'
@@ -340,6 +341,38 @@ export function joinVectorPoints(): void {
 export function bridgeVectorPoints(): void {
   const sel = editor.get().vectorSelection
   editOpenVector('Bridge Parts', (net) => bridgeVertices(net, sel))
+}
+
+/**
+ * Close the open path: weld ends that sit on top of each other.
+ *
+ * The tolerance is a fraction of the shape's own size rather than a fixed
+ * number of units, so it means the same thing on a 20px leaf and a 2000px one.
+ * Deliberately small — this is for ends that are already in the same place, not
+ * for pulling a visible gap shut, which is a move the user should make.
+ *
+ * Reports the outcome either way. "It did nothing" and "it worked" look
+ * identical on a shape whose ends were already touching, and the whole reason
+ * this command exists is that an open path is invisible.
+ */
+export function closeVectorPath(): void {
+  const { vectorEditId } = editor.get()
+  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
+  if (!node || node.type !== 'VECTOR') return
+  const tolerance = Math.max(0.01, Math.hypot(node.width, node.height) * 0.0025)
+  let welded = 0
+  editOpenVector('Close Path', (net) => {
+    welded = weldLooseEnds(net, tolerance)
+    return welded > 0 ? null : 'No loose ends were close enough to weld together'
+  })
+  if (welded === 0) return
+  const after = documentStore.scene.getNode(node.id)
+  const closed = after && after.type === 'VECTOR' && hasClosedGeometry(after)
+  setStatus(
+    closed
+      ? `Closed — welded ${welded} loose end${welded > 1 ? 's' : ''}, the fill applies now`
+      : `Welded ${welded} loose end${welded > 1 ? 's' : ''} — the path is still open`,
+  )
 }
 
 /**

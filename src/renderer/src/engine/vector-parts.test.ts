@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { VectorNetwork } from './types'
 import { groupByPart, networkParts, partOfVertex } from './vector-parts'
-import { bridgeVertices, joinVertices } from './vector-connect'
+import { bridgeVertices, joinVertices, weldLooseEnds } from './vector-connect'
 
 /** A closed loop of `n` points on a circle centred at (cx, cy), ids from `base`. */
 function loop(base: number, cx: number, cy: number, r: number, n = 4): VectorNetwork {
@@ -105,6 +105,123 @@ describe('join', () => {
     // 1-2 is already an edge of the left square. Adding a second one would be a
     // duplicate nothing can see and nothing can select.
     expect(joinVertices(twoParts(), [1, 2])).toMatch(/already connected/)
+  })
+})
+
+describe('welding loose ends', () => {
+  /** A lens outline in two halves, ends stacked exactly — an imported path. */
+  function twoHalves(): VectorNetwork {
+    return {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 50, y: 40 },
+        { id: 3, x: 100, y: 0 },
+        // The same two corners again, as far as the eye is concerned.
+        { id: 11, x: 0, y: 0 },
+        { id: 12, x: 50, y: -40 },
+        { id: 13, x: 100, y: 0 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+        { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+        { id: 11, v0: 11, v1: 12, cp0: null, cp1: null },
+        { id: 12, v0: 12, v1: 13, cp0: null, cp1: null },
+      ],
+    }
+  }
+
+  it('closes a path whose ends are stacked on top of each other', () => {
+    const net = twoHalves()
+    // Two open chains, so nothing encloses anything and a fill has nowhere to go.
+    expect(networkParts(net).some((p) => p.closed)).toBe(false)
+    expect(weldLooseEnds(net, 0.5)).toBe(2)
+    const parts = networkParts(net)
+    expect(parts).toHaveLength(1)
+    expect(parts[0].closed).toBe(true)
+    expect(net.vertices).toHaveLength(4)
+  })
+
+  it('leaves ends that are genuinely apart alone', () => {
+    const net = twoHalves()
+    net.vertices[3].x = 20 // one end pulled well clear
+    const before = structuredClone(net)
+    // One pair still coincides, so one weld — and the other gap survives,
+    // because closing a visible gap is a move the user should make.
+    expect(weldLooseEnds(net, 0.5)).toBe(1)
+    expect(net.vertices).toHaveLength(5)
+    expect(before.vertices).toHaveLength(6)
+  })
+
+  it('does not weld the two ends of one segment into a loop of nothing', () => {
+    const net: VectorNetwork = {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 0, y: 0 },
+      ],
+      edges: [{ id: 1, v0: 1, v1: 2, cp0: null, cp1: null }],
+    }
+    // Both ends of a zero-length segment. Merging them leaves a self-loop
+    // enclosing nothing, which is not a shape — it is a way to lose a line.
+    expect(weldLooseEnds(net, 0.5)).toBe(0)
+    expect(net.vertices).toHaveLength(2)
+  })
+
+  it('leaves a point in the middle of a path where it is', () => {
+    const net = twoHalves()
+    // Move a MIDDLE anchor onto another one. It is not an end, so it is not a
+    // join anybody asked for — welding it would reshape the path, not close it.
+    net.vertices[1] = { id: 2, x: 50, y: -40 }
+    weldLooseEnds(net, 0.5)
+    expect(net.vertices.some((v) => v.id === 2)).toBe(true)
+    expect(net.vertices.some((v) => v.id === 12)).toBe(true)
+  })
+
+  it('closes a lens made of two curves that share both ends', () => {
+    // The shape this command exists for, and the one the fixture above misses:
+    // no middle anchors at all, so after welding BOTH curves run between the
+    // same pair of ids. Treating that as a duplicate deleted one of them and
+    // left an open chain — turning "the fill will not apply" into "half the
+    // shape is gone". They are only duplicates if they also bow the same way.
+    const net: VectorNetwork = {
+      vertices: [
+        { id: 1, x: 0, y: 80 },
+        { id: 2, x: 300, y: 80 },
+        { id: 11, x: 0, y: 80 },
+        { id: 12, x: 300, y: 80 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: { x: 90, y: 0 }, cp1: { x: 210, y: 0 } },
+        { id: 11, v0: 11, v1: 12, cp0: { x: 90, y: 160 }, cp1: { x: 210, y: 160 } },
+      ],
+    }
+    expect(weldLooseEnds(net, 0.5)).toBe(2)
+    expect(net.vertices).toHaveLength(2)
+    expect(net.edges).toHaveLength(2)
+    const parts = networkParts(net)
+    expect(parts).toHaveLength(1)
+    expect(parts[0].closed).toBe(true)
+  })
+
+  it('still drops a segment that really is the same one twice', () => {
+    const net: VectorNetwork = {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 100, y: 0 },
+        { id: 11, x: 0, y: 0 },
+        { id: 12, x: 100, y: 0 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+        { id: 11, v0: 11, v1: 12, cp0: null, cp1: null },
+      ],
+    }
+    // Same ends, same (absent) curvature: one line drawn on top of another.
+    weldLooseEnds(net, 0.5)
+    expect(net.edges).toHaveLength(1)
+  })
+
+  it('reports nothing to do when the path is already closed', () => {
+    expect(weldLooseEnds(loop(1, 0, 0, 10), 0.5)).toBe(0)
   })
 })
 
