@@ -172,6 +172,59 @@ export function bendEdge(net: VectorNetwork, edgeIndex: number, t: number, targe
 }
 
 /**
+ * Split one segment at parameter t, returning the id of the new vertex.
+ *
+ * A curve is split with De Casteljau, so both halves lie exactly on the curve
+ * that was there before — the shape does not move when you add a point to it,
+ * which is the whole difference between adding a point and editing one.
+ *
+ * Lives here rather than in the pointer controller because the knife needs the
+ * same split at every place it crosses the outline, and two implementations of
+ * "cut this curve in half" would eventually disagree.
+ */
+export function splitEdgeAt(net: VectorNetwork, edgeIndex: number, t: number): number {
+  const edge = net.edges[edgeIndex]
+  if (!edge) return -1
+  const vmap = new Map(net.vertices.map((v) => [v.id, v]))
+  const a = vmap.get(edge.v0)
+  const b = vmap.get(edge.v1)
+  if (!a || !b) return -1
+  const nextVid = Math.max(0, ...net.vertices.map((v) => v.id)) + 1
+  const nextEid = Math.max(0, ...net.edges.map((e) => e.id)) + 1
+  const lerp = (p: Vec2, q: Vec2, s: number): Vec2 => ({ x: p.x + (q.x - p.x) * s, y: p.y + (q.y - p.y) * s })
+
+  if (edge.cp0 || edge.cp1) {
+    const p0 = { x: a.x, y: a.y }
+    const p3 = { x: b.x, y: b.y }
+    const c0 = edge.cp0 ?? p0
+    const c1 = edge.cp1 ?? p3
+    const q0 = lerp(p0, c0, t)
+    const q1 = lerp(c0, c1, t)
+    const q2 = lerp(c1, p3, t)
+    const r0 = lerp(q0, q1, t)
+    const r1 = lerp(q1, q2, t)
+    const s = lerp(r0, r1, t)
+    net.vertices.push({ id: nextVid, x: s.x, y: s.y })
+    net.edges.splice(
+      edgeIndex,
+      1,
+      { id: edge.id, v0: edge.v0, v1: nextVid, cp0: q0, cp1: r0 },
+      { id: nextEid, v0: nextVid, v1: edge.v1, cp0: r1, cp1: q2 },
+    )
+  } else {
+    const s = lerp({ x: a.x, y: a.y }, { x: b.x, y: b.y }, t)
+    net.vertices.push({ id: nextVid, x: s.x, y: s.y })
+    net.edges.splice(
+      edgeIndex,
+      1,
+      { id: edge.id, v0: edge.v0, v1: nextVid, cp0: null, cp1: null },
+      { id: nextEid, v0: nextVid, v1: edge.v1, cp0: null, cp1: null },
+    )
+  }
+  return nextVid
+}
+
+/**
  * Remove a vertex, healing the path through it: two segments meeting there
  * become one, so deleting a point from a closed outline leaves it closed
  * instead of punching a hole in it.

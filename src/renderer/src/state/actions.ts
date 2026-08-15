@@ -17,6 +17,7 @@ import type {
   TextNode,
   TextStyleProps,
   Vec2,
+  VectorNetwork,
 } from '../engine/types'
 import { cloneNode, createNode, createPage, isContainer, newId } from '../engine/types'
 import type { PatchOp, NodeBundle } from '../engine/commands'
@@ -31,6 +32,7 @@ import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../engine/hit-test'
 import { collapseAll, expandSelected } from '../engine/layer-collapse'
+import { bridgeVertices, joinVertices } from '../engine/vector-connect'
 import { importSvgDocument } from '../engine/import/svg-import'
 import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
 import { nodeOutline, type SubPath } from '../engine/shapes'
@@ -291,6 +293,50 @@ export function selectAll(): void {
   const container = editor.get().enteredContainer
   const list = container && scene.hasNode(container) ? scene.childListOf(container) : scene.rootIds()
   setSelection(list.filter((id) => !scene.getNode(id)?.locked))
+}
+
+// ---------------------------------------------------------------------------
+// Vector edit commands that act on the selected POINTS
+//
+// The rules are in engine/vector-connect; these are the parts that need the
+// document: find the node, land one history entry, and say why when a command
+// declines. They live here rather than in the pointer controller because
+// nothing about them is a gesture — the same command comes from a button, a
+// menu and a shortcut.
+// ---------------------------------------------------------------------------
+
+/** Run `edit` against the open path's network and commit it as one entry. */
+function editOpenVector(label: string, edit: (net: VectorNetwork) => string | null): void {
+  const { vectorEditId } = editor.get()
+  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
+  if (!node || node.type !== 'VECTOR') return
+  const before = structuredClone(node.network)
+  const refusal = edit(node.network)
+  if (refusal) {
+    // Restored, not trusted: a rule that gave up half way would otherwise leave
+    // the shape in whatever state it got to before it changed its mind.
+    node.network = before
+    setStatus(refusal)
+    return
+  }
+  documentStore.scene.bump()
+  documentStore.commit(
+    [{ kind: 'update', id: node.id, before: { network: before }, after: { network: structuredClone(node.network) } }],
+    label,
+    true,
+  )
+}
+
+/** Connect the two selected points with a straight segment. */
+export function joinVectorPoints(): void {
+  const sel = editor.get().vectorSelection
+  editOpenVector('Join Points', (net) => joinVertices(net, sel))
+}
+
+/** Connect selected points across two detached parts of the same shape. */
+export function bridgeVectorPoints(): void {
+  const sel = editor.get().vectorSelection
+  editOpenVector('Bridge Parts', (net) => bridgeVertices(net, sel))
 }
 
 // ---------------------------------------------------------------------------

@@ -156,6 +156,8 @@ export function CanvasView() {
           showRulers: state.showRulers,
           vectorEditId: state.vectorEditId,
           vectorSelection: state.vectorSelection,
+          vectorAddPreview: state.vectorAddPreview,
+          knifeDraft: state.knifeDraft,
           arcDrag: state.arcDrag,
           cornerDrag: state.cornerDrag,
           rotating: state.rotating,

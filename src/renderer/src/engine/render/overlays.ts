@@ -70,6 +70,10 @@ export interface OverlayState {
   showRulers?: boolean
   vectorEditId?: NodeId | null
   vectorSelection?: number[]
+  /** Where an Add click would land, in world space. */
+  vectorAddPreview?: Vec2 | null
+  /** The knife's cut line while it is being drawn, in world space. */
+  knifeDraft?: { a: Vec2; b: Vec2; pending: boolean } | null
 }
 
 /** Screen-space corners (nw, ne, se, sw order) of a node's oriented box. */
@@ -148,6 +152,30 @@ export const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
     '<path d="M2.6 12.1 5.5 7.2 8.4 12.1Z" fill="#fff"/>' +
     '</svg>',
 )}") 12 12, alias`
+
+/**
+ * The pointer used inside vector edit, where CSS would otherwise give you
+ * `crosshair`.
+ *
+ * A crosshair is the right cursor for PLACING something — its hotspot is the
+ * middle, and the four arms bracket the spot you are about to commit to. It is
+ * the wrong cursor for POINTING AT something that is already there, which is
+ * what editing a path mostly is: the arms cover the anchor you are reaching
+ * for, and the thing you are aiming with is a gap.
+ *
+ * Same construction as the rotate cursor above — white ink over a black rim, so
+ * it survives a dark canvas, a light shape and a coloured one alike — and the
+ * hotspot is the TIP, where the white fill comes to a point. The rim bleeds
+ * about 0.8px past it, which is why the fill tip and not the rim tip is the
+ * quoted point: the pixel you are aiming with should be the one that looks
+ * sharp.
+ */
+export const ARROW_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">' +
+    '<path d="M2 2 2 17.2 6.1 13.4 8.8 19.6 11.4 18.4 8.8 12.5 14.2 12.2Z"' +
+    ' fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/>' +
+    '</svg>',
+)}") 2 2, default`
 
 export interface Handle {
   kind: HandleKind
@@ -1003,4 +1031,70 @@ function drawVectorEdit(ctx: CanvasRenderingContext2D, scene: SceneGraph, state:
     ctx.fill()
     ctx.stroke()
   }
+
+  drawAddPreview(ctx, state)
+  drawKnifeDraft(ctx, state)
+}
+
+/**
+ * Where an Add click would land: a hollow dot ON the outline, sized between a
+ * real anchor and nothing.
+ *
+ * Hollow rather than filled, and smaller than a placed anchor, because the
+ * whole job of this dot is to be obviously not-yet-a-point. Drawn last so it
+ * sits over the segment it belongs to.
+ */
+function drawAddPreview(ctx: CanvasRenderingContext2D, state: OverlayState): void {
+  if (!state.vectorAddPreview) return
+  const s = worldToScreen(state.camera, state.vectorAddPreview)
+  ctx.save()
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = ACCENT
+  ctx.fillStyle = 'rgba(79,158,255,0.25)'
+  ctx.beginPath()
+  ctx.arc(s.x, s.y, VERTEX_R + 1.5, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  // A small cross inside, so the dot reads as "this will become a point"
+  // rather than as an anchor you could already drag.
+  ctx.beginPath()
+  ctx.moveTo(s.x - 2.5, s.y)
+  ctx.lineTo(s.x + 2.5, s.y)
+  ctx.moveTo(s.x, s.y - 2.5)
+  ctx.lineTo(s.x, s.y + 2.5)
+  ctx.lineWidth = 1
+  ctx.strokeStyle = '#ffffff'
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
+ * The knife's cut line. Dashed, because it is a proposal rather than geometry,
+ * and with a ring at each end so a snapped endpoint is visibly ON an anchor —
+ * which is the difference between a dot-to-dot cut and a near miss.
+ */
+function drawKnifeDraft(ctx: CanvasRenderingContext2D, state: OverlayState): void {
+  const draft = state.knifeDraft
+  if (!draft) return
+  const a = worldToScreen(state.camera, draft.a)
+  const b = worldToScreen(state.camera, draft.b)
+  ctx.save()
+  ctx.lineWidth = 3
+  ctx.strokeStyle = 'rgba(0,0,0,0.45)'
+  ctx.setLineDash([6, 4])
+  ctx.beginPath()
+  ctx.moveTo(a.x, a.y)
+  ctx.lineTo(b.x, b.y)
+  ctx.stroke()
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = '#ff5c5c'
+  ctx.stroke()
+  ctx.setLineDash([])
+  for (const p of [a, b]) {
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
+    ctx.fillStyle = '#ff5c5c'
+    ctx.fill()
+  }
+  ctx.restore()
 }

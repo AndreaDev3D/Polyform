@@ -2,7 +2,7 @@
 // Scene data lives in DocumentStore; this holds only view/interaction state.
 
 import { create } from 'zustand'
-import type { NodeId } from '../engine/types'
+import type { NodeId, Vec2 } from '../engine/types'
 import type { AABB } from '../engine/geometry'
 import type { Camera } from '../engine/render/canvas2d'
 import type { ArcHandleKind, CornerKind, PenDraft, SnapGuide } from '../engine/render/overlays'
@@ -21,12 +21,27 @@ export type Tool =
 
 /**
  * What a drag means inside vector edit. Figma splits this into a second row of
- * tools; the same idea, kept to the three that change what a drag DOES:
+ * tools; the same idea, kept to the ones that change what a drag DOES:
  *   move    drag points and handles; click a segment to add a point
+ *   add     a preview dot rides the outline; click to place it
  *   bend    drag a segment and the curve follows the pointer
+ *   knife   drag, or click twice, to cut the outline in two
+ *   paint   click a part of the shape to give it its own fill
  *   delete  click points to remove them, segments to open the path
  */
-export type VectorMode = 'move' | 'bend' | 'delete'
+export type VectorMode = 'move' | 'add' | 'bend' | 'knife' | 'paint' | 'delete'
+
+/** The knife's cut line while it is being drawn, in world space. */
+export interface KnifeDraft {
+  a: Vec2
+  b: Vec2
+  /**
+   * Waiting for a second click rather than riding a held button. A drag and two
+   * clicks are the same cut, and both have to be possible: dot-to-dot across a
+   * wide shape is a horrible drag and a natural pair of clicks.
+   */
+  pending: boolean
+}
 
 export interface ContextMenuState {
   x: number
@@ -59,6 +74,14 @@ interface EditorState {
   vectorSelection: number[]
   /** What a drag does while editing a vector: move points, bend segments, delete. */
   vectorMode: VectorMode
+  /**
+   * Where an Add click would land, in world space, or null when the pointer is
+   * not over the outline. Shown as a dot so the point is placed where you aimed
+   * rather than wherever the nearest curve happened to be.
+   */
+  vectorAddPreview: Vec2 | null
+  /** The knife's cut line while it is being drawn. */
+  knifeDraft: KnifeDraft | null
   /** Arc handle under an active drag, so the overlay can show its readout. */
   arcDrag: ArcHandleKind | null
   /** Corner-radius handle under an active drag. */
@@ -122,6 +145,7 @@ interface EditorState {
   setVectorEditId: (id: NodeId | null) => void
   setVectorSelection: (ids: number[]) => void
   setVectorMode: (mode: VectorMode) => void
+  setKnifeDraft: (d: KnifeDraft | null) => void
   setArcDrag: (k: ArcHandleKind | null) => void
   setCornerDrag: (k: CornerKind | null) => void
   setRotating: (v: boolean) => void
@@ -155,6 +179,8 @@ export const useEditor = create<EditorState>((set) => ({
   orbitingId: null,
   vectorSelection: [],
   vectorMode: 'move' as const,
+  vectorAddPreview: null,
+  knifeDraft: null,
   arcDrag: null,
   cornerDrag: null,
   rotating: false,
@@ -198,9 +224,14 @@ export const useEditor = create<EditorState>((set) => ({
   setShowRulers: (showRulers) => set({ showRulers }),
   // Leaving vector edit resets the mode: 'delete' is not something you want
   // to still be in next time you double-click a shape.
-  setVectorEditId: (vectorEditId) => set({ vectorEditId, vectorSelection: [], vectorMode: 'move' }),
+  setVectorEditId: (vectorEditId) =>
+    set({ vectorEditId, vectorSelection: [], vectorMode: 'move', knifeDraft: null, vectorAddPreview: null }),
   setVectorSelection: (vectorSelection) => set({ vectorSelection }),
-  setVectorMode: (vectorMode) => set({ vectorMode }),
+  // Leaving a mode drops whatever it was half-way through drawing: a cut line
+  // still hanging on screen after you have switched to Move is a promise the
+  // tool is no longer in a position to keep.
+  setVectorMode: (vectorMode) => set({ vectorMode, knifeDraft: null, vectorAddPreview: null }),
+  setKnifeDraft: (knifeDraft) => set({ knifeDraft }),
   setArcDrag: (arcDrag) => set({ arcDrag }),
   setCornerDrag: (cornerDrag) => set({ cornerDrag }),
   setRotating: (rotating) => set({ rotating }),

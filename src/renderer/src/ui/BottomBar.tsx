@@ -12,7 +12,15 @@
 // hovering over the drawing.
 
 import { useEditor, type Tool, type VectorMode } from '../state/editor'
-import { booleanSelection, carveSelection, topSelection, zoomTo, zoomToSelection } from '../state/actions'
+import {
+  booleanSelection,
+  bridgeVectorPoints,
+  carveSelection,
+  joinVectorPoints,
+  topSelection,
+  zoomTo,
+  zoomToSelection,
+} from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { READING_WINDOW_MS, isReading, useMcpStatus } from '../agent/status'
 import { useEffect, useRef, useState } from 'react'
@@ -21,6 +29,10 @@ import type { MenuItemDef } from '../../../shared/menu-def'
 import { formatZoom, parseZoomText } from '../engine/zoom'
 import {
   BendIcon,
+  BridgeIcon,
+  JoinIcon,
+  KnifeIcon,
+  PointAddIcon,
   BoolExcludeIcon,
   BoolIntersectIcon,
   BoolSubtractIcon,
@@ -314,7 +326,19 @@ function AgentButton() {
 
 const VECTOR_MODES: { mode: VectorMode; title: string; hint: string; icon: React.ReactNode }[] = [
   { mode: 'move', title: 'Move', hint: 'Drag points and handles · click a segment to add a point', icon: <PointMoveIcon /> },
+  {
+    mode: 'add',
+    title: 'Add',
+    hint: 'A dot rides the outline showing where the point lands · click a point you already have to pick it up instead',
+    icon: <PointAddIcon />,
+  },
   { mode: 'bend', title: 'Bend', hint: 'Drag a segment and the curve follows the pointer', icon: <BendIcon /> },
+  {
+    mode: 'knife',
+    title: 'Knife',
+    hint: 'Drag across the shape, or click twice, to cut it in two · ends snap to points',
+    icon: <KnifeIcon />,
+  },
   { mode: 'delete', title: 'Delete', hint: 'Click a point to remove it · click a segment to open the path', icon: <PointDeleteIcon /> },
 ]
 
@@ -342,6 +366,28 @@ function VectorModes() {
           <span className="text-[11px]">{m.title}</span>
         </button>
       ))}
+      <span className="w-px h-5 bg-[var(--pf-border)] mx-1" />
+      {/* Commands, not modes: they act on the points already selected and hand
+          the tool straight back. Icon-only and unpressed, so they do not read
+          as a state you are now in. */}
+      <button
+        className="pf-tool-btn"
+        title="Join — connect two selected points with a segment"
+        aria-label="Join points"
+        disabled={points.length !== 2}
+        onClick={() => joinVectorPoints()}
+      >
+        <JoinIcon />
+      </button>
+      <button
+        className="pf-tool-btn"
+        title="Bridge — connect selected points across two detached parts of this shape"
+        aria-label="Bridge parts"
+        disabled={points.length < 2}
+        onClick={() => bridgeVectorPoints()}
+      >
+        <BridgeIcon />
+      </button>
       <span className="w-px h-5 bg-[var(--pf-border)] mx-1" />
       <span className="text-[11px] text-[var(--pf-text-dim)] tabular-nums px-1">
         {points.length > 0 ? `${points.length} point${points.length > 1 ? 's' : ''}` : 'no point selected'}

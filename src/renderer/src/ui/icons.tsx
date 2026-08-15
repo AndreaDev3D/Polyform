@@ -479,6 +479,36 @@ export const BendIcon = (p: P) => (
     <circle cx="14" cy="3.5" r="1.6" />
   </I>
 )
+/** Add a point: an anchor on a run of path, with a plus. */
+export const PointAddIcon = (p: P) => (
+  <I {...p}>
+    <path d="M1.5 11h9" />
+    <circle cx="6" cy="11" r="2.2" fill="currentColor" stroke="none" />
+    <path d="M12 2v5M9.5 4.5h5" />
+  </I>
+)
+/** Knife: a blade on the diagonal, with the cut it left behind. */
+export const KnifeIcon = (p: P) => (
+  <I {...p}>
+    <path d="M3 13l6.5-6.5 3.5-3.5v4.5L6.5 14z" />
+    <path d="M1 15h4" />
+  </I>
+)
+/** Join: two loose ends brought together by a segment. */
+export const JoinIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="3.5" cy="8" r="2" fill="currentColor" stroke="none" />
+    <circle cx="12.5" cy="8" r="2" fill="currentColor" stroke="none" />
+    <path d="M5.5 8h5" />
+  </I>
+)
+/** Bridge: two separate runs, tied together by a pair of segments. */
+export const BridgeIcon = (p: P) => (
+  <I {...p}>
+    <path d="M1.5 3.5h4M10.5 3.5h4M1.5 12.5h4M10.5 12.5h4" />
+    <path d="M5.5 3.5h5M5.5 12.5h5" strokeDasharray="2 1.5" />
+  </I>
+)
 /** Delete points: an anchor with a cross. */
 export const PointDeleteIcon = (p: P) => (
   <I {...p}>

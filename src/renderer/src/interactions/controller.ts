@@ -16,13 +16,14 @@ import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, 
 import { clampZoom } from '../engine/zoom'
 import { documentStore } from '../state/document'
 import { editor, type Tool } from '../state/editor'
-import { OpRecorder, guidesChanged, setSelection, topSelection } from '../state/actions'
+import { OpRecorder, guidesChanged, setSelection, setStatus, topSelection } from '../state/actions'
 import { findDropFrame, hitTestAll, nearestInstanceAncestor, resolveClickTarget, nodesInRect } from '../engine/hit-test'
 import { constrainFrameChildren } from '../engine/constraints'
 import type { PatchOp } from '../engine/commands'
 import { removeSubtreeOps } from '../engine/commands'
 import {
   CORNER_KEYS,
+  ARROW_CURSOR,
   ROTATE_CURSOR,
   RULER_SIZE,
   arcEditTarget,
@@ -46,7 +47,8 @@ import {
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
-import { applyMirror, bendEdge, removeEdge, removeVertex } from '../engine/vector-edit'
+import { applyMirror, bendEdge, bezierAt, removeEdge, removeVertex, splitEdgeAt } from '../engine/vector-edit'
+import { knifeCut } from '../engine/vector-knife'
 import { snapBox } from './snapping'
 
 /** Vector-edit hit radii in screen px — generous enough to grab at any zoom. */
@@ -54,6 +56,12 @@ const VERTEX_HIT_PX = 7
 const EDGE_HIT_PX = 5
 /** Bend grabs a wider band: you are aiming at a line, not at a dot. */
 const BEND_HIT_PX = 9
+/**
+ * How far the knife has to travel with the button down before the release
+ * counts as "I have finished the cut" rather than "that was the first of two
+ * clicks". Below this a press is a click, whatever the hand did.
+ */
+const KNIFE_DRAG_PX = 4
 
 interface PointerMods {
   shift: boolean
@@ -132,6 +140,8 @@ type Mode =
   | { kind: 'vector-cp'; edgeIndex: number; key: 'cp0' | 'cp1' }
   /** Bend: the segment and the point along it that follows the pointer. */
   | { kind: 'vector-bend'; edgeIndex: number; t: number }
+  /** Knife dragged with the button held. The click-click form stays in `idle`. */
+  | { kind: 'vector-knife'; startScreen: Vec2 }
   | { kind: 'orbit'; nodeId: NodeId; lastScreen: Vec2; before: ModelPose; dolly: boolean }
 
 interface PenAnchor {
@@ -860,11 +870,21 @@ export class InteractionController {
         documentStore.transient()
         return
       }
+      case 'vector-knife': {
+        this.trackKnife(screen, world)
+        return
+      }
       case 'idle': {
         // The pen rubber-band must track the cursor between clicks too
         // (mode returns to idle after each anchor is placed).
         if (state.tool === 'pen' && state.penDraft) {
           this.updatePenPreview(world, state.camera.zoom)
+          return
+        }
+        // Same for a cut waiting on its second click: the line has to follow the
+        // pointer, not the last place the button went down.
+        if (state.vectorEditId && state.knifeDraft?.pending) {
+          this.trackKnife(screen, world)
           return
         }
         // Hover + cursor updates, throttled.
@@ -895,7 +915,11 @@ export class InteractionController {
     const state = editor.get()
     if (state.vectorEditId) {
       if (state.hover) editor.set({ hover: null })
-      this.cursorOverride = 'crosshair'
+      // Our own arrow, not a crosshair: in here the pointer is picking out
+      // anchors that already exist, and a crosshair's arms sit on top of the
+      // one you are reaching for. See ARROW_CURSOR.
+      this.cursorOverride = ARROW_CURSOR
+      this.updateVectorPreview(screen, state)
       return
     }
     if (state.tool !== 'select') {
@@ -1196,6 +1220,19 @@ export class InteractionController {
       case 'vector-bend':
         this.commitVectorGesture()
         break
+      case 'vector-knife': {
+        // Which gesture this was is only knowable now. A press that went
+        // somewhere is a drag, and the cut is finished; a press that stayed put
+        // is the first of two clicks, so the line is left following the pointer
+        // until the second one lands.
+        const moved = Math.hypot(screen.x - this.mode.startScreen.x, screen.y - this.mode.startScreen.y)
+        if (moved >= KNIFE_DRAG_PX) this.commitKnife()
+        else {
+          const draft = editor.get().knifeDraft
+          if (draft) editor.set({ knifeDraft: { ...draft, pending: true } })
+        }
+        break
+      }
       case 'orbit': {
         const { nodeId, before } = this.mode
         const node = this.scene.getNode(nodeId)
@@ -1437,6 +1474,46 @@ export class InteractionController {
     const net = node.network
     const selected = new Set(state.vectorSelection)
 
+    // Knife: press to start the cut, or land the one already waiting. Both the
+    // drag and the two-click form begin here; which one it was is decided on
+    // release, by whether the pointer actually went anywhere.
+    if (state.vectorMode === 'knife') {
+      if (state.knifeDraft?.pending) {
+        editor.set({ knifeDraft: { ...state.knifeDraft, b: this.knifeSnap(screen, world), pending: false } })
+        this.commitKnife()
+        return
+      }
+      const start = this.knifeSnap(screen, world)
+      editor.set({ knifeDraft: { a: start, b: start, pending: false } })
+      this.mode = { kind: 'vector-knife', startScreen: screen }
+      return
+    }
+
+    // Add: place a point where the preview dot is. Landing on an anchor that
+    // already exists hands the gesture to Move instead of stacking a second
+    // point on top of the first — two anchors in the same place are impossible
+    // to tell apart afterwards and impossible to select separately.
+    if (state.vectorMode === 'add') {
+      const onAnchor = this.vectorHandleAt(node, screen, selected)
+      if (onAnchor) {
+        editor.set({ vectorMode: 'move', vectorAddPreview: null })
+        this.vectorPointerDown(screen, world, mods, isDouble)
+        return
+      }
+      const hit = this.nearestEdgePoint(node, screen, state.camera.zoom)
+      if (hit && hit.distPx <= EDGE_HIT_PX) {
+        this.gestureNetwork = structuredClone(net)
+        const vid = this.splitEdge(node, hit.edgeIndex, hit.t)
+        editor.set({ vectorSelection: [vid], vectorAddPreview: null })
+        this.scene.bump()
+        documentStore.transient()
+        // Draggable straight away, so placing a point and then nudging it is
+        // one gesture rather than two.
+        this.beginVectorVertexDrag(node, [vid], world, this.gestureNetwork)
+      }
+      return
+    }
+
     // Delete mode: a click removes what it lands on, points before segments.
     if (state.vectorMode === 'delete') {
       for (const v of net.vertices) {
@@ -1531,6 +1608,100 @@ export class InteractionController {
     }
   }
 
+  /**
+   * The preview a mode shows before you commit to anything: Add's dot on the
+   * outline. Cheap enough to run on every throttled hover tick, and cleared the
+   * moment it would be a lie.
+   */
+  private updateVectorPreview(screen: Vec2, state: ReturnType<typeof editor.get>): void {
+    if (state.vectorMode !== 'add') {
+      if (state.vectorAddPreview) editor.set({ vectorAddPreview: null })
+      return
+    }
+    const id = state.vectorEditId
+    const node = id ? this.scene.getNode(id) : null
+    if (!node || node.type !== 'VECTOR') return
+    // Over an existing anchor there is nothing to add: that click will pick the
+    // anchor up instead, so promising a new one would be a lie about what
+    // happens next.
+    const onAnchor = this.vectorHandleAt(node, screen, new Set(state.vectorSelection))
+    const hit = onAnchor ? null : this.nearestEdgePoint(node, screen, state.camera.zoom)
+    const next =
+      hit && hit.distPx <= EDGE_HIT_PX ? this.edgePointWorld(node, hit.edgeIndex, hit.t) : null
+    const prev = state.vectorAddPreview
+    const same = next && prev && Math.abs(next.x - prev.x) < 1e-6 && Math.abs(next.y - prev.y) < 1e-6
+    if (!same && (next || prev)) editor.set({ vectorAddPreview: next })
+  }
+
+  /** World-space point at parameter t along one edge. */
+  private edgePointWorld(node: VectorNode, edgeIndex: number, t: number): Vec2 | null {
+    const net = node.network
+    const e = net.edges[edgeIndex]
+    if (!e) return null
+    const a = net.vertices.find((v) => v.id === e.v0)
+    const b = net.vertices.find((v) => v.id === e.v1)
+    if (!a || !b) return null
+    const p0 = { x: a.x, y: a.y }
+    const p1 = { x: b.x, y: b.y }
+    const local = bezierAt(p0, e.cp0 ?? p0, e.cp1 ?? p1, p1, t)
+    return applyMat(this.scene.worldMatrix(node.id), local)
+  }
+
+  /**
+   * Move the loose end of the cut, snapping it to an anchor within reach.
+   *
+   * The snap is what makes "dot to dot" a real gesture rather than a steady
+   * hand: a cut meant to run between two anchors has to actually land on them,
+   * or it leaves a sliver of outline behind that nobody asked for.
+   */
+  private trackKnife(screen: Vec2, world: Vec2): void {
+    const state = editor.get()
+    const draft = state.knifeDraft
+    if (!draft) return
+    editor.set({ knifeDraft: { ...draft, b: this.knifeSnap(screen, world) } })
+  }
+
+  private knifeSnap(screen: Vec2, world: Vec2): Vec2 {
+    const state = editor.get()
+    const id = state.vectorEditId
+    const node = id ? this.scene.getNode(id) : null
+    if (!node || node.type !== 'VECTOR') return world
+    const m = this.scene.worldMatrix(id!)
+    let best: Vec2 | null = null
+    let bestD = VERTEX_HIT_PX
+    for (const v of node.network.vertices) {
+      const s = worldToScreen(state.camera, applyMat(m, { x: v.x, y: v.y }))
+      const d = Math.hypot(s.x - screen.x, s.y - screen.y)
+      if (d <= bestD) {
+        bestD = d
+        best = applyMat(m, { x: v.x, y: v.y })
+      }
+    }
+    return best ?? world
+  }
+
+  /** Apply the cut currently on screen, if it is a cut at all. */
+  private commitKnife(): void {
+    const state = editor.get()
+    const draft = state.knifeDraft
+    const id = state.vectorEditId
+    const node = id ? this.scene.getNode(id) : null
+    editor.set({ knifeDraft: null })
+    if (!draft || !node || node.type !== 'VECTOR') return
+    const inv = matInvert(this.scene.worldMatrix(node.id))
+    const a = applyMat(inv, draft.a)
+    const b = applyMat(inv, draft.b)
+    const before = structuredClone(node.network)
+    const refusal = knifeCut(node.network, a, b)
+    if (refusal) {
+      setStatus(refusal)
+      return
+    }
+    // Every anchor is a new one, so the old selection names nothing.
+    editor.set({ vectorSelection: [] })
+    this.commitVectorChange(node, before, 'Knife Cut')
+  }
+
   /** True when the pointer is on a vertex or on a visible control handle. */
   private vectorHandleAt(node: VectorNode, screen: Vec2, selected: Set<number>): boolean {
     const state = editor.get()
@@ -1611,41 +1782,7 @@ export class InteractionController {
 
   /** Split an edge at parameter t; returns the new vertex id. */
   private splitEdge(node: VectorNode, edgeIndex: number, t: number): number {
-    const net = node.network
-    const edge = net.edges[edgeIndex]
-    const vmap = new Map(net.vertices.map((v) => [v.id, v]))
-    const a = vmap.get(edge.v0)!
-    const b = vmap.get(edge.v1)!
-    const nextVid = Math.max(0, ...net.vertices.map((v) => v.id)) + 1
-    const nextEid = Math.max(0, ...net.edges.map((e) => e.id)) + 1
-    const lerp = (p: Vec2, q: Vec2, s: number): Vec2 => ({ x: p.x + (q.x - p.x) * s, y: p.y + (q.y - p.y) * s })
-
-    if (edge.cp0 || edge.cp1) {
-      // De Casteljau split of the cubic.
-      const p0 = { x: a.x, y: a.y }
-      const p3 = { x: b.x, y: b.y }
-      const c0 = edge.cp0 ?? p0
-      const c1 = edge.cp1 ?? p3
-      const q0 = lerp(p0, c0, t)
-      const q1 = lerp(c0, c1, t)
-      const q2 = lerp(c1, p3, t)
-      const r0 = lerp(q0, q1, t)
-      const r1 = lerp(q1, q2, t)
-      const s = lerp(r0, r1, t)
-      net.vertices.push({ id: nextVid, x: s.x, y: s.y })
-      net.edges.splice(edgeIndex, 1,
-        { id: edge.id, v0: edge.v0, v1: nextVid, cp0: q0, cp1: r0 },
-        { id: nextEid, v0: nextVid, v1: edge.v1, cp0: r1, cp1: q2 },
-      )
-    } else {
-      const s = lerp({ x: a.x, y: a.y }, { x: b.x, y: b.y }, t)
-      net.vertices.push({ id: nextVid, x: s.x, y: s.y })
-      net.edges.splice(edgeIndex, 1,
-        { id: edge.id, v0: edge.v0, v1: nextVid, cp0: null, cp1: null },
-        { id: nextEid, v0: nextVid, v1: edge.v1, cp0: null, cp1: null },
-      )
-    }
-    return nextVid
+    return splitEdgeAt(node.network, edgeIndex, t)
   }
 
   /** Commit the in-flight vector gesture as one history entry. */
