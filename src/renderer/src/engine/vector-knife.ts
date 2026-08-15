@@ -16,88 +16,8 @@
 
 import { flattenCubic } from './geometry'
 import { networkParts, type NetworkPart } from './vector-parts'
+import { EPS, cycleSteps, dropPart, emitLoop, splitStep, stepLength, type Step } from './vector-rings'
 import type { Vec2, VectorNetwork } from './types'
-
-/** One segment of a loop, always in walk order. */
-interface Step {
-  p0: Vec2
-  p1: Vec2
-  c0: Vec2 | null
-  c1: Vec2 | null
-}
-
-/** Anything shorter than this is a rounding artefact, not a segment. */
-const EPS = 1e-7
-
-function lerp(p: Vec2, q: Vec2, t: number): Vec2 {
-  return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t }
-}
-
-function stepLength(s: Step): number {
-  return Math.hypot(s.p1.x - s.p0.x, s.p1.y - s.p0.y)
-}
-
-/** Split one step at t, both halves lying exactly on the original. */
-function splitStep(s: Step, t: number): [Step, Step] {
-  if (!s.c0 && !s.c1) {
-    const m = lerp(s.p0, s.p1, t)
-    return [
-      { p0: s.p0, p1: m, c0: null, c1: null },
-      { p0: m, p1: s.p1, c0: null, c1: null },
-    ]
-  }
-  const c0 = s.c0 ?? s.p0
-  const c1 = s.c1 ?? s.p1
-  const q0 = lerp(s.p0, c0, t)
-  const q1 = lerp(c0, c1, t)
-  const q2 = lerp(c1, s.p1, t)
-  const r0 = lerp(q0, q1, t)
-  const r1 = lerp(q1, q2, t)
-  const mid = lerp(r0, r1, t)
-  return [
-    { p0: s.p0, p1: mid, c0: q0, c1: r0 },
-    { p0: mid, p1: s.p1, c0: r1, c1: q2 },
-  ]
-}
-
-/** The loop as an ordered ring of steps, or null if it is not one clean ring. */
-function cycleSteps(net: VectorNetwork, part: NetworkPart): Step[] | null {
-  const at = new Map(net.vertices.map((v) => [v.id, v]))
-  const incident = new Map<number, number[]>()
-  for (const ei of part.edges) {
-    const e = net.edges[ei]
-    if (!incident.has(e.v0)) incident.set(e.v0, [])
-    if (!incident.has(e.v1)) incident.set(e.v1, [])
-    incident.get(e.v0)!.push(ei)
-    incident.get(e.v1)!.push(ei)
-  }
-  const start = part.vertices[0]
-  const steps: Step[] = []
-  let cur = start
-  let cameFrom = -1
-  for (let guard = 0; guard <= part.edges.length; guard++) {
-    const ei = (incident.get(cur) ?? []).find((i) => i !== cameFrom)
-    if (ei === undefined) return null
-    const e = net.edges[ei]
-    const to = e.v0 === cur ? e.v1 : e.v0
-    const a = at.get(cur)
-    const b = at.get(to)
-    if (!a || !b) return null
-    // A stored edge may run against the walk, and then its control points swap:
-    // cp0 belongs to v0, which is the END of this step, not its start.
-    const forward = e.v0 === cur
-    steps.push({
-      p0: { x: a.x, y: a.y },
-      p1: { x: b.x, y: b.y },
-      c0: forward ? (e.cp0 ? { ...e.cp0 } : null) : e.cp1 ? { ...e.cp1 } : null,
-      c1: forward ? (e.cp1 ? { ...e.cp1 } : null) : e.cp0 ? { ...e.cp0 } : null,
-    })
-    cameFrom = ei
-    cur = to
-    if (cur === start) break
-  }
-  return steps.length === part.edges.length ? steps : null
-}
 
 /**
  * Where the cut crosses the ring, as a fractional position around it
@@ -158,29 +78,6 @@ function arcBetween(steps: Step[], from: number, to: number): Step[] {
     cursor = piece
   }
   return out
-}
-
-/** Append a closed loop of steps to the network as fresh vertices and edges. */
-function emitLoop(net: VectorNetwork, steps: Step[]): void {
-  if (steps.length < 2) return
-  let vid = Math.max(0, ...net.vertices.map((v) => v.id))
-  let eid = Math.max(0, ...net.edges.map((e) => e.id))
-  const ids = steps.map((s) => {
-    vid += 1
-    net.vertices.push({ id: vid, x: s.p0.x, y: s.p0.y })
-    return vid
-  })
-  steps.forEach((s, i) => {
-    eid += 1
-    net.edges.push({ id: eid, v0: ids[i], v1: ids[(i + 1) % steps.length], cp0: s.c0, cp1: s.c1 })
-  })
-}
-
-function dropPart(net: VectorNetwork, part: NetworkPart): void {
-  const gone = new Set(part.vertices)
-  const goneEdges = new Set(part.edges)
-  net.edges = net.edges.filter((_, i) => !goneEdges.has(i))
-  net.vertices = net.vertices.filter((v) => !gone.has(v.id))
 }
 
 /**

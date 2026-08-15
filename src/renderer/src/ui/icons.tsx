@@ -509,6 +509,22 @@ export const BridgeIcon = (p: P) => (
     <path d="M5.5 3.5h5M5.5 12.5h5" strokeDasharray="2 1.5" />
   </I>
 )
+/** Dissolve: two overlapping outlines becoming one, the seam gone dashed. */
+export const DissolveIcon = (p: P) => (
+  <I {...p}>
+    <path d="M6.5 3.5a4.5 4.5 0 0 0 0 9M9.5 3.5a4.5 4.5 0 0 1 0 9" />
+    <path d="M6.5 3.5h3M6.5 12.5h3" />
+    <path d="M8 4.5v7" strokeDasharray="1.5 1.5" opacity="0.55" />
+  </I>
+)
+/** Paint bucket: a tipped pail with a drop under it. */
+export const BucketIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 7.2 7.2 2.5l5.6 5.6-4.7 4.7a1.5 1.5 0 0 1-2.1 0L2.5 9.3a1.5 1.5 0 0 1 0-2.1z" />
+    <path d="M5 4.7 8.8 8.5" />
+    <path d="M14 10.5c.9 1.2 1.3 2 1.3 2.5a1.3 1.3 0 0 1-2.6 0c0-.5.4-1.3 1.3-2.5z" fill="currentColor" stroke="none" />
+  </I>
+)
 /** Delete points: an anchor with a cross. */
 export const PointDeleteIcon = (p: P) => (
   <I {...p}>

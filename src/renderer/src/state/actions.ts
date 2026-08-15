@@ -33,6 +33,8 @@ import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../engine/hit-test'
 import { collapseAll, expandSelected } from '../engine/layer-collapse'
 import { bridgeVertices, joinVertices } from '../engine/vector-connect'
+import { dissolveParts } from '../engine/vector-dissolve'
+import { networkParts } from '../engine/vector-parts'
 import { importSvgDocument } from '../engine/import/svg-import'
 import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
 import { nodeOutline, type SubPath } from '../engine/shapes'
@@ -337,6 +339,25 @@ export function joinVectorPoints(): void {
 export function bridgeVectorPoints(): void {
   const sel = editor.get().vectorSelection
   editOpenVector('Bridge Parts', (net) => bridgeVertices(net, sel))
+}
+
+/**
+ * Merge overlapping parts of the open path into single outlines.
+ *
+ * Says how many parts are left afterwards, always. Dissolve is the one command
+ * here whose success is not obvious on screen — two overlapping shapes look
+ * identical before and after if they were the same colour — and geometry it
+ * cannot walk into one outline leaves more parts than you expected. A count is
+ * the difference between "it worked" and "it did some of it".
+ */
+export function dissolveVectorParts(): void {
+  const { vectorEditId } = editor.get()
+  editOpenVector('Dissolve Parts', (net) => dissolveParts(net))
+  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
+  if (!node || node.type !== 'VECTOR') return
+  if (editor.get().status) return // a refusal already said more than a count would
+  const left = networkParts(node.network).length
+  setStatus(left === 1 ? 'Dissolved into one outline' : `Dissolved — ${left} parts left`)
 }
 
 // ---------------------------------------------------------------------------

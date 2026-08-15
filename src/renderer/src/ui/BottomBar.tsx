@@ -15,6 +15,7 @@ import { useEditor, type Tool, type VectorMode } from '../state/editor'
 import {
   booleanSelection,
   bridgeVectorPoints,
+  dissolveVectorParts,
   carveSelection,
   joinVectorPoints,
   topSelection,
@@ -30,6 +31,7 @@ import { formatZoom, parseZoomText } from '../engine/zoom'
 import {
   BendIcon,
   BridgeIcon,
+  DissolveIcon,
   JoinIcon,
   KnifeIcon,
   PointAddIcon,
@@ -387,6 +389,17 @@ function VectorModes() {
         onClick={() => bridgeVectorPoints()}
       >
         <BridgeIcon />
+      </button>
+      {/* Not gated on the selection: dissolve acts on the whole path, because
+          which parts overlap is a fact about the shape rather than about what
+          you happen to have clicked. */}
+      <button
+        className="pf-tool-btn"
+        title="Dissolve — merge overlapping parts of this shape into one outline"
+        aria-label="Dissolve overlapping parts"
+        onClick={() => dissolveVectorParts()}
+      >
+        <DissolveIcon />
       </button>
       <span className="w-px h-5 bg-[var(--pf-border)] mx-1" />
       <span className="text-[11px] text-[var(--pf-text-dim)] tabular-nums px-1">
