@@ -35,6 +35,7 @@ import { collapseAll, expandSelected } from '../engine/layer-collapse'
 import { bridgeVertices, joinVertices } from '../engine/vector-connect'
 import { dissolveParts } from '../engine/vector-dissolve'
 import { networkParts } from '../engine/vector-parts'
+import { partAtPoint, withPartFill } from '../engine/vector-paint'
 import { importSvgDocument } from '../engine/import/svg-import'
 import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
 import { nodeOutline, type SubPath } from '../engine/shapes'
@@ -339,6 +340,44 @@ export function joinVectorPoints(): void {
 export function bridgeVectorPoints(): void {
   const sel = editor.get().vectorSelection
   editOpenVector('Bridge Parts', (net) => bridgeVertices(net, sel))
+}
+
+/**
+ * Give the part under `local` (the open path's own space) its own fill.
+ *
+ * Clicking a part that already carries exactly this colour clears it instead,
+ * so the bucket undoes itself with the same gesture that applied it — the
+ * alternative is a tool you can only ever add with.
+ */
+export function paintVectorPartAt(local: Vec2): void {
+  const { vectorEditId, paintColor } = editor.get()
+  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
+  if (!node || node.type !== 'VECTOR') return
+  const key = partAtPoint(node, local)
+  if (key === null) {
+    setStatus('Click inside a closed part of the shape to paint it')
+    return
+  }
+  const current = node.partFills?.[String(key)]
+  const same =
+    current?.length === 1 &&
+    current[0].type === 'SOLID' &&
+    current[0].color.r === paintColor.r &&
+    current[0].color.g === paintColor.g &&
+    current[0].color.b === paintColor.b &&
+    current[0].color.a === paintColor.a
+  const fills: Paint[] | null = same
+    ? null
+    : [{ type: 'SOLID', visible: true, opacity: 1, color: { ...paintColor } }]
+  const before = node.partFills ? structuredClone(node.partFills) : undefined
+  const after = withPartFill(node.partFills, key, fills)
+  documentStore.scene.updateNode(node.id, { partFills: after } as unknown as Partial<SceneNode>)
+  documentStore.scene.bump()
+  documentStore.commit(
+    [{ kind: 'update', id: node.id, before: { partFills: before }, after: { partFills: after } }],
+    same ? 'Clear Part Fill' : 'Paint Part',
+    true,
+  )
 }
 
 /**

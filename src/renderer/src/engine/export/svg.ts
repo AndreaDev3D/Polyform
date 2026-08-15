@@ -10,6 +10,7 @@ import { nodeOutline, subPathsToSvg } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
 import { perSideStroke, strokeSideRuns, strokeSideOutline, usesSideRegion } from '../strokesides'
+import { vectorPaintGroups } from '../vector-paint'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
@@ -174,9 +175,17 @@ function effectsFilter(ctx: SvgCtx, node: SceneNode): string {
   return ` filter="url(#${id})"`
 }
 
-async function fillElements(ctx: SvgCtx, node: SceneNode, d: string, fillRule: string): Promise<string> {
+async function fillElements(
+  ctx: SvgCtx,
+  node: SceneNode,
+  d: string,
+  fillRule: string,
+  // Which paints, and over which path. A per-part fill hands in that part's
+  // paints and that part's outline; everything else uses the node's own.
+  paints: Paint[] = node.fills,
+): Promise<string> {
   let out = ''
-  const visible = node.fills.filter((f) => f.visible)
+  const visible = paints.filter((f) => f.visible)
   for (const paint of visible) {
     if (paint.type === 'IMAGE') {
       const href = await imageHref(ctx, paint.assetHash)
@@ -292,7 +301,20 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
   if (!d) return ''
   const isOpen = node.type === 'LINE'
   const fillRule = node.type === 'VECTOR' && node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
-  const fills = isOpen ? '' : await fillElements(ctx, node, d, fillRule)
+  // Painted parts are one element each, because SVG has no way to say "this
+  // colour, but only for that subpath" — `fill` is one attribute per element.
+  const groups = node.type === 'VECTOR' ? vectorPaintGroups(node) : null
+  let fills = ''
+  if (!isOpen) {
+    if (groups) {
+      for (const group of groups) {
+        const gd = subPathsToSvg(group.subpaths)
+        if (gd) fills += await fillElements(ctx, node, gd, fillRule, group.fills)
+      }
+    } else {
+      fills = await fillElements(ctx, node, d, fillRule)
+    }
+  }
   const sideStroke = strokeSideElement(ctx, node, d)
   const stroke = sideStroke ? '' : strokeAttrs(ctx, node)
   const border = sideStroke || (stroke ? `<path d="${d}" fill="none"${stroke}/>` : '')

@@ -11,6 +11,7 @@
 // bridge and not a join), Dissolve that two parts overlap, Paint which part a
 // click landed in. So the walk lives here once rather than three times.
 
+import { networkToSubPaths, type SubPath } from './shapes'
 import type { VectorNetwork } from './types'
 
 export interface NetworkPart {
@@ -82,6 +83,37 @@ export function networkParts(net: VectorNetwork): NetworkPart[] {
   }
   parts.sort((a, b) => a.vertices[0] - b.vertices[0])
   return parts
+}
+
+/**
+ * A part's stable NAME, for anything that has to remember something about it
+ * across edits — Paint keys a fill to this.
+ *
+ * The smallest anchor id it contains. Anchor ids are handed out from a
+ * high-water mark and never reused, so the name survives points being added,
+ * moved, bent or deleted elsewhere in the part. It does NOT survive that
+ * particular anchor being deleted, or a knife cut, which rebuilds both halves
+ * from scratch — and it should not: those really are different outlines, and a
+ * colour that followed one of them would be guessing which.
+ */
+export function partKey(part: NetworkPart): number {
+  return part.vertices[0] ?? -1
+}
+
+/**
+ * One part's geometry, as subpaths.
+ *
+ * Built by handing the part's own edges back to the same walker the renderers
+ * use, rather than by re-deriving the outline here. Two ways of turning a
+ * network into subpaths would eventually disagree, and the disagreement would
+ * show up as a fill landing on the wrong outline.
+ */
+export function partSubPaths(net: VectorNetwork, part: NetworkPart): SubPath[] {
+  const vids = new Set(part.vertices)
+  return networkToSubPaths({
+    vertices: net.vertices.filter((v) => vids.has(v.id)),
+    edges: part.edges.map((i) => net.edges[i]),
+  })
 }
 
 /** Which part a vertex is in, or -1. */

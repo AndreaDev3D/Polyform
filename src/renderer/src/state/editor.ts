@@ -2,7 +2,7 @@
 // Scene data lives in DocumentStore; this holds only view/interaction state.
 
 import { create } from 'zustand'
-import type { NodeId, Vec2 } from '../engine/types'
+import type { NodeId, RGBA, Vec2 } from '../engine/types'
 import type { AABB } from '../engine/geometry'
 import type { Camera } from '../engine/render/canvas2d'
 import type { ArcHandleKind, CornerKind, PenDraft, SnapGuide } from '../engine/render/overlays'
@@ -82,6 +82,12 @@ interface EditorState {
   vectorAddPreview: Vec2 | null
   /** The knife's cut line while it is being drawn. */
   knifeDraft: KnifeDraft | null
+  /**
+   * The colour the paint bucket applies. Its own, not the node's fill: the
+   * bucket exists to make a part DIFFER from the shape's colour, so seeding it
+   * from that colour would make the first click do nothing visible.
+   */
+  paintColor: RGBA
   /** Arc handle under an active drag, so the overlay can show its readout. */
   arcDrag: ArcHandleKind | null
   /** Corner-radius handle under an active drag. */
@@ -146,6 +152,7 @@ interface EditorState {
   setVectorSelection: (ids: number[]) => void
   setVectorMode: (mode: VectorMode) => void
   setKnifeDraft: (d: KnifeDraft | null) => void
+  setPaintColor: (c: RGBA) => void
   setArcDrag: (k: ArcHandleKind | null) => void
   setCornerDrag: (k: CornerKind | null) => void
   setRotating: (v: boolean) => void
@@ -181,6 +188,7 @@ export const useEditor = create<EditorState>((set) => ({
   vectorMode: 'move' as const,
   vectorAddPreview: null,
   knifeDraft: null,
+  paintColor: { r: 0.96, g: 0.42, b: 0.28, a: 1 },
   arcDrag: null,
   cornerDrag: null,
   rotating: false,
@@ -232,6 +240,7 @@ export const useEditor = create<EditorState>((set) => ({
   // tool is no longer in a position to keep.
   setVectorMode: (vectorMode) => set({ vectorMode, knifeDraft: null, vectorAddPreview: null }),
   setKnifeDraft: (knifeDraft) => set({ knifeDraft }),
+  setPaintColor: (paintColor) => set({ paintColor }),
   setArcDrag: (arcDrag) => set({ arcDrag }),
   setCornerDrag: (cornerDrag) => set({ cornerDrag }),
   setRotating: (rotating) => set({ rotating }),

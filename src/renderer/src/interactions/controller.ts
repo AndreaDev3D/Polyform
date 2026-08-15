@@ -16,7 +16,7 @@ import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, 
 import { clampZoom } from '../engine/zoom'
 import { documentStore } from '../state/document'
 import { editor, type Tool } from '../state/editor'
-import { OpRecorder, guidesChanged, setSelection, setStatus, topSelection } from '../state/actions'
+import { OpRecorder, guidesChanged, paintVectorPartAt, setSelection, setStatus, topSelection } from '../state/actions'
 import { findDropFrame, hitTestAll, nearestInstanceAncestor, resolveClickTarget, nodesInRect } from '../engine/hit-test'
 import { constrainFrameChildren } from '../engine/constraints'
 import type { PatchOp } from '../engine/commands'
@@ -1486,6 +1486,13 @@ export class InteractionController {
       const start = this.knifeSnap(screen, world)
       editor.set({ knifeDraft: { a: start, b: start, pending: false } })
       this.mode = { kind: 'vector-knife', startScreen: screen }
+      return
+    }
+
+    // Paint: a click gives the part under it its own fill. No drag, no
+    // selection — the part you clicked in is the whole statement.
+    if (state.vectorMode === 'paint') {
+      paintVectorPartAt(applyMat(matInvert(m), world))
       return
     }
 

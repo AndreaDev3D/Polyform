@@ -126,6 +126,25 @@ export class MeshCache {
   }
 
   /**
+   * The fill mesh for ONE part of a painted vector.
+   *
+   * Keyed by the part's stable name alongside the node's geometry. The geometry
+   * key already covers the whole network, so a part that changes shape gets a
+   * fresh mesh; the name is there because one node now has several fill meshes
+   * and a single entry would have them overwriting each other every frame.
+   */
+  getPartFill(scene: SceneGraph, node: SceneNode, zoom: number, key: number, subpaths: SubPath[]): NodeMesh {
+    const bucket = zoomBucket(zoom)
+    const cacheKey = `part${key}|${geometryKey(scene, node, bucket)}`
+    const cached = this.entries.get(cacheKey)
+    if (cached) return cached
+    const evenOdd = node.type === 'VECTOR' && node.windingRule === 'EVENODD'
+    const mesh = MeshCache.tessellateFill(subpaths, evenOdd, bucket)
+    this.entries.set(cacheKey, mesh)
+    return mesh
+  }
+
+  /**
    * The stroke band for one RUN of a per-side stroke: an open polyline at that
    * run's weight, tessellated on its own.
    *

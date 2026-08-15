@@ -14,6 +14,7 @@ import { nodeOutline } from '../shapes'
 import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
 import { perSideStroke, strokeSideRuns, strokeSideOutline, usesSideRegion } from '../strokesides'
+import { vectorPaintGroups } from '../vector-paint'
 import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
@@ -196,8 +197,13 @@ function fillPath(
   path: Path2D,
   fillRule: CanvasFillRule,
   assets: AssetCache,
+  // Which paints to use. Normally the node's own; a per-part fill hands in that
+  // part's instead. The NODE is still passed for its box, so a gradient on one
+  // part is measured across the whole shape and lines up with its neighbours
+  // rather than restarting inside each outline.
+  paints: Paint[] = node.fills,
 ): void {
-  for (const paint of node.fills) {
+  for (const paint of paints) {
     if (!paint.visible) continue
     if (paint.type === 'IMAGE') {
       drawImagePaint(ctx, paint, path, node.width, node.height, fillRule, assets)
@@ -774,7 +780,17 @@ function drawNodeContent(
       const rule: CanvasFillRule = node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
       if (hasClosed) {
         applyBackgroundBlur(ctx, node, path, rule, deviceScale)
-        fillPath(ctx, node, path, rule, opts.assets)
+        // Painted parts fill one at a time; everything else is one pass over the
+        // whole outline, which is both cheaper and the only way an even-odd
+        // shape's holes come out as holes.
+        const groups = vectorPaintGroups(node)
+        if (groups) {
+          for (const group of groups) {
+            fillPath(ctx, node, subPathsToPath2D(group.subpaths), rule, opts.assets, group.fills)
+          }
+        } else {
+          fillPath(ctx, node, path, rule, opts.assets)
+        }
         drawInnerShadows(ctx, node, path, rule, deviceScale)
       }
       strokePath(ctx, node, path, hasClosed)

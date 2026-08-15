@@ -27,7 +27,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | [Canvas & Viewport](#canvas--viewport) | 17 | 1 | 1 | 0 | 19 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
+| [Vector Editing](#vector-editing) | 17 | 4 | 1 | 0 | 22 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 6 | 3 | 1 | 24 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **146** | **28** | **48** | **23** | **245** |
+| **Total** | **152** | **28** | **47** | **23** | **250** |
 
 ---
 
@@ -101,7 +101,12 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Branching edges per vertex | One vertex can join N edges | 🟡 | Data model supports it; no branching-edge editing UI |
 | Bend tool | Drag a segment and the curve follows | ✅ | Both handles move, split by bernstein influence at the grabbed t, so the curve lands on the pointer; a straight segment gets handles at the thirds first |
 | Per-point handle mirroring | None / angle / angle+length, per vertex | ✅ | Inspector control on the selected point(s); applying it smooths the corner immediately; Alt breaks the pairing for one drag |
-| Paint bucket region fill | Fill enclosed regions of a vector network | 📋 | Depends on vector edit mode |
+| Add points with a preview | A dot shows where the new point lands before you commit | ✅ | The Add mode of the vector bar: a hollow dot rides the outline as you move, and a click places it there. Clicking an anchor that already exists hands the gesture to Move rather than stacking a second one on it — two anchors in the same place cannot be told apart or selected separately afterwards |
+| Join two points | Connect two anchors with a segment | ✅ | Any two anchors, not only path ends: joining across the middle is the only way to draw a crossbar without leaving the shape. Refuses with a reason (already connected, not two points, gone) |
+| Bridge two parts | Connect detached outlines of one shape, N points at a time | ✅ | Anchors are grouped by which part they belong to; two parts with the same number on each side get one segment per pair, paired by shortest total length so the bridge does not cross itself. Selection ORDER is not a statement about pairing |
+| Knife | Cut a shape into two along a drawn line | ✅ | Drag across it, or click twice; endpoints snap to anchors so dot-to-dot is a real gesture. Topological rather than boolean — De Casteljau splits at the crossings, then the ring is rebuilt as two rings, so every curve the knife did not touch comes through untouched (the CSG binding returns polygons and would have straightened them). One stroke cuts every closed outline it crosses, and the halves are DETACHED parts, so they can be dragged apart |
+| Dissolve overlapping parts | Merge two overlapping outlines of one shape into one | ✅ | The union walked by hand for the same reason the knife is: split both rings where they cross, drop the arcs inside the other, chain what is left. Repeats until nothing overlaps, swallows a part wholly inside another, and reports the part count every time — two overlapping shapes of one colour look identical before and after. Outlines that share a stretch of BOUNDARY rather than crossing (anything drawn to a grid) keep exactly one copy of it |
+| Per-part fills | Colour one outline of a multi-part shape | ✅ | The Paint bucket: click inside a closed part to give it its own fill, click again to take it back, with its own colour well (not the inspector's Fill row — that is the shape's colour, and sharing one control would make the first click a no-op). Stored as `partFills`, a set of EXCEPTIONS keyed by the part's smallest anchor id, so a part with no entry keeps the node fill and one whose anchor is gone falls back rather than inheriting a colour that belonged to a different outline. All three back ends read the same grouping (`engine/vector-paint.ts`), pinned by the `vector-part-fills` parity fixture |
 | Boolean union | Non-destructive merge of shapes | ✅ | Exact bezier CSG in the Rust core (WASM, default); TS polygon-flattening fallback |
 | Boolean subtract | Non-destructive subtraction | ✅ | Exact bezier CSG (Rust core) |
 | Boolean intersect | Non-destructive intersection | ✅ | Exact bezier CSG (Rust core) |
@@ -331,7 +336,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **19/19** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018), three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page) and per-side stroke weights. **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **20/20** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018), three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page) and per-side stroke weights. **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
 | 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) on the WebGPU renderer, which is the default from v0.8; the Canvas2D fallback targets typical documents |
@@ -372,4 +377,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 146 ✅ / 28 🟡 / 48 📋 / 23 ❌ = 245, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 152 ✅ / 28 🟡 / 47 📋 / 23 ❌ = 250, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

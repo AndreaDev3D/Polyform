@@ -6,6 +6,48 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Six new tools in vector edit, and the pointer to use them with.** The bar
+  under an open path is now Move / Add / Bend / Knife / Paint / Delete, with Join,
+  Bridge and Dissolve beside them as commands on what you have selected.
+  - They all turn on one idea the network never had a name for. A VECTOR node is
+    a flat bag of vertices and edges, and which of them belong to the same
+    outline is only ever implied by what is connected to what — so `.fig` and
+    `.svg` imports, and anything with a hole in it, arrive as several detached
+    outlines the editor could not talk about. `engine/vector-parts.ts` answers
+    that once; everything below reads it.
+  - **Add** — a dot rides the outline showing where the point will land, and a
+    click places it. Clicking a point that already exists hands the gesture to
+    Move rather than stacking a second anchor on the first: two points in the
+    same place cannot be told apart afterwards, or selected separately.
+  - **Knife** — drag across a shape, or click twice, and it becomes two closed
+    outlines; the ends snap to anchors, which is what makes dot-to-dot a gesture
+    rather than a steady hand. One stroke cuts every outline it crosses.
+  - **Join** and **Bridge** — a segment between two points, and one segment per
+    pair across two detached parts. Bridge pairs by shortest total length, so
+    the order you happened to click in is not mistaken for a statement about
+    which point goes with which.
+  - **Dissolve** — two overlapping parts become one outline, repeated until
+    nothing overlaps. It reports the part count every time, because it is the
+    one command here whose success is invisible: two overlapping shapes of the
+    same colour look identical before and after.
+  - **Paint** — a bucket that gives one part of a shape its own fill, with its
+    own colour well. Splitting the parts into separate nodes would have been the
+    other answer and it is the wrong one: they are one shape, they move
+    together, and Bridge or Dissolve can prove it. Stored as `partFills`, a set
+    of EXCEPTIONS keyed by the part's smallest anchor id — a part with no entry
+    keeps the node's fill, and a part whose anchor is gone falls back to it
+    rather than inheriting a colour that belonged to a different outline.
+  - **Neither the knife nor dissolve is a boolean**, though the Rust core does
+    exact bezier CSG and would have made both nearly free. That binding returns
+    POLYGONS, so either tool built on it would have quietly replaced every curve
+    it did not touch with a polyline. Both walk the outline instead — De
+    Casteljau splits at the crossings, then the ring rebuilt — so the rest of
+    the shape comes through exactly as it was.
+  - **The cursor in vector edit is our own arrow now**, with the hotspot on the
+    tip. A crosshair is the right cursor for PLACING something, and the wrong one
+    for pointing at something already there: its arms sit on top of the anchor
+    you are reaching for, and the part you aim with is a gap.
+
 - **Collapse the whole layer tree, then open the one branch you want.** A ⋯ menu in
   the layers tab strip: **Collapse All**, **Expand All**, **Expand Selected**. On a
   document with any depth the tree is mostly rows you are not looking at, and the

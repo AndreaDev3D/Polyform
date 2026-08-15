@@ -425,6 +425,63 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Per-part fills: one VECTOR node whose detached outlines carry different
+    // colours. Both back ends have to agree on which outline is which — the GPU
+    // builds a separate mesh per part and Canvas2D fills a separate path, from
+    // the same grouping, so a disagreement about part IDENTITY shows up here as
+    // whole shapes in the wrong colour rather than as edge noise.
+    //
+    // Frame-filling on purpose. F-35's lesson: a fixture whose shapes cover a
+    // few percent of the canvas cannot breach a 2% limit however wrong it is.
+    name: 'vector-part-fills',
+    badLimit: 0.02,
+    build: (s) => {
+      const solid = (c: [number, number, number]) => [
+        { type: 'SOLID' as const, visible: true, opacity: 1, color: { r: c[0], g: c[1], b: c[2], a: 1 } },
+      ]
+      const box = (base: number, x0: number, y0: number, x1: number, y1: number) => ({
+        vertices: [
+          { id: base + 1, x: x0, y: y0 },
+          { id: base + 2, x: x1, y: y0 },
+          { id: base + 3, x: x1, y: y1 },
+          { id: base + 4, x: x0, y: y1 },
+        ],
+        edges: [
+          { id: base + 1, v0: base + 1, v1: base + 2, cp0: null, cp1: null },
+          { id: base + 2, v0: base + 2, v1: base + 3, cp0: null, cp1: null },
+          { id: base + 3, v0: base + 3, v1: base + 4, cp0: null, cp1: null },
+          { id: base + 4, v0: base + 4, v1: base + 1, cp0: null, cp1: null },
+        ],
+      })
+      // Four bands across the frame: two painted, two left on the node fill, so
+      // both the exception path and the leftovers group are exercised.
+      const a = box(0, 0, 0, 600, 100)
+      const b = box(10, 0, 110, 600, 210)
+      const c = box(20, 0, 220, 600, 320)
+      const d = box(30, 0, 330, 600, 430)
+      make(s, 'VECTOR', null, {
+        x: 20,
+        y: 20,
+        width: 600,
+        height: 430,
+        windingRule: 'NONZERO',
+        fills: solid([0.25, 0.3, 0.42]),
+        strokes: solid([0.9, 0.9, 0.95]),
+        strokeWeight: 2,
+        strokeAlign: 'CENTER',
+        network: {
+          vertices: [...a.vertices, ...b.vertices, ...c.vertices, ...d.vertices],
+          edges: [...a.edges, ...b.edges, ...c.edges, ...d.edges],
+        },
+        // Keyed by the smallest anchor id in each part: 1, 11, 21, 31.
+        partFills: {
+          '11': solid([0.95, 0.42, 0.28]),
+          '31': solid([0.35, 0.8, 0.45]),
+        },
+      })
+    },
+  },
+  {
     // Flips ride in the node matrix, and the GPU backend bakes its own copy of
     // every transform — so a mirrored node is exactly the sort of thing that can
     // come out right on one rasterizer and backwards on the other. Every shape

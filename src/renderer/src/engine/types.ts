@@ -400,6 +400,21 @@ export interface VectorNode extends BaseNode {
   type: 'VECTOR'
   network: VectorNetwork
   windingRule: 'NONZERO' | 'EVENODD'
+  /**
+   * A fill of its own for individual PARTS of the network, keyed by
+   * `partKey` — the smallest anchor id in that part.
+   *
+   * Absent for almost every vector, and absent per part: a part with no entry
+   * here is painted with the node's own `fills`, so this is a set of exceptions
+   * rather than a replacement. That matters for what happens after an edit —
+   * a part whose key disappears (deleted anchor, knife cut) falls back to the
+   * node fill instead of losing its paint entirely or, worse, inheriting a
+   * colour that belonged to a different outline.
+   *
+   * Only closed parts can carry one, because only a closed part encloses
+   * anything to fill.
+   */
+  partFills?: Record<string, Paint[]>
 }
 
 export type TextAlignH = 'LEFT' | 'CENTER' | 'RIGHT'

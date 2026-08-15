@@ -28,9 +28,12 @@ import { useEffect, useRef, useState } from 'react'
 import { MENU, formatAccelerator } from '../../../shared/menu-def'
 import type { MenuItemDef } from '../../../shared/menu-def'
 import { formatZoom, parseZoomText } from '../engine/zoom'
+import { ColorPicker } from './ColorPicker'
+import { rgbaToCss, rgbaToHex } from '../engine/color'
 import {
   BendIcon,
   BridgeIcon,
+  BucketIcon,
   DissolveIcon,
   JoinIcon,
   KnifeIcon,
@@ -341,8 +344,56 @@ const VECTOR_MODES: { mode: VectorMode; title: string; hint: string; icon: React
     hint: 'Drag across the shape, or click twice, to cut it in two · ends snap to points',
     icon: <KnifeIcon />,
   },
+  {
+    mode: 'paint',
+    title: 'Paint',
+    hint: 'Click inside a closed part to give it its own colour · click it again to take it back',
+    icon: <BucketIcon />,
+  },
   { mode: 'delete', title: 'Delete', hint: 'Click a point to remove it · click a segment to open the path', icon: <PointDeleteIcon /> },
 ]
+
+/**
+ * The bucket's colour, and the picker for it.
+ *
+ * Its own swatch rather than the inspector's Fill row, because the two mean
+ * different things: the Fill row is the SHAPE's colour, and painting a part is
+ * saying "this bit, not that". Sharing one control would make the first click
+ * of the bucket a no-op — you would be filling a part with the colour it
+ * already has.
+ */
+function PaintSwatch() {
+  const color = useEditor((s) => s.paintColor)
+  const setColor = useEditor((s) => s.setPaintColor)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLButtonElement>(null)
+  const rect = ref.current?.getBoundingClientRect()
+
+  return (
+    <>
+      <button
+        ref={ref}
+        className="pf-tool-btn"
+        title={`Paint colour — ${rgbaToHex(color)}`}
+        aria-label="Paint colour"
+        onClick={() => setOpen(!open)}
+      >
+        <span
+          className="w-4 h-4 rounded-[3px] border border-[rgba(255,255,255,0.35)]"
+          style={{ background: rgbaToCss(color, 1) }}
+        />
+      </button>
+      {open && rect && (
+        <ColorPicker
+          color={color}
+          anchor={{ x: rect.left, y: rect.top }}
+          onLive={(c) => setColor(c)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
 
 /**
  * While a vector is open for editing, the centre of the bar becomes its own
@@ -368,6 +419,9 @@ function VectorModes() {
           <span className="text-[11px]">{m.title}</span>
         </button>
       ))}
+      {/* Only while the bucket is out: a colour well with no bucket selected is
+          a control with nothing to apply it to. */}
+      {mode === 'paint' && <PaintSwatch />}
       <span className="w-px h-5 bg-[var(--pf-border)] mx-1" />
       {/* Commands, not modes: they act on the points already selected and hand
           the tool straight back. Icon-only and unpressed, so they do not read

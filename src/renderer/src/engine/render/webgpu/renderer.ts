@@ -50,6 +50,7 @@ import { drawTextInto } from '../canvas2d'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
 import { GlyphAtlas } from './glyphatlas'
 import { effectiveStrokeWeight, strokeSideRuns, usesSideRegion } from '../../strokesides'
+import { vectorPaintGroups } from '../../vector-paint'
 import { nodeOutline } from '../../shapes'
 import {
   BLUR_WGSL,
@@ -1247,6 +1248,27 @@ export class WebGPURenderer {
   }
 
   private bakeFills(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
+    // A vector whose parts are painted separately: one mesh and one paint pass
+    // per group, in the same order Canvas2D fills them, so the two agree where
+    // painted parts overlap.
+    const groups = node.type === 'VECTOR' ? vectorPaintGroups(node) : null
+    if (groups) {
+      for (const group of groups) {
+        const partMesh = this.meshCache.getPartFill(
+          this.bakeScene,
+          node,
+          this.bakeOpts.camera.zoom,
+          group.key,
+          group.subpaths,
+        )
+        if (partMesh.fillIndices.length === 0) continue
+        for (const paint of group.fills) {
+          if (!paint.visible) continue
+          this.bakeFillPaint(node, paint, partMesh, m, opacity, blend)
+        }
+      }
+      return
+    }
     for (const paint of node.fills) {
       if (!paint.visible) continue
       this.bakeFillPaint(node, paint, mesh, m, opacity, blend)
