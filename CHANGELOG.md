@@ -6,6 +6,26 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Collapse the whole layer tree, then open the one branch you want.** A ⋯ menu in
+  the layers tab strip: **Collapse All**, **Expand All**, **Expand Selected**. On a
+  document with any depth the tree is mostly rows you are not looking at, and the
+  only way back was clicking every triangle shut.
+  - **Expand Selected opens the path DOWN to the layer, not just the layer.** After
+    Collapse All a nested row does not merely sit folded — it is absent from the
+    list, so unfolding the node alone would scroll to nothing and read as a dead
+    command. Its ancestors open, then it, then its whole subtree, because “expand
+    this” means “show me what is in it” and one level at a time is the clicking
+    being replaced. Other branches are left folded, and expanding a second layer
+    keeps the first one open.
+  - It is on the **object’s context menu** as well, which is the point: once the
+    tree is collapsed the layer you want is on the canvas, not in the list. Given
+    from there while the Assets tab is showing, it switches back to Layers —
+    otherwise the command would be correct and invisible.
+  - Which rows are folded is view state: not recorded, not undoable, not saved. The
+    rules are in `engine/layer-collapse.ts` so both callers share one answer, and an
+    e2e gate drives the real ⋯ menu and a real right-click on the canvas, because
+    nothing in the document changes and no unit test can see a row appear.
+
 - **Gradients on a STROKE are editable at all.** The stops bar and the new direction
   control are gated on a gradient-mutation handler, and only the *fill* row ever passed
   one — so a gradient stroke could be created and then never edited: no stops, no

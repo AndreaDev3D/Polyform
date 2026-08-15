@@ -46,7 +46,7 @@ Then: **New Project…**, pick where to save the `.poly` folder, and draw. Press
 | `npm test`          | Engine unit tests + TS↔WASM parity fuzz (vitest)|
 | `npm run typecheck` | Strict TypeScript across main/preload/renderer  |
 | `npm run test:rust` | Rust engine-core unit tests (cargo)             |
-| `npm run test:e2e`  | Drives the built app with synthetic OS input: 21 checks no unit test can reach (F-18/F-19/F-21/F-23/F-24/F-30/F-31) |
+| `npm run test:e2e`  | Drives the built app with synthetic OS input: 23 checks no unit test can reach (F-18/F-19/F-21/F-23/F-24/F-30/F-31) |
 | `npm run test:mcp`  | Agent-connectivity probe: 53 checks — a real MCP client vs the built app, driving the consent panel |
 | `npm run test:cli`  | Headless CLI gate: new → stdio-MCP edit → persistence → pixel-checked export |
 | `npm run test:packaging` | Drives the **packaged** app (after `electron-builder`): asar layout, the whole CLI gate against the installed binary, and history read back out of the journal it wrote |

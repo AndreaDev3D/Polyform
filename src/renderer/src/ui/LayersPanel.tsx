@@ -14,7 +14,18 @@ import { isContainer } from '../engine/types'
 import type { SceneGraph } from '../engine/scene'
 import { documentStore, useDocVersion } from '../state/document'
 import { editor, useEditor } from '../state/editor'
-import { OpRecorder, addPage, deletePage, renamePage, renameNode, setSelection, switchPage } from '../state/actions'
+import {
+  OpRecorder,
+  addPage,
+  collapseAllLayers,
+  deletePage,
+  expandAllLayers,
+  expandSelectedLayers,
+  renamePage,
+  renameNode,
+  setSelection,
+  switchPage,
+} from '../state/actions'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -36,6 +47,7 @@ import {
   BoolUnionIcon,
   ComponentIcon,
   InstanceIcon,
+  MoreIcon,
   PlusIcon,
 } from './icons'
 import type { DropTarget } from '../engine/layer-drop'
@@ -175,7 +187,7 @@ function LeftTabs() {
   const leftTab = useEditor((s) => s.leftTab)
   const setLeftTab = useEditor((s) => s.setLeftTab)
   return (
-    <div className="flex border-b border-[var(--pf-border)]">
+    <div className="flex items-stretch border-b border-[var(--pf-border)]">
       {(['layers', 'assets'] as const).map((tab) => (
         <button
           key={tab}
@@ -187,6 +199,86 @@ function LeftTabs() {
           {tab}
         </button>
       ))}
+      {/* Only over the tree, because every command in it is about the tree. A
+          menu of layer commands sitting on the Assets tab is a puzzle; absent
+          is clearer than present-and-inert. */}
+      {leftTab === 'layers' && <TreeMenu />}
+    </div>
+  )
+}
+
+/**
+ * The tree's own commands, in the tab strip: the ones worth having but not worth
+ * a permanent button. Collapse All and Expand All are how you get a long tree
+ * back under control; Expand Selected is the other half of that gesture and is
+ * on the object's context menu too, because after collapsing everything the
+ * layer you want is on the canvas, not in the list.
+ */
+function TreeMenu() {
+  const [open, setOpen] = useState(false)
+  const selection = useEditor((s) => s.selection)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Same dismissal as the menu bar: an outside press, Escape, or losing the
+  // window. A menu left open over the tree swallows the next click on a row.
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) close()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', close)
+    }
+  }, [open])
+
+  const items: { label: string; action: () => void; disabled?: boolean; separatorAfter?: boolean }[] = [
+    { label: 'Collapse All', action: collapseAllLayers },
+    { label: 'Expand All', action: expandAllLayers, separatorAfter: true },
+    { label: 'Expand Selected', action: expandSelectedLayers, disabled: selection.length === 0 },
+  ]
+
+  return (
+    <div ref={ref} className="relative flex items-center pr-1.5">
+      <button
+        className={`pf-icon-btn !w-6 !h-6 ${open ? 'active' : ''}`}
+        title="Layer tree options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <MoreIcon width={14} height={14} />
+      </button>
+      {open && (
+        // Hangs from the button at the panel's right edge, not from the panel's
+        // left, so a narrow panel does not push it off the tree it acts on.
+        <div className="pf-menu-panel pf-fade-in" style={{ left: 'auto', right: 4, minWidth: 176 }} role="menu">
+          {items.map((item) => (
+            <div key={item.label}>
+              <button
+                className="pf-menu-item disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--pf-text)]"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false)
+                  item.action()
+                }}
+              >
+                {item.label}
+              </button>
+              {item.separatorAfter && <div className="pf-menu-sep" />}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -196,7 +288,9 @@ export function LayersPanel() {
   const selection = useEditor((s) => s.selection)
   const leftTab = useEditor((s) => s.leftTab)
   const panel = usePanelWidth('polyform.panel.left', 256, 'right')
-  const [collapsed, setCollapsed] = useState<Set<NodeId>>(new Set())
+  // In the store, not in a useState here: Expand Selected is a context-menu
+  // command given from the canvas, and it has no way to reach panel state.
+  const collapsed = useEditor((s) => s.collapsedLayers)
   /** Set when a drag begins in earnest, so its trailing click is ignored. */
   const suppressClick = useRef(false)
   const [renaming, setRenaming] = useState<NodeId | null>(null)
@@ -248,10 +342,10 @@ export function LayersPanel() {
       }
     }
     if (hidden.length > 0) {
-      setCollapsed((prev) => {
-        const next = new Set(prev)
+      editor.set((s) => {
+        const next = new Set(s.collapsedLayers)
         for (const id of hidden) next.delete(id)
-        return next
+        return { collapsedLayers: next }
       })
     }
     const scroll = () => {
@@ -310,11 +404,11 @@ export function LayersPanel() {
   }, [drag?.active])
 
   const toggleCollapse = (id: NodeId) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev)
+    editor.set((s) => {
+      const next = new Set(s.collapsedLayers)
       if (next.has(id)) next.delete(id)
       else next.add(id)
-      return next
+      return { collapsedLayers: next }
     })
   }
 

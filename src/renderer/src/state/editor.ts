@@ -85,6 +85,12 @@ interface EditorState {
   showAgent: boolean
   /** Left panel tab. */
   leftTab: 'layers' | 'assets'
+  /**
+   * Containers folded shut in the layer tree. Held here rather than in the panel
+   * because "Expand Selected" is also a context-menu command, given from the
+   * canvas, where the panel's own state is out of reach.
+   */
+  collapsedLayers: Set<NodeId>
   /** WebGPU scene rendering; falls back to Canvas2D when unavailable. */
   gpuRender: boolean
   /** Whether this machine exposes a WebGPU device at all. Set by CanvasView. */
@@ -123,6 +129,7 @@ interface EditorState {
   setBusy: (v: string | null) => void
   setShowHistory: (v: boolean) => void
   setLeftTab: (t: 'layers' | 'assets') => void
+  setCollapsedLayers: (ids: Set<NodeId>) => void
   setGpuRender: (v: boolean) => void
   setGpuStatus: (v: { supported?: boolean; active?: boolean }) => void
 }
@@ -157,6 +164,7 @@ export const useEditor = create<EditorState>((set) => ({
   showHistory: false,
   showAgent: false,
   leftTab: 'layers' as const,
+  collapsedLayers: new Set<NodeId>(),
   // Default ON where a device exists: the GPU path pans 100,000 shapes at 60fps
   // against a Canvas2D budget aimed at typical documents, and its 14 pixel-parity
   // fixtures pass. A stored '0' still wins — a preference the user set is theirs,
@@ -200,6 +208,9 @@ export const useEditor = create<EditorState>((set) => ({
   setBusy: (busy) => set({ busy }),
   setShowHistory: (showHistory) => set({ showHistory }),
   setLeftTab: (leftTab) => set({ leftTab }),
+  // Always a NEW Set: mutating the stored one in place changes nothing zustand
+  // can compare, so the tree would keep rendering the old shape.
+  setCollapsedLayers: (collapsedLayers) => set({ collapsedLayers }),
   setGpuStatus: ({ supported, active }) =>
     set((s) => ({
       gpuSupported: supported ?? s.gpuSupported,

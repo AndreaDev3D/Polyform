@@ -12,6 +12,7 @@ import {
   deleteSelection,
   detachSelectedInstances,
   duplicateSelection,
+  expandSelectedLayers,
   frameSelection,
   groupSelection,
   paste,
@@ -65,6 +66,9 @@ export function ContextMenu() {
     { label: 'Paste', shortcut: 'Ctrl+V', action: paste },
     { label: 'Duplicate', shortcut: 'Ctrl+D', action: duplicateSelection, disabled: !has },
     { label: 'Delete', shortcut: 'Del', action: deleteSelection, disabled: !has, separatorAfter: true },
+    // Right-clicking an object on the canvas is exactly when you want to find it
+    // in the tree — most of all after Collapse All, when its row does not exist.
+    { label: 'Expand Selected', action: expandSelectedLayers, disabled: !has, separatorAfter: true },
     { label: 'Group Selection', shortcut: 'Ctrl+G', action: groupSelection, disabled: !multi },
     { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', action: ungroupSelection, disabled: !has },
     { label: 'Frame Selection', shortcut: 'Ctrl+Alt+G', action: frameSelection, disabled: !has, separatorAfter: true },

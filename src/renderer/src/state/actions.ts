@@ -30,6 +30,7 @@ import { assetCache } from '../engine/assets'
 import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../engine/hit-test'
+import { collapseAll, expandSelected } from '../engine/layer-collapse'
 import { importSvgDocument } from '../engine/import/svg-import'
 import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
 import { nodeOutline, type SubPath } from '../engine/shapes'
@@ -290,6 +291,53 @@ export function selectAll(): void {
   const container = editor.get().enteredContainer
   const list = container && scene.hasNode(container) ? scene.childListOf(container) : scene.rootIds()
   setSelection(list.filter((id) => !scene.getNode(id)?.locked))
+}
+
+// ---------------------------------------------------------------------------
+// Layer tree disclosure
+//
+// Which rows are folded shut is view state, not document state: it is not
+// recorded, not undoable and not saved. The rules are in engine/layer-collapse.
+// ---------------------------------------------------------------------------
+
+/**
+ * Fold every container on the page shut.
+ *
+ * The selection is left where it is, even though it may end up inside something
+ * collapsed — that is what "collapse all" means, and the panel's reveal effect
+ * only reopens ancestors when the selection CHANGES, so it does not undo this on
+ * the next render.
+ */
+export function collapseAllLayers(): void {
+  editor.set({ collapsedLayers: collapseAll(documentStore.scene) })
+}
+
+export function expandAllLayers(): void {
+  editor.set({ collapsedLayers: new Set<NodeId>() })
+}
+
+/** Open the selected layers, their subtrees, and the path down to them. */
+export function expandSelectedLayers(): void {
+  const { selection, collapsedLayers, leftTab } = editor.get()
+  if (selection.length === 0) return
+  editor.set({
+    collapsedLayers: expandSelected(documentStore.scene, collapsedLayers, selection),
+    // This can be given from the canvas, where the Assets tab may be the one
+    // showing — and then the tree it just opened is not on screen at all.
+    ...(leftTab === 'layers' ? null : { leftTab: 'layers' as const }),
+  })
+  revealLayerRow(selection[0])
+}
+
+/**
+ * Scroll a layer row into view, once React has rendered it. Found through the
+ * document rather than a ref because the command also comes from the canvas
+ * context menu, which holds no handle on the panel.
+ */
+function revealLayerRow(id: NodeId): void {
+  requestAnimationFrame(() => {
+    document.querySelector(`[data-layer-row="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
+  })
 }
 
 // ---------------------------------------------------------------------------

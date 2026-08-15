@@ -31,6 +31,10 @@
 //  10. per-side strokes: the toggle beside the weight field opens four fields,
 //      typing into one lands on the node, and collapsing CLEARS them rather
 //      than leaving values stored that nothing reads (F-30).
+//  11. the layer tree's ⋯ menu: Collapse All folds it, and Expand Selected -
+//      taken from the OBJECT CONTEXT MENU, on a layer whose row does not
+//      exist - opens the path back down to it. Neither command touches the
+//      document, so only the rows on screen can say whether they worked.
 //
 // Usage: npm run build && npm run test:e2e   (requires Node 22+)
 
@@ -1079,6 +1083,146 @@ try {
             fail(`collapsing must clear the per-side weights, they are still ${JSON.stringify(cleared.sides)}`)
           } else {
             console.log(`E2E PASS: collapsing clears the sides and the uniform ${cleared.weight}px weight is back`)
+          }
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 11. The layer tree's ⋯ menu: Collapse All folds it, Expand Selected opens
+  //     the path back down to what is selected.
+  //
+  //     Both commands change only which ROWS exist, so the document is
+  //     identical before and after and no unit test can see them work. And
+  //     Expand Selected is given from two places — this menu and the object's
+  //     context menu — which is precisely the shape that hides a dead entry
+  //     point (F-31): one copy works, the other quietly does nothing, and the
+  //     model underneath is right either way. So the gate uses the harder
+  //     door: a real right-click on the CANVAS, on a layer whose row does not
+  //     currently exist.
+  // ---------------------------------------------------------------------
+  {
+    const clickAt = async (x, y) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+      await sleep(300)
+    }
+    const rows = async () =>
+      JSON.parse(
+        await evaluate(
+          `JSON.stringify([...document.querySelectorAll('[data-layer-row]')].map((r) => r.textContent.trim()))`,
+        ),
+      )
+    // Frame → frame → rect, so "open the node" and "open the path down to it"
+    // are different answers and the gate can tell them apart.
+    await evaluate(`(() => {
+      const P = globalThis.__polyform
+      const S = P.documentStore.scene
+      const layout = { mode: 'NONE', gap: 10, paddingTop: 10, paddingRight: 10, paddingBottom: 10,
+        paddingLeft: 10, counterAlign: 'MIN', primarySizing: 'FIXED', counterSizing: 'FIXED' }
+      const fill = (r, g, b) => [{ type: 'SOLID', visible: true, opacity: 1, color: { r, g, b, a: 1 } }]
+      const base = (id, name, x, y, w, h) => ({ id, name, visible: true, locked: false, opacity: 1,
+        blendMode: 'NORMAL', x, y, width: w, height: h, rotation: 0,
+        cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 }, strokes: [], strokeWeight: 0,
+        strokeAlign: 'INSIDE', strokeDash: [], effects: [] })
+      S.addNode({ ...base('e2e-outer', 'E2E Outer', 1200, 200, 260, 200), type: 'FRAME',
+        children: [], clipsContent: false, layout, fills: fill(0.15, 0.16, 0.2) }, null, S.rootIds().length)
+      S.addNode({ ...base('e2e-inner', 'E2E Inner', 20, 20, 200, 140), type: 'FRAME',
+        children: [], clipsContent: false, layout, fills: fill(0.2, 0.21, 0.26) }, 'e2e-outer', 0)
+      S.addNode({ ...base('e2e-deep', 'E2E Deep', 20, 20, 120, 90), type: 'RECTANGLE',
+        fills: fill(0.95, 0.6, 0.2) }, 'e2e-inner', 0)
+      P.editor.set({ selection: [], leftTab: 'layers', contextMenu: null })
+      P.documentStore.transient()
+    })()`)
+    await sleep(500)
+    const menuBtn = JSON.parse(await evaluate(`(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => x.getAttribute('title') === 'Layer tree options')
+      if (!b) return 'null'
+      const r = b.getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+    })()`))
+    if (!menuBtn) {
+      fail('no ⋯ menu in the layers tab strip')
+    } else {
+      await clickAt(menuBtn.x, menuBtn.y)
+      const items = JSON.parse(await evaluate(`(() => {
+        const found = [...document.querySelectorAll('[role=menuitem]')].map((b) => {
+          const r = b.getBoundingClientRect()
+          return { label: b.textContent, disabled: b.disabled,
+            x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+        })
+        return JSON.stringify(found)
+      })()`))
+      const collapseItem = items.find((i) => i.label === 'Collapse All')
+      const expandItem = items.find((i) => i.label === 'Expand Selected')
+      if (!collapseItem || !expandItem) {
+        fail(`the ⋯ menu should offer Collapse All and Expand Selected, got ${JSON.stringify(items.map((i) => i.label))}`)
+      } else if (!expandItem.disabled) {
+        // Nothing is selected, so there is nothing to expand. An enabled item
+        // that does nothing is the same lie as a stored-and-ignored value.
+        fail('Expand Selected should be disabled with an empty selection')
+      } else {
+        const before = await rows()
+        await clickAt(collapseItem.x, collapseItem.y)
+        const folded = await rows()
+        if (folded.includes('E2E Inner') || folded.includes('E2E Deep')) {
+          fail(`Collapse All left nested rows showing: ${JSON.stringify(folded)}`)
+        } else if (!folded.includes('E2E Outer') || folded.length >= before.length) {
+          fail(`Collapse All should leave the top level only, got ${JSON.stringify(folded)} from ${before.length} rows`)
+        } else {
+          console.log(`E2E PASS: Collapse All folds ${before.length} rows down to ${folded.length}`)
+          // Select the deepest layer — whose row does NOT exist right now — and
+          // find it on the canvas, which is where you would be reaching for it.
+          await evaluate(`(() => {
+            const P = globalThis.__polyform
+            P.editor.set({ selection: ['e2e-deep'], tool: 'select' })
+            P.actions.zoomToSelection()
+          })()`)
+          await sleep(400)
+          const at = JSON.parse(await evaluate(`(() => {
+            const P = globalThis.__polyform
+            const cam = P.editor.get().camera
+            const b = P.documentStore.scene.worldAABB('e2e-deep')
+            const r = document.querySelector('canvas').getBoundingClientRect()
+            return JSON.stringify({
+              x: Math.round(r.left + ((b.minX + b.maxX) / 2 - cam.x) * cam.zoom),
+              y: Math.round(r.top + ((b.minY + b.maxY) / 2 - cam.y) * cam.zoom),
+            })
+          })()`))
+          // zoomToFit re-expanded nothing, but SELECTING did: the panel reveals
+          // whatever was selected elsewhere. Fold it again so the gate is
+          // measuring Expand Selected and not that effect.
+          await clickAt(menuBtn.x, menuBtn.y)
+          await clickAt(collapseItem.x, collapseItem.y)
+          const refolded = await rows()
+          if (refolded.includes('E2E Deep')) {
+            fail(`the tree should be folded again before the context-menu half, got ${JSON.stringify(refolded)}`)
+          } else {
+            await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'right', clickCount: 1 })
+            await sleep(60)
+            await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'right', clickCount: 1 })
+            await sleep(400)
+            const ctx = JSON.parse(await evaluate(`(() => {
+              const b = [...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Expand Selected'))
+              if (!b) return 'null'
+              const r = b.getBoundingClientRect()
+              return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+            })()`))
+            if (!ctx) {
+              fail('Expand Selected is missing from the object context menu')
+            } else {
+              await clickAt(ctx.x, ctx.y)
+              const opened = await rows()
+              if (!opened.includes('E2E Deep')) {
+                fail(`Expand Selected from the context menu did not reveal the layer: ${JSON.stringify(opened)}`)
+              } else if (!opened.includes('E2E Inner')) {
+                fail(`Expand Selected must open the ancestors too, got ${JSON.stringify(opened)}`)
+              } else {
+                console.log(`E2E PASS: Expand Selected opens the path down to a row that did not exist (${opened.length} rows)`)
+              }
+            }
           }
         }
       }

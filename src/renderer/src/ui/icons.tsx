@@ -133,6 +133,14 @@ export const MinusIcon = (p: P) => (
     <path d="M3 8h10" />
   </I>
 )
+/** Overflow menu — the commands a panel has room to keep but not to show. */
+export const MoreIcon = (p: P) => (
+  <I {...p}>
+    <circle cx="3.5" cy="8" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="12.5" cy="8" r="1.2" fill="currentColor" stroke="none" />
+  </I>
+)
 export const TrashIcon = (p: P) => (
   <I {...p}>
     <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 9h5.8l.6-9" />

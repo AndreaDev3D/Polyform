@@ -29,7 +29,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
 | [Vector Editing](#vector-editing) | 11 | 4 | 2 | 0 | 17 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
-| [Layers & Hierarchy](#layers--hierarchy) | 15 | 0 | 2 | 0 | 17 |
+| [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 6 | 3 | 1 | 24 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **145** | **28** | **48** | **23** | **244** |
+| **Total** | **146** | **28** | **48** | **23** | **245** |
 
 ---
 
@@ -150,6 +150,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Layers panel tree | Hierarchical layer list of the document | ✅ | |
 | Shape thumbnails as layer icons | Geometry-bearing layers show their own silhouette | ✅ | Rectangles, ellipses, polygons, stars, vectors and booleans draw their own outline as the row icon, from the same `nodeOutline`/`booleanRings` the renderers use, so an icon cannot drift from its layer; cached per scene version, and past 600 anchors (more detail than 12 px can show) the type icon comes back. Frames, groups, components, text and models keep their type icon, and an image-filled rectangle keeps the image icon |
 | Expand / collapse | Disclosure triangles on containers | ✅ | |
+| Collapse all / expand selected | Fold the whole tree, then open one branch | ✅ | A ⋯ menu in the layers tab strip: **Collapse All**, **Expand All**, **Expand Selected**. Expand Selected opens the path DOWN to each selected layer as well as its subtree — after Collapse All the row does not exist, so opening the node alone would appear to do nothing — and it is on the object's context menu too, since that is where you are when the layer you want is on the canvas rather than in the list. Rules in `engine/layer-collapse.ts`, view state only: not recorded, not undoable, not saved |
 | Rename layers | Double-click a layer name to rename | ✅ | |
 | Hide / show layers | Eye toggle per layer | ✅ | |
 | Lock / unlock layers | Lock toggle prevents canvas selection | ✅ | |
@@ -371,4 +372,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-14: 145 ✅ / 28 🟡 / 48 📋 / 23 ❌ = 244, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 146 ✅ / 28 🟡 / 48 📋 / 23 ❌ = 245, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
