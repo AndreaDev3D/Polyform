@@ -15,7 +15,7 @@ import { createNode, isContainer, newId } from '../engine/types'
 import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, type AABB } from '../engine/geometry'
 import { clampZoom } from '../engine/zoom'
 import { documentStore } from '../state/document'
-import { editor, type Tool } from '../state/editor'
+import { editor, type Tool, type VectorMode } from '../state/editor'
 import { OpRecorder, guidesChanged, paintVectorPartAt, setSelection, setStatus, topSelection } from '../state/actions'
 import { findDropFrame, hitTestAll, nearestInstanceAncestor, resolveClickTarget, nodesInRect } from '../engine/hit-test'
 import { constrainFrameChildren } from '../engine/constraints'
@@ -23,8 +23,9 @@ import type { PatchOp } from '../engine/commands'
 import { removeSubtreeOps } from '../engine/commands'
 import {
   CORNER_KEYS,
-  ARROW_CURSOR,
   ROTATE_CURSOR,
+  pointerCursor,
+  type CursorBadge,
   RULER_SIZE,
   arcEditTarget,
   arcHandles,
@@ -47,7 +48,7 @@ import {
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
-import { applyMirror, bendEdge, bezierAt, removeEdge, removeVertex, splitEdgeAt } from '../engine/vector-edit'
+import { applyMirror, bendEdge, bezierAt, marqueeVertices, removeEdge, removeVertex, splitEdgeAt } from '../engine/vector-edit'
 import { knifeCut } from '../engine/vector-knife'
 import { snapBox } from './snapping'
 
@@ -62,6 +63,16 @@ const BEND_HIT_PX = 9
  * clicks". Below this a press is a click, whatever the hand did.
  */
 const KNIFE_DRAG_PX = 4
+
+/** What the pointer wears in each vector mode. Move has none: it is the default. */
+const VECTOR_BADGE: Record<VectorMode, CursorBadge> = {
+  move: 'none',
+  add: 'add',
+  bend: 'bend',
+  knife: 'cut',
+  paint: 'paint',
+  delete: 'remove',
+}
 
 interface PointerMods {
   shift: boolean
@@ -142,6 +153,8 @@ type Mode =
   | { kind: 'vector-bend'; edgeIndex: number; t: number }
   /** Knife dragged with the button held. The click-click form stays in `idle`. */
   | { kind: 'vector-knife'; startScreen: Vec2 }
+  /** Rubber-band over anchors — the only way to catch two in the same place. */
+  | { kind: 'vector-marquee'; startScreen: Vec2; additive: boolean; baseSelection: number[] }
   | { kind: 'orbit'; nodeId: NodeId; lastScreen: Vec2; before: ModelPose; dolly: boolean }
 
 interface PenAnchor {
@@ -874,6 +887,18 @@ export class InteractionController {
         this.trackKnife(screen, world)
         return
       }
+      case 'vector-marquee': {
+        const start = screenToWorld(state.camera, this.mode.startScreen)
+        editor.set({
+          marquee: {
+            minX: Math.min(start.x, world.x),
+            minY: Math.min(start.y, world.y),
+            maxX: Math.max(start.x, world.x),
+            maxY: Math.max(start.y, world.y),
+          },
+        })
+        return
+      }
       case 'idle': {
         // The pen rubber-band must track the cursor between clicks too
         // (mode returns to idle after each anchor is placed).
@@ -917,14 +942,21 @@ export class InteractionController {
       if (state.hover) editor.set({ hover: null })
       // Our own arrow, not a crosshair: in here the pointer is picking out
       // anchors that already exist, and a crosshair's arms sit on top of the
-      // one you are reaching for. See ARROW_CURSOR.
-      this.cursorOverride = ARROW_CURSOR
+      // one you are reaching for. The badge says which mode you are in, so the
+      // answer to "what does this click do" is under your eye rather than in
+      // the bar at the bottom of the window.
+      this.cursorOverride = pointerCursor(VECTOR_BADGE[state.vectorMode])
       this.updateVectorPreview(screen, state)
       return
     }
     if (state.tool !== 'select') {
       if (state.hover) editor.set({ hover: null })
-      this.cursorOverride = state.tool === 'hand' ? 'grab' : 'crosshair'
+      // A crosshair is right for PLACING geometry — its hotspot is the middle
+      // and the arms bracket the spot you are committing to. The pen is the
+      // exception: it puts points down one at a time, which is the same act Add
+      // performs inside a path, so it wears the same badge.
+      this.cursorOverride =
+        state.tool === 'hand' ? 'grab' : state.tool === 'pen' ? pointerCursor('add') : 'crosshair'
       return
     }
     this.cursorOverride = null
@@ -1220,6 +1252,29 @@ export class InteractionController {
       case 'vector-bend':
         this.commitVectorGesture()
         break
+      case 'vector-marquee': {
+        const id = editor.get().vectorEditId
+        const node = id ? this.scene.getNode(id) : null
+        const box = {
+          minX: Math.min(this.mode.startScreen.x, screen.x),
+          minY: Math.min(this.mode.startScreen.y, screen.y),
+          maxX: Math.max(this.mode.startScreen.x, screen.x),
+          maxY: Math.max(this.mode.startScreen.y, screen.y),
+        }
+        if (node && node.type === 'VECTOR') {
+          const state = editor.get()
+          const m = this.scene.worldMatrix(node.id)
+          const points = node.network.vertices.map((v) => {
+            const s = worldToScreen(state.camera, applyMat(m, { x: v.x, y: v.y }))
+            return { id: v.id, x: s.x, y: s.y }
+          })
+          editor.set({
+            vectorSelection: marqueeVertices(points, box, this.mode.baseSelection, this.mode.additive),
+          })
+        }
+        editor.set({ marquee: null })
+        break
+      }
       case 'vector-knife': {
         // Which gesture this was is only knowable now. A press that went
         // somewhere is a drag, and the cut is finished; a press that stayed put
@@ -1607,12 +1662,20 @@ export class InteractionController {
       return
     }
 
-    // 4. Empty space.
+    // 4. Empty space: rubber-band. Held rather than cleared straight away —
+    // the selection only changes on release, so a drag that turns out to be a
+    // click still clears, and a drag selects what it enclosed.
     if (isDouble) {
       this.exitVectorEdit(true)
-    } else {
-      editor.set({ vectorSelection: [] })
+      return
     }
+    this.mode = {
+      kind: 'vector-marquee',
+      startScreen: screen,
+      additive: mods.shift,
+      baseSelection: [...state.vectorSelection],
+    }
+    editor.set({ marquee: { minX: world.x, minY: world.y, maxX: world.x, maxY: world.y } })
   }
 
   /**
@@ -1914,7 +1977,10 @@ export class InteractionController {
     if (state.spacePanning || state.tool === 'hand') return 'grab'
     if (this.cursorOverride) return this.cursorOverride
     if (state.tool !== 'select') return 'crosshair'
-    return 'default'
+    // Our arrow, not the OS one, everywhere the pointer is just pointing — so
+    // the shape under your hand is the same on the canvas as it is over a path,
+    // and a badge appearing beside it is the only thing that ever changes.
+    return pointerCursor()
   }
 }
 

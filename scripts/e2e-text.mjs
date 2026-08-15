@@ -31,6 +31,8 @@
 //  10. per-side strokes: the toggle beside the weight field opens four fields,
 //      typing into one lands on the node, and collapsing CLEARS them rather
 //      than leaving values stored that nothing reads (F-30).
+//  13. a rubber band over two anchors stacked in the same place catches BOTH -
+//      the selection Join needs, and one clicking cannot make (F-37).
 //  12. a GPU renderer that dies rebuilds itself and says so - WebGPU errors are
 //      asynchronous, so the try/catch around render() could never see one and
 //      the Canvas2D fallback it guards never fired (F-36).
@@ -1230,6 +1232,70 @@ try {
         }
       }
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // 13. A rubber band catches anchors that are stacked on top of each other.
+  //
+  //     The gesture exists for one case that has no other answer: two anchors
+  //     in the same place. Clicking reaches whichever the hit test found first
+  //     and clicking again reaches the same one, so the selection Join needs
+  //     was one nobody could make (F-37). A box does not care how many are
+  //     under the pixel — which is only true if the drag actually starts, so
+  //     this drives real pointer input rather than calling the rule directly.
+  // ---------------------------------------------------------------------
+  {
+    await evaluate(`(() => {
+      const P = globalThis.__polyform, S = P.documentStore.scene
+      S.addNode({
+        id: 'e2e-band', type: 'VECTOR', name: 'E2E Band', visible: true, locked: false, opacity: 1,
+        blendMode: 'NORMAL', x: 1600, y: 600, width: 300, height: 160, rotation: 0, windingRule: 'NONZERO',
+        network: {
+          vertices: [
+            { id: 1, x: 0, y: 80 }, { id: 2, x: 300, y: 80 },
+            { id: 11, x: 0, y: 80 }, { id: 12, x: 300, y: 80 },
+          ],
+          edges: [
+            { id: 1, v0: 1, v1: 2, cp0: { x: 90, y: 0 }, cp1: { x: 210, y: 0 } },
+            { id: 11, v0: 11, v1: 12, cp0: { x: 90, y: 160 }, cp1: { x: 210, y: 160 } },
+          ],
+        },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.96, g: 0.69, b: 0.26, a: 1 } }],
+        strokes: [], strokeWeight: 0, strokeAlign: 'CENTER', strokeDash: [], effects: [],
+      }, null, S.rootIds().length)
+      P.documentStore.transient()
+      P.editor.set({ selection: ['e2e-band'], vectorEditId: 'e2e-band', vectorSelection: [], vectorMode: 'move', tool: 'select' })
+      const r = document.querySelector('canvas').getBoundingClientRect(), zoom = 1.2
+      P.editor.set({ camera: { x: 1750 - r.width / 2 / zoom, y: 680 - r.height / 2 / zoom, zoom } })
+    })()`)
+    await sleep(600)
+    const corner = JSON.parse(await evaluate(`(() => {
+      const P = globalThis.__polyform
+      const cam = P.editor.get().camera
+      const m = P.documentStore.scene.worldMatrix('e2e-band')
+      const wx = m.a * 0 + m.c * 80 + m.e, wy = m.b * 0 + m.d * 80 + m.f
+      const r = document.querySelector('canvas').getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + (wx - cam.x) * cam.zoom), y: Math.round(r.top + (wy - cam.y) * cam.zoom) })
+    })()`))
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: corner.x - 40, y: corner.y - 40 })
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: corner.x - 40, y: corner.y - 40, button: 'left', clickCount: 1 })
+    await sleep(50)
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: corner.x, y: corner.y, buttons: 1 })
+    await sleep(50)
+    const banding = await evaluate(`String(globalThis.__polyform.editor.get().marquee !== null)`)
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: corner.x + 40, y: corner.y + 40, buttons: 1 })
+    await sleep(50)
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: corner.x + 40, y: corner.y + 40, button: 'left', clickCount: 1 })
+    await sleep(400)
+    const caught = JSON.parse(await evaluate(`JSON.stringify(globalThis.__polyform.editor.get().vectorSelection)`))
+    if (banding !== 'true') {
+      fail('no rubber band appeared while dragging over the path')
+    } else if (caught.length !== 2) {
+      fail(`a box over two stacked anchors should catch both, got ${JSON.stringify(caught)}`)
+    } else {
+      console.log(`E2E PASS: a rubber band catches both stacked anchors (${caught.join(', ')})`)
+    }
+    await evaluate(`globalThis.__polyform.editor.set({ vectorEditId: null, vectorSelection: [], marquee: null })`)
   }
 
   // ---------------------------------------------------------------------

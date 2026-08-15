@@ -25,9 +25,9 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 | Section | ✅ Implemented | 🟡 Partial | 📋 Planned | ❌ Out of scope | Rows |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| [Canvas & Viewport](#canvas--viewport) | 17 | 1 | 1 | 0 | 19 |
+| [Canvas & Viewport](#canvas--viewport) | 18 | 1 | 1 | 0 | 20 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
-| [Vector Editing](#vector-editing) | 18 | 4 | 1 | 0 | 23 |
+| [Vector Editing](#vector-editing) | 19 | 4 | 1 | 0 | 24 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 6 | 3 | 1 | 24 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **153** | **28** | **47** | **23** | **251** |
+| **Total** | **155** | **28** | **47** | **23** | **253** |
 
 ---
 
@@ -68,6 +68,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Spacing / measurement guides | Red measurements show equal spacing between objects | 🟡 | Equal-spacing snap between two neighbours shipped; no measurement labels yet |
 | Viewport state persistence | Reopening a file restores camera position | ✅ | Zoom/pan saved in `manifest.json` viewport state |
 | Hand tool (H) | Dedicated pan tool | ✅ | |
+| Cursor says what the click does | Pointer changes with the active tool | ✅ | One arrow for the whole app, with a badge naming the action — plus to add, minus to remove, slash to cut, drop to paint, hook to bend. The arrow never changes so the badge is what you read. Defined once in `engine/render/cursors.ts`; drawing tools keep a crosshair, which is the right cursor for PLACING something |
 
 ## Drawing & Shape Tools
 
@@ -102,6 +103,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Bend tool | Drag a segment and the curve follows | ✅ | Both handles move, split by bernstein influence at the grabbed t, so the curve lands on the pointer; a straight segment gets handles at the thirds first |
 | Per-point handle mirroring | None / angle / angle+length, per vertex | ✅ | Inspector control on the selected point(s); applying it smooths the corner immediately; Alt breaks the pairing for one drag |
 | Add points with a preview | A dot shows where the new point lands before you commit | ✅ | The Add mode of the vector bar: a hollow dot rides the outline as you move, and a click places it there. Clicking an anchor that already exists hands the gesture to Move rather than stacking a second one on it — two anchors in the same place cannot be told apart or selected separately afterwards |
+| Marquee-select anchors | Drag a box to select several points at once | ✅ | Shift adds rather than toggles. The case it exists for is anchors stacked in the SAME place — clicking reaches one of them and clicking again reaches the same one, so a box is the only gesture that can select both (F-37) |
 | Close an open path | Weld ends that sit on top of each other | ✅ | The repair for a path that looks closed and is not — an outline that arrived in pieces has ends at identical coordinates that are still separate anchors, and a fill has nothing to go inside. Join cannot do it: two anchors in the same place cannot be told apart by clicking. Welds ENDS only, and reports whether the shape actually closed (F-37) |
 | Join two points | Connect two anchors with a segment | ✅ | Any two anchors, not only path ends: joining across the middle is the only way to draw a crossbar without leaving the shape. Refuses with a reason (already connected, not two points, gone) |
 | Bridge two parts | Connect detached outlines of one shape, N points at a time | ✅ | Anchors are grouped by which part they belong to; two parts with the same number on each side get one segment per pair, paired by shortest total length so the bridge does not cross itself. Selection ORDER is not a statement about pairing |
@@ -378,4 +380,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 153 ✅ / 28 🟡 / 47 📋 / 23 ❌ = 251, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 155 ✅ / 28 🟡 / 47 📋 / 23 ❌ = 253, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

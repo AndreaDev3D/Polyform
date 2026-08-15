@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { VectorNetwork } from './types'
-import { applyMirror, bendEdge, bezierAt, partnerHandle, removeEdge, removeVertex, setVertexMirror } from './vector-edit'
+import {
+  applyMirror,
+  bendEdge,
+  bezierAt,
+  marqueeVertices,
+  partnerHandle,
+  removeEdge,
+  removeVertex,
+  setVertexMirror,
+} from './vector-edit'
 
 /** A square path: 4 vertices, 4 straight edges, closed. */
 function square(): VectorNetwork {
@@ -136,5 +145,41 @@ describe('removing points and segments', () => {
     }
     removeEdge(net, 0)
     expect(net.vertices).toHaveLength(0)
+  })
+})
+
+describe('rubber-band anchor selection', () => {
+  const pts = [
+    { id: 1, x: 10, y: 10 },
+    { id: 2, x: 50, y: 50 },
+    // Two anchors in the SAME place — an outline that arrived in pieces. This
+    // is the pair that clicking cannot separate, and the whole reason a box
+    // selection exists in here.
+    { id: 3, x: 90, y: 90 },
+    { id: 4, x: 90, y: 90 },
+  ]
+
+  it('catches two anchors stacked on top of each other', () => {
+    expect(marqueeVertices(pts, { minX: 80, minY: 80, maxX: 100, maxY: 100 }, [], false)).toEqual([3, 4])
+  })
+
+  it('replaces the selection unless you asked to add', () => {
+    expect(marqueeVertices(pts, { minX: 0, minY: 0, maxX: 20, maxY: 20 }, [2], false)).toEqual([1])
+    expect(marqueeVertices(pts, { minX: 0, minY: 0, maxX: 20, maxY: 20 }, [2], true)).toEqual([2, 1])
+  })
+
+  it('adds without toggling', () => {
+    // A box is dragged, not clicked: crossing the same anchor twice during one
+    // gesture is ordinary, and a toggle would quietly drop it again.
+    expect(marqueeVertices(pts, { minX: 0, minY: 0, maxX: 20, maxY: 20 }, [1], true)).toEqual([1])
+  })
+
+  it('takes anchors exactly on the edge of the box', () => {
+    // Drawn to the pixel, an anchor on the boundary is one you meant.
+    expect(marqueeVertices(pts, { minX: 10, minY: 10, maxX: 50, maxY: 50 }, [], false)).toEqual([1, 2])
+  })
+
+  it('selects nothing from an empty box, which is how you clear', () => {
+    expect(marqueeVertices(pts, { minX: 200, minY: 200, maxX: 210, maxY: 210 }, [1, 2], false)).toEqual([])
   })
 })

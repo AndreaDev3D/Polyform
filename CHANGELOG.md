@@ -48,6 +48,27 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Drag a box over anchors to select them** in vector edit, including anchors
+  sitting on top of each other. That pair is the whole reason it exists: clicking
+  reaches whichever one the hit test found first and clicking again reaches the
+  same one, so the selection Join needs was one nobody could make (F-37). A box
+  does not care how many are under the pixel. Shift adds rather than toggles —
+  crossing the same anchor twice during one drag is ordinary, and a toggle would
+  quietly drop it again.
+- **One pointer for the whole app, and it says what the click will do.** The
+  cursor is our own arrow everywhere the pointer is just pointing, with a badge
+  beside it naming the action: a plus for Add and the pen, a minus for Delete, a
+  slash for Knife, a drop for Paint, a hook for Bend. The arrow never changes,
+  which is what makes the badge readable — the eye tracks one shape and reads the
+  change beside it. `engine/render/cursors.ts` is the one place any of them is
+  defined; every string is memoised, because the cursor is read on every pointer
+  move.
+  - The badges were designed at the size they are actually seen. A four-way arrow
+    with proper heads, an arc thick enough to notice, and an X for the knife all
+    read fine blown up and turned to mush or to the wrong word at 13px — the X in
+    particular is what `remove` looks like, and two badges that mean different
+    things must not share a silhouette.
+
 - **Six new tools in vector edit, and the pointer to use them with.** The bar
   under an open path is now Move / Add / Bend / Knife / Paint / Delete, with Join,
   Bridge and Dissolve beside them as commands on what you have selected.

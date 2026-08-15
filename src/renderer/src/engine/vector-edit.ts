@@ -172,6 +172,35 @@ export function bendEdge(net: VectorNetwork, edgeIndex: number, t: number, targe
 }
 
 /**
+ * Which anchors a rubber band caught, and what the selection becomes.
+ *
+ * Dragging a box is the ONLY way to select anchors that sit on top of each
+ * other, and paths that arrived in pieces are full of those: clicking picks
+ * whichever one the hit test reached first, and clicking again picks the same
+ * one, so a pair of stacked ends cannot be selected by pointing at them at all
+ * (F-37). A box does not care how many are under the same pixel.
+ *
+ * Positions come in already projected to screen space, because that is where
+ * the box was drawn and where "inside it" is a question about what the user
+ * saw. Additive keeps what was already selected and adds — never toggles: over
+ * a box, a toggle would silently deselect anything you dragged across twice.
+ */
+export function marqueeVertices(
+  points: readonly { id: number; x: number; y: number }[],
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+  current: readonly number[],
+  additive: boolean,
+): number[] {
+  const caught = points
+    .filter((p) => p.x >= box.minX && p.x <= box.maxX && p.y >= box.minY && p.y <= box.maxY)
+    .map((p) => p.id)
+  if (!additive) return caught
+  const out = [...current]
+  for (const id of caught) if (!out.includes(id)) out.push(id)
+  return out
+}
+
+/**
  * Split one segment at parameter t, returning the id of the new vertex.
  *
  * A curve is split with De Casteljau, so both halves lie exactly on the curve

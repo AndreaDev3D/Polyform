@@ -130,52 +130,11 @@ export type HandleKind =
   | 'rotate-se'
   | 'rotate-sw'
 
-/**
- * A real rotation cursor. CSS has no keyword for one, so this is a circular
- * arrow as an inline SVG, drawn the way system cursors are: white ink over a
- * solid black rim, so it survives the canvas, a light shape and a dark one
- * alike. Three details are all load-bearing at 24px, and each was a failed
- * draft first — a translucent halo disappeared on white; a head sitting on the
- * arc merged into it, so the arc stops 25° short and the head takes the tip;
- * and round joins turned a 5px triangle into a pentagon, so the head miters
- * while the arc stays round.
- *
- * The hotspot is the centre of the ring: the arrow surrounds the point you are
- * acting on, which is what every other rotate cursor does. `alias` is the
- * fallback, and is what this used to be on its own.
- */
-export const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">' +
-    '<path d="M14.75 6.11A6.5 6.5 0 1 1 5.5 12" fill="none" stroke="#000" stroke-width="4" stroke-linecap="round"/>' +
-    '<path d="M2.6 12.1 5.5 7.2 8.4 12.1Z" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="miter"/>' +
-    '<path d="M14.75 6.11A6.5 6.5 0 1 1 5.5 12" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' +
-    '<path d="M2.6 12.1 5.5 7.2 8.4 12.1Z" fill="#fff"/>' +
-    '</svg>',
-)}") 12 12, alias`
-
-/**
- * The pointer used inside vector edit, where CSS would otherwise give you
- * `crosshair`.
- *
- * A crosshair is the right cursor for PLACING something — its hotspot is the
- * middle, and the four arms bracket the spot you are about to commit to. It is
- * the wrong cursor for POINTING AT something that is already there, which is
- * what editing a path mostly is: the arms cover the anchor you are reaching
- * for, and the thing you are aiming with is a gap.
- *
- * Same construction as the rotate cursor above — white ink over a black rim, so
- * it survives a dark canvas, a light shape and a coloured one alike — and the
- * hotspot is the TIP, where the white fill comes to a point. The rim bleeds
- * about 0.8px past it, which is why the fill tip and not the rim tip is the
- * quoted point: the pixel you are aiming with should be the one that looks
- * sharp.
- */
-export const ARROW_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">' +
-    '<path d="M2 2 2 17.2 6.1 13.4 8.8 19.6 11.4 18.4 8.8 12.5 14.2 12.2Z"' +
-    ' fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/>' +
-    '</svg>',
-)}") 2 2, default`
+// The cursors live in ./cursors now — one place for the arrow, the badges and
+// the rotate ring. Re-exported as well as imported because handles carry a
+// cursor string and the overlay tests assert on it.
+import { ROTATE_CURSOR } from './cursors'
+export { ROTATE_CURSOR, pointerCursor, type CursorBadge } from './cursors'
 
 export interface Handle {
   kind: HandleKind
