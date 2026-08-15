@@ -51,6 +51,7 @@ import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
 import { GlyphAtlas } from './glyphatlas'
 import { effectiveStrokeWeight, strokeSideRuns, usesSideRegion } from '../../strokesides'
 import { vectorPaintGroups } from '../../vector-paint'
+import { strokeCapShapes } from '../../strokecaps'
 import { nodeOutline } from '../../shapes'
 import {
   BLUR_WGSL,
@@ -1319,9 +1320,37 @@ export class WebGPURenderer {
     }
   }
 
+  /**
+   * The ends of an open stroke, filled in the stroke's own paint. After the
+   * band, because a cap sits ON the end of it.
+   */
+  private bakeStrokeCaps(node: SceneNode, m: Mat, opacity: number, blend: number): void {
+    const caps = strokeCapShapes(node, nodeOutline(node))
+    if (caps.length === 0) return
+    const mesh = this.meshCache.getCaps(this.bakeScene, node, this.bakeOpts.camera.zoom, caps)
+    if (mesh.fillIndices.length === 0) return
+    for (const paint of node.strokes) {
+      if (!paint.visible) continue
+      if (paint.type === 'SOLID') {
+        this.appendSolid(mesh.fillPositions, mesh.fillIndices, m, this.paintColor(paint, opacity), blend)
+      } else if (paint.type !== 'IMAGE') {
+        this.bakeGradient(
+          node,
+          paint,
+          { positions: mesh.fillPositions, indices: mesh.fillIndices },
+          m,
+          opacity,
+          blend,
+          strokePaintBox(node),
+        )
+      }
+    }
+  }
+
   private bakeStrokes(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
     if (effectiveStrokeWeight(node) <= 0) return
     if (!node.strokes.some((s) => s.visible && s.type !== 'IMAGE')) return
+    this.bakeStrokeCaps(node, m, opacity, blend)
     // Per-side weights on a shape that is not a box: the outline split into runs by
     // the way each stretch faces, each stroked at its own weight. A box gets an
     // exact filled region instead, already baked into `mesh`.

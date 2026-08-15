@@ -26,11 +26,11 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Section | ✅ Implemented | 🟡 Partial | 📋 Planned | ❌ Out of scope | Rows |
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | [Canvas & Viewport](#canvas--viewport) | 18 | 1 | 1 | 0 | 20 |
-| [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 0 | 4 | 0 | 17 |
+| [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 1 | 3 | 0 | 17 |
 | [Vector Editing](#vector-editing) | 19 | 4 | 1 | 0 | 24 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 14 | 6 | 3 | 1 | 24 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 15 | 6 | 3 | 1 | 25 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 3 | 4 | 4 | 1 | 12 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **155** | **28** | **47** | **23** | **253** |
+| **Total** | **156** | **29** | **46** | **23** | **254** |
 
 ---
 
@@ -79,7 +79,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Rectangle tool (R) | Draw rectangles | ✅ | |
 | Ellipse tool (O) | Draw ellipses and circles | ✅ | |
 | Line tool (L) | Draw straight lines | ✅ | |
-| Arrow tool (Shift+L) | Line with arrowhead cap | 📋 | Line tool ships without arrowhead presets |
+| Arrow tool (Shift+L) | Line with arrowhead cap | 🟡 | The arrowhead itself ships — any open stroke can take one at either end, from the Stroke section. What is missing is the shortcut that draws a line with it already set |
 | Polygon tool | Draw N-sided polygons | ✅ | |
 | Star tool | Draw stars | ✅ | |
 | Polygon/star point-count editing | Adjust vertex count and star ratio after drawing | ✅ | Inspector N / inner-radius fields |
@@ -191,6 +191,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Image background removal | One-click AI subject cutout | ✅ | v0.4.1 (ADR-019): on-device BiRefNet (MIT, RMBG-2.0's architecture) on the WebGPU EP ~5s, consent-gated one-time download (~473 MB), fully offline after, non-destructive + Restore original; accepted on real images 2026-08-02 |
 | Video fills | Video as a fill paint | ❌ | Out of scope |
 | Stroke color & weight | Per-object stroke paint and thickness | ✅ | |
+| Stroke caps (start and end) | Choose how each end of an open line finishes | ✅ | None, round, square, arrow, circle, diamond — set independently at the two ends. Built as filled GEOMETRY rather than `lineCap`, which is one value for both ends of every subpath and has no arrowhead; that is also what lets all three back ends draw the same thing, since each is only filling a subpath. Sizes scale with the stroke weight, and the cap direction comes from the curve’s tangent rather than the chord. Absent on closed outlines, which have no ends |
 | Stroke align: center | Stroke centered on the path | ✅ | |
 | Stroke align: inside / outside | Stroke inset or outset from the path | 🟡 | Clip-based approximation, not true geometric offset |
 | Dashed strokes | Dash pattern control | ✅ | |
@@ -339,7 +340,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Spatial-index hit testing | Fast picking on huge scenes | ✅ | R-tree over AABBs — Rust rstar via WASM by default, rbush fallback (ADR-015) |
 | Viewport culling | Off-screen objects skipped per frame | ✅ | Driven by the same R-tree |
 | Crisp vectors at any zoom | Re-rasterized sharp at every zoom level | ✅ | Immediate-mode redraw; no stale raster tiles |
-| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **20/20** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018), three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page) and per-side stroke weights. **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
+| WebGPU backend | Hardware rasterization pipeline | 🟡 | lyon-tessellated batched pipeline, **21/21** pixel-parity fixtures vs Canvas2D incl. shadows/blurs/all 16 blend modes (ADR-017), shaped text from the glyph atlas (ADR-018), three kinds of mask (F-34 — the fixtures that found the bake loop ignoring masks at the top level of a page) and per-side stroke weights. **The default from v0.8**; View → GPU Rendering switches it off, and the tick there follows what is actually drawing, so a machine with no device never claims otherwise |
 | Rust/WASM core engine | C++/WASM core in Figma's case | 🟡 | Sprint A shipped: geometry/shapes/spatial ported to Rust (crates/polyform-core), fuzz-proven equivalent, spatial live by default; remaining modules per V0.4-Porting-Plan.md |
 | Off-main-thread engine | Rendering/layout off the UI thread | 📋 | Spec targets a worker + SharedArrayBuffer with the WASM core |
 | 100k+ object documents | Smooth editing on massive files | 🟡 | **Verified: 100k shapes pan at 60fps** (0.18ms CPU/frame) on the WebGPU renderer, which is the default from v0.8; the Canvas2D fallback targets typical documents |
@@ -380,4 +381,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 155 ✅ / 28 🟡 / 47 📋 / 23 ❌ = 253, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 156 ✅ / 29 🟡 / 46 📋 / 23 ❌ = 254, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

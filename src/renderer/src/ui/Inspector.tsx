@@ -17,6 +17,7 @@ import type {
   InstanceNode,
   LightingPreset,
   MirrorMode,
+  StrokeCap,
   Model3dNode,
   ModelPose,
   NodeId,
@@ -39,6 +40,7 @@ import {
   type PaintBox,
 } from '../engine/paintbox'
 import { isFullEllipse } from '../engine/shapes'
+import { strokeCapsApply } from '../engine/strokecaps'
 import { setVertexMirror } from '../engine/vector-edit'
 import { isSplatFormat } from '../render3d/island'
 import { documentStore, useDocVersion } from '../state/document'
@@ -132,6 +134,16 @@ const BLEND_OPTIONS: { value: BlendMode; label: string }[] = [
   { value: 'EXCLUSION', label: 'Exclusion' },
 ]
 
+/** The cap shapes, in the order they get more emphatic. */
+const CAP_OPTIONS: { value: StrokeCap; label: string }[] = [
+  { value: 'NONE', label: 'None' },
+  { value: 'ROUND', label: 'Round' },
+  { value: 'SQUARE', label: 'Square' },
+  { value: 'ARROW', label: 'Arrow' },
+  { value: 'CIRCLE', label: 'Circle' },
+  { value: 'DIAMOND', label: 'Diamond' },
+]
+
 interface PickerState {
   kind: 'fill' | 'stroke' | 'effect'
   index: number
@@ -214,6 +226,10 @@ export function Inspector() {
   // anything: with a line in the selection, "Outside" would apply to some and be
   // silently ignored on the rest.
   const alignApplies = nodes.every((n) => strokeAlignApplies(n))
+  // Same rule as alignment, for the same reason: every selected node has to be
+  // able to carry one, or the control means something for part of a selection
+  // and is quietly dropped for the rest.
+  const capsApply = nodes.every((n) => strokeCapsApply(n))
 
   const common = <T,>(get: (n: SceneNode) => T): T | null => {
     const v = get(first)
@@ -852,6 +868,27 @@ export function Inspector() {
                   { value: 'dash', label: 'Dashed' },
                 ]}
                 onChange={(v) => commit((n) => ({ strokeDash: v === 'dash' ? [n.strokeWeight * 3, n.strokeWeight * 3] : [] }), 'Set Dash')}
+              />
+            </Field>
+          </div>
+        )}
+        {/* Caps only where there are ends to cap. On a closed outline the two
+            fields would read back whatever you picked and change nothing, which
+            is the same lie as an alignment on a line (F-30). */}
+        {first.strokes.length > 0 && capsApply && (
+          <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+            <Field label="Start cap" hint="How the beginning of the line is finished">
+              <Select
+                value={(common((n) => n.strokeCapStart ?? 'NONE') ?? '') as StrokeCap | ''}
+                options={CAP_OPTIONS}
+                onChange={(v) => commit(() => ({ strokeCapStart: v }), 'Set Start Cap')}
+              />
+            </Field>
+            <Field label="End cap" hint="How the end of the line is finished">
+              <Select
+                value={(common((n) => n.strokeCapEnd ?? 'NONE') ?? '') as StrokeCap | ''}
+                options={CAP_OPTIONS}
+                onChange={(v) => commit(() => ({ strokeCapEnd: v }), 'Set End Cap')}
               />
             </Field>
           </div>

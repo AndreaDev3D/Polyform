@@ -14,6 +14,8 @@
 // pointer move — rebuilding and re-encoding an SVG at that rate is real work
 // for a string that changes a few times a session.
 
+import { CURSOR_ARROW, CURSOR_BOX, CURSOR_TIP } from './cursor-paths'
+
 /** What the click is about to do. `none` is the plain pointer. */
 export type CursorBadge =
   | 'none'
@@ -26,14 +28,17 @@ export type CursorBadge =
   | 'join'
 
 /**
- * The arrow, drawn once at the top left with its tip exactly on the hotspot.
+ * How much the arrow's corners are rounded, in the units it was drawn in.
  *
- * A "paper plane" pointer rather than the stepped Windows arrow: a long edge
- * either side of the tip and a notch cut into the tail. It reads as a direction
- * at 16px where the stepped tail turns to mush, and it leaves the bottom right
- * of the box clear — which is where the badge goes.
+ * Done with a round-joined stroke in the fill colour rather than by authoring
+ * curves, so the shape stays editable as a plain polygon — the SVG the
+ * generator reads is something you can draw in a design tool without thinking
+ * about corner radii. It also grows the silhouette by this much on every side,
+ * which is why the drawn shape is a little lean.
  */
-const ARROW_PATH = 'M2 2 17.6 10.2 10.1 12.1 7.6 19.6Z'
+const ROUNDING = 2.6
+/** The dark rim, on top of the rounding, so the whole thing survives a white shape. */
+const RIM = 1.6
 
 /**
  * Badge glyphs, drawn inside a disc at the bottom right.
@@ -78,9 +83,18 @@ function svg(badge: CursorBadge): string {
     badge === 'none'
       ? ''
       : `<circle cx="23" cy="23" r="8" fill="#000"/><circle cx="23" cy="23" r="6.4" fill="#2f7bff"/>${BADGES[badge]}`
+  // Three passes over the SAME path, widest first: the rim, then the rounded
+  // white body, then the body's own fill. Painting one shape three times is
+  // what keeps the rim exactly parallel to the ink — two hand-offset paths
+  // would drift the moment the geometry is redrawn.
+  const arrow =
+    `<path d="${CURSOR_ARROW}" fill="#000" stroke="#000" stroke-width="${ROUNDING + RIM * 2}"` +
+    ' stroke-linejoin="round" stroke-linecap="round"/>' +
+    `<path d="${CURSOR_ARROW}" fill="#fff" stroke="#fff" stroke-width="${ROUNDING}"` +
+    ' stroke-linejoin="round" stroke-linecap="round"/>'
   return (
-    '<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34">' +
-    `<path d="${ARROW_PATH}" fill="#fff" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${CURSOR_BOX + 4}" height="${CURSOR_BOX + 4}">` +
+    arrow +
     disc +
     '</svg>'
   )
@@ -96,7 +110,11 @@ const cache = new Map<CursorBadge, string>()
 export function pointerCursor(badge: CursorBadge = 'none'): string {
   const hit = cache.get(badge)
   if (hit) return hit
-  const css = `url("data:image/svg+xml,${encodeURIComponent(svg(badge))}") 2 2, default`
+  // The hotspot comes from the drawn shape, not from a number typed twice:
+  // move the tip in the SVG and the aim follows it.
+  const css =
+    `url("data:image/svg+xml,${encodeURIComponent(svg(badge))}") ` +
+    `${Math.round(CURSOR_TIP.x)} ${Math.round(CURSOR_TIP.y)}, default`
   cache.set(badge, css)
   return css
 }

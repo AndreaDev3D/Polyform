@@ -23,7 +23,10 @@ export interface SubPath {
   anchors: Anchor[]
 }
 
-const KAPPA = 0.5522847498307936
+/** Circle-to-cubic constant. Exported so stroke caps draw the same round
+ *  as every other circle in the app rather than a near miss. */
+export const KAPPA_CIRCLE = 0.5522847498307936
+const KAPPA = KAPPA_CIRCLE
 
 function pt(x: number, y: number): Vec2 {
   return { x, y }

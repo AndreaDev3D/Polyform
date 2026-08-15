@@ -126,6 +126,22 @@ export class MeshCache {
   }
 
   /**
+   * The cap shapes at the ends of an open stroke, as one fill mesh.
+   *
+   * Keyed by the two cap kinds alongside the geometry, because changing a cap
+   * changes the mesh and nothing else in the geometry key would notice.
+   */
+  getCaps(scene: SceneGraph, node: SceneNode, zoom: number, subpaths: SubPath[]): NodeMesh {
+    const bucket = zoomBucket(zoom)
+    const key = `caps${node.strokeCapStart ?? '-'}${node.strokeCapEnd ?? '-'}|${geometryKey(scene, node, bucket)}`
+    const cached = this.entries.get(key)
+    if (cached) return cached
+    const mesh = MeshCache.tessellateFill(subpaths, false, bucket)
+    this.entries.set(key, mesh)
+    return mesh
+  }
+
+  /**
    * The fill mesh for ONE part of a painted vector.
    *
    * Keyed by the part's stable name alongside the node's geometry. The geometry

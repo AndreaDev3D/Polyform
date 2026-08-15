@@ -1,0 +1,25 @@
+<!--
+  The app's pointer, as geometry.
+
+  This file is the SOURCE. Edit it — in Polyform, or anywhere that exports SVG
+  — and run `node scripts/make-cursor.mjs` to regenerate the path data the
+  renderer uses. Nothing reads this file at runtime.
+
+  Rules for whatever replaces it:
+
+  * One `<path>`, in a 30x30 viewBox, starting at the TIP. The first point is
+    read as the hotspot — the pixel the click actually lands on — so the shape
+    and the aim cannot disagree. Leave it about 3.5 units clear of the edges:
+    the renderer rounds the corners with a fat stroke, and a tip against the
+    boundary gets its rim shaved off.
+  * Geometry only. Do not give it colours. The renderer paints it white over a
+    black rim, and rounds its corners, because a cursor has to stay visible on
+    a dark canvas, on white artwork and on everything in between — a solid
+    black arrow, which is what most reference art is, disappears on Polyform's
+    own background.
+  * Keep the bottom right of the box clear. That is where the badge disc goes
+    (plus for add, minus for remove, and the rest).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">
+  <path d="M3.6 3.6 21.4 14.1 13.0 15.9 10.3 24.1Z" />
+</svg>

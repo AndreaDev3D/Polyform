@@ -15,6 +15,7 @@ import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
 import { perSideStroke, strokeSideRuns, strokeSideOutline, usesSideRegion } from '../strokesides'
 import { vectorPaintGroups } from '../vector-paint'
+import { strokeCapShapes } from '../strokecaps'
 import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
@@ -202,13 +203,17 @@ function fillPath(
   // part is measured across the whole shape and lines up with its neighbours
   // rather than restarting inside each outline.
   paints: Paint[] = node.fills,
+  // Which box a gradient is mapped through. Caps hand in the STROKE's box: they
+  // are the end of the stroke, so a gradient on them has to be the one running
+  // along the stroke, not the one across the shape.
+  box: PaintBox = fillPaintBox(node),
 ): void {
   for (const paint of paints) {
     if (!paint.visible) continue
     if (paint.type === 'IMAGE') {
       drawImagePaint(ctx, paint, path, node.width, node.height, fillRule, assets)
     } else {
-      const style = paintStyle(ctx, paint, fillPaintBox(node))
+      const style = paintStyle(ctx, paint, box)
       if (!style) continue
       ctx.fillStyle = style
       ctx.fill(path, fillRule)
@@ -216,6 +221,24 @@ function fillPath(
     // Drop shadow (if set) should only apply to the first paint pass.
     ctx.shadowColor = 'transparent'
   }
+}
+
+/**
+ * The ends of an open stroke, filled in the stroke's own paint.
+ *
+ * After the stroke, not before: a cap sits ON the end of the band, and drawing
+ * it underneath would let the band's own butt end show through anything
+ * translucent.
+ */
+function paintStrokeCaps(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  outline: SubPath[],
+  assets: AssetCache,
+): void {
+  const caps = strokeCapShapes(node, outline)
+  if (caps.length === 0) return
+  fillPath(ctx, node, subPathsToPath2D(caps), 'nonzero', assets, node.strokes, strokePaintBox(node))
 }
 
 function strokePath(
@@ -769,8 +792,9 @@ function drawNodeContent(
       break
     }
     case 'LINE': {
-      const path = subPathsToPath2D(nodeOutline(node))
-      strokePath(ctx, node, path, false)
+      const outline = nodeOutline(node)
+      strokePath(ctx, node, subPathsToPath2D(outline), false)
+      paintStrokeCaps(ctx, node, outline, opts.assets)
       break
     }
     case 'VECTOR': {
@@ -794,6 +818,7 @@ function drawNodeContent(
         drawInnerShadows(ctx, node, path, rule, deviceScale)
       }
       strokePath(ctx, node, path, hasClosed)
+      paintStrokeCaps(ctx, node, subpaths, opts.assets)
       break
     }
     default: {

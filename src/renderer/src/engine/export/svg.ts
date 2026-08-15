@@ -11,6 +11,7 @@ import { booleanRings } from '../booleans'
 import { maskShape } from '../mask'
 import { perSideStroke, strokeSideRuns, strokeSideOutline, usesSideRegion } from '../strokesides'
 import { vectorPaintGroups } from '../vector-paint'
+import { strokeCapShapes } from '../strokecaps'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
@@ -318,7 +319,14 @@ async function nodeToSvg(ctx: SvgCtx, id: NodeId, skipTransform = false): Promis
   const sideStroke = strokeSideElement(ctx, node, d)
   const stroke = sideStroke ? '' : strokeAttrs(ctx, node)
   const border = sideStroke || (stroke ? `<path d="${d}" fill="none"${stroke}/>` : '')
-  return `<g${tf}${common}>${fills}${border}</g>`
+  // Caps are geometry, so they export as geometry — one filled path in the
+  // stroke's colour. `stroke-linecap` could not have carried them: it is one
+  // value for both ends of every subpath, and it has no arrowhead.
+  const capsD = subPathsToSvg(strokeCapShapes(node, nodeOutline(node)))
+  const capPaint = capsD ? (node.strokes.find((s) => s.visible) ?? null) : null
+  const capFill = capPaint ? paintToSvgFill(ctx, capPaint, node) : null
+  const caps = capFill ? `<path d="${capsD}" fill="${capFill}"/>` : ''
+  return `<g${tf}${common}>${fills}${border}${caps}</g>`
 }
 
 function textToSvg(ctx: SvgCtx, node: TextNode, common: string, tf: string): string {

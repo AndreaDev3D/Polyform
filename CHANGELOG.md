@@ -48,6 +48,34 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Line ends you can choose: none, round, square, arrow, circle, diamond** — set
+  independently at the start and the end, from the Stroke section. An arrow at
+  one end and nothing at the other is the commonest thing anyone wants from this,
+  and it is the case a rasterizer setting cannot express at all.
+  - Built as filled GEOMETRY rather than `lineCap`. That setting applies to both
+    ends of every subpath at once, so the moment the two ends can differ it is
+    out of the running — and it has no arrowhead in it. Shapes cost a little more
+    and buy three things: independent ends, arrowheads at all, and all three back
+    ends drawing the same thing, because each is only filling a subpath.
+  - Cap size scales with the stroke weight — a head that kept its size while its
+    line thickened would end up narrower than the line it finishes. The direction
+    comes from the curve's TANGENT, not the chord to the next anchor, so an arrow
+    on a curve points where the path actually goes.
+  - Absent on closed outlines, which have no ends: the control is not shown there
+    rather than shown and ignored.
+- **The pointer is drawn from a file you can edit.** `resources/cursor-arrow.svg`
+  is the source; `node scripts/make-cursor.mjs` turns it into the path data the
+  renderer uses, the same arrangement the logo already had. Draw a new arrow in
+  any tool that exports SVG, drop it in, re-run. The hotspot is read from the
+  shape's first point, so the tip and the aim cannot disagree — and the file says
+  what the renderer needs from it: geometry only, no colours, tip clear of the
+  edge, bottom-right kept free for the badge.
+  - The arrow is rounder now, done with a round-joined stroke in its own fill
+    colour rather than authored curves, so the file stays a plain polygon that is
+    pleasant to edit.
+  - It keeps the white-over-black treatment even though most reference art for
+    cursors is solid black: a black arrow is invisible on Polyform's own canvas.
+
 - **Drag a box over anchors to select them** in vector edit, including anchors
   sitting on top of each other. That pair is the whole reason it exists: clicking
   reaches whichever one the hit test found first and clicking again reaches the

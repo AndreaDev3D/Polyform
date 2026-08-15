@@ -191,6 +191,13 @@ export type BlendMode =
   | 'COLOR'
   | 'LUMINOSITY'
 
+/**
+ * What the end of an open stroke looks like. Defined here rather than beside
+ * the geometry that builds it, because it is part of the document — a `.poly`
+ * written today has to still mean the same thing when the drawing code moves.
+ */
+export type StrokeCap = 'NONE' | 'ROUND' | 'SQUARE' | 'ARROW' | 'CIRCLE' | 'DIAMOND'
+
 export type StrokeAlign = 'CENTER' | 'INSIDE' | 'OUTSIDE'
 
 export interface CornerRadius {
@@ -260,6 +267,16 @@ export interface BaseNode {
   strokeWeight: number
   strokeAlign: StrokeAlign
   strokeDash: number[]
+  /**
+   * What the two ends of an OPEN stroke look like. Absent means a plain butt
+   * end, which is what every shape had before caps existed.
+   *
+   * Two fields rather than one, because the ends are genuinely independent: an
+   * arrow at one end and nothing at the other is the commonest use there is.
+   * They are ignored on a closed outline, which has no ends to cap.
+   */
+  strokeCapStart?: StrokeCap
+  strokeCapEnd?: StrokeCap
   /**
    * Per-side stroke weights; absent = `strokeWeight` on every side. Lives here
    * rather than beside `cornerRadius` on the four box types, which is where it

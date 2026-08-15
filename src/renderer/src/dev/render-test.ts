@@ -425,6 +425,67 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // Stroke caps. They are FILLED GEOMETRY, not a rasterizer setting, so both
+    // back ends have to build the same shapes and put them in the same place —
+    // and an arrowhead is the sort of thing that comes out mirrored or rotated
+    // on one of them and looks plausible either way.
+    //
+    // Thick strokes and frame-filling lines on purpose (F-35): a cap on a 2px
+    // line is a handful of pixels and could not breach any limit however wrong.
+    name: 'stroke-caps',
+    // 2%, not the 3% most fixtures use: healthy measures 0.45% and the GPU cap
+    // path switched off measures 3.94%, so a 3% limit would have left a gate
+    // with almost no daylight either side of it.
+    badLimit: 0.02,
+    build: (s) => {
+      const ink = (c: [number, number, number]) => [
+        { type: 'SOLID' as const, visible: true, opacity: 1, color: { r: c[0], g: c[1], b: c[2], a: 1 } },
+      ]
+      const kinds = ['ROUND', 'SQUARE', 'ARROW', 'CIRCLE', 'DIAMOND'] as const
+      kinds.forEach((kind, i) => {
+        make(s, 'LINE', null, {
+          x: 90,
+          y: 42 + i * 62,
+          width: 460,
+          height: 0,
+          strokes: ink([0.95, 0.72, 0.3]),
+          // Fat on purpose. Caps scale with the weight, and at 16 the whole set
+          // covered so little of the canvas that switching the GPU's cap path
+          // OFF still measured 1.28% against a 3% limit — a gate that passes
+          // while the thing it guards is gone (F-35, again).
+          strokeWeight: 30,
+          strokeAlign: 'CENTER',
+          // Different at each end, which is the case `lineCap` could never have
+          // expressed and therefore the one most likely to be got wrong.
+          strokeCapStart: kind,
+          strokeCapEnd: kinds[(i + 2) % kinds.length],
+        })
+      })
+      // A curved open path too: the cap direction comes from the tangent, and a
+      // back end reading the chord instead would aim these visibly wrong.
+      make(s, 'VECTOR', null, {
+        x: 40,
+        y: 330,
+        width: 560,
+        height: 130,
+        windingRule: 'NONZERO',
+        fills: [],
+        strokes: ink([0.45, 0.85, 0.95]),
+        strokeWeight: 30,
+        strokeAlign: 'CENTER',
+        strokeCapStart: 'ARROW',
+        strokeCapEnd: 'ARROW',
+        network: {
+          vertices: [
+            { id: 1, x: 0, y: 150 },
+            { id: 2, x: 560, y: 150 },
+          ],
+          edges: [{ id: 1, v0: 1, v1: 2, cp0: { x: 60, y: -40 }, cp1: { x: 500, y: -40 } }],
+        },
+      })
+    },
+  },
+  {
     // Per-part fills: one VECTOR node whose detached outlines carry different
     // colours. Both back ends have to agree on which outline is which — the GPU
     // builds a separate mesh per part and Canvas2D fills a separate path, from

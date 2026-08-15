@@ -7,19 +7,36 @@
 
 import { describe, expect, it } from 'vitest'
 import { ROTATE_CURSOR, pointerCursor, type CursorBadge } from './cursors'
+import { CURSOR_ARROW, CURSOR_TIP } from './cursor-paths'
 
 const ALL: CursorBadge[] = ['none', 'add', 'remove', 'move', 'bend', 'cut', 'paint', 'join']
 
 describe('pointer cursors', () => {
   it('puts the hotspot on the arrow tip and keeps a fallback', () => {
+    // Read from the SAME generated data the shape comes from, not typed in
+    // again — that is the whole point of generating it. Redrawing the arrow in
+    // resources/cursor-arrow.svg moves the tip and the aim together, and a test
+    // holding its own copy of the number would keep passing while they parted.
+    const tip = `${Math.round(CURSOR_TIP.x)} ${Math.round(CURSOR_TIP.y)}`
     for (const badge of ALL) {
       const css = pointerCursor(badge)
-      // "2 2" is the tip. A cursor with the hotspot in the middle of the image
-      // points a few pixels away from where you think you are aiming, which is
-      // unusable for dragging anchors around.
-      expect(css).toMatch(/\) 2 2, default$/)
+      expect(css.endsWith(`) ${tip}, default`)).toBe(true)
       expect(css.startsWith('url("data:image/svg+xml,')).toBe(true)
     }
+  })
+
+  it('draws the arrow the generator produced', () => {
+    // A cursor whose shape had silently emptied would still be a valid CSS
+    // string and would fall back to the system arrow, which looks like it works.
+    expect(CURSOR_ARROW.length).toBeGreaterThan(10)
+    expect(decodeURIComponent(pointerCursor('none'))).toContain(CURSOR_ARROW)
+  })
+
+  it('keeps the tip clear of the edge, so the rim is not shaved off', () => {
+    // The corners are rounded with a fat stroke; a tip against the boundary
+    // loses its outline on two sides and stops reading as a point.
+    expect(CURSOR_TIP.x).toBeGreaterThanOrEqual(3)
+    expect(CURSOR_TIP.y).toBeGreaterThanOrEqual(3)
   })
 
   it('gives every badge its own image', () => {
