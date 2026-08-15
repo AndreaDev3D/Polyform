@@ -22,6 +22,7 @@ import {
   type Step,
 } from './vector-rings'
 import { networkParts, type NetworkPart } from './vector-parts'
+import { weldLooseEnds } from './vector-connect'
 import type { Vec2, VectorNetwork } from './types'
 
 /** Endpoints closer than this are the same point. */
@@ -162,6 +163,43 @@ function unionRings(a: readonly Step[], b: readonly Step[]): Step[] | null {
 }
 
 /**
+ * Dissolve the segments BETWEEN the selected points: take the seam out and let
+ * what was either side of it become one outline.
+ *
+ * This is the operation people mean by dissolve, and the one this module did
+ * not have. Merging *overlapping* parts (below) only ever fires when two
+ * outlines cross; two halves that share a seam do not cross, they touch — so
+ * asking to dissolve them reported "those parts do not overlap", which is true
+ * and is not what anybody wanted to hear while looking at a line down the
+ * middle of their shape.
+ *
+ * Only edges with BOTH ends selected go. That is what makes the gesture safe to
+ * aim: you select the seam's endpoints, and nothing outside the seam can be
+ * caught by it.
+ *
+ * Afterwards the loose ends are welded, because a seam is usually two edges —
+ * one belonging to each half — and removing them leaves two open chains whose
+ * ends sit on top of each other. Without the weld you would have taken the line
+ * away and still have two parts.
+ */
+export function dissolveEdges(net: VectorNetwork, vids: readonly number[], weldWithin: number): string | null {
+  const sel = new Set(vids)
+  if (sel.size < 2) return 'Select the points at both ends of the segments to dissolve'
+  const doomed = net.edges.filter((e) => sel.has(e.v0) && sel.has(e.v1))
+  if (doomed.length === 0) return 'No segment runs between the selected points'
+  net.edges = net.edges.filter((e) => !(sel.has(e.v0) && sel.has(e.v1)))
+  // A point that was only holding up the seam goes with it.
+  const used = new Set<number>()
+  for (const e of net.edges) {
+    used.add(e.v0)
+    used.add(e.v1)
+  }
+  net.vertices = net.vertices.filter((v) => used.has(v.id))
+  weldLooseEnds(net, weldWithin)
+  return null
+}
+
+/**
  * Merge overlapping parts of one shape into single outlines.
  *
  * Repeats until nothing overlaps, so three parts in a row dissolve to one. A
@@ -188,7 +226,7 @@ export function dissolveParts(net: VectorNetwork): string | null {
   if (merged > 0) return null
   const closed = networkParts(net).filter((p) => p.closed)
   if (closed.length < 2) return 'Dissolve needs two closed parts of the same shape'
-  return 'Those parts do not overlap — there is nothing to dissolve'
+  return 'Those parts do not overlap. If they share a seam, select the points at its ends and dissolve those'
 }
 
 /** The first pair of parts that overlap, with the outline that replaces them. */

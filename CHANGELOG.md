@@ -6,6 +6,23 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Fixed
 
+- **Dissolve now reads the points you selected.** It shipped able to do exactly
+  one thing — find parts of a shape that OVERLAP and merge them — and
+  `dissolveParts(net)` took a network and nothing else, so a selection could not
+  reach it. Four points chosen either side of a seam were on screen, counted in
+  the toolbar, and invisible to the command.
+  - Two halves that share a seam do not overlap, they **touch**, so the honest
+    answer came back "those parts do not overlap" while the seam sat there. True,
+    useless, and indistinguishable from a broken tool.
+  - With points selected it now removes the segments BETWEEN them and welds what
+    is left, so the seam goes and the halves become one outline. Only edges with
+    *both* ends selected are taken — that is what makes it aimable. With nothing
+    selected it still merges overlapping parts, and that refusal now points at
+    the other mode rather than stopping at a fact.
+  - The weld is load-bearing: a seam is usually two edges, one per half, so
+    removing them leaves two open chains with stacked ends. Without it you would
+    have taken the line away and still had two parts (F-38).
+
 - **A shape whose fill was "not being respected".** An open path cannot take a
   fill — every back end strokes it and skips the fill, which is right — but
   nothing said so: the Fill row went on showing the colour and the hex next to a

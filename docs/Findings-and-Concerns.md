@@ -935,6 +935,24 @@ The reason it was so confusing is that the path *looked* closed. An outline that
 
 ---
 
+## F-38. A command that ignores what you selected is answering a different question
+
+**Severity: Medium** — Dissolve was given four points sitting either side of a seam and reported "those parts do not overlap", while the seam stayed on screen. Reported by the user, on an imported wheat leaf, with the selection visible in the screenshot.
+
+Dissolve shipped as one idea: find parts of the shape that OVERLAP and merge them. That is a real operation and it works. It is not the operation anybody was asking for.
+
+Two halves that share a seam do not overlap — **they touch**. There is nothing for a crossing test to find, so the honest answer came back "those parts do not overlap", which is true, useless, and indistinguishable from a broken tool when you are looking at a line down the middle of your shape.
+
+**The signature of the mistake is in the signature of the function**: `dissolveParts(net)` takes a network and nothing else. The selection is never passed in. Four points were selected, they were on screen, they were counted in the toolbar — and the command could not read them. Every other command on that bar acts on the selection; this one silently did not, and looked identical while doing it.
+
+**What it does now.** With points selected, Dissolve removes the segments BETWEEN them and welds what is left: the seam goes and the two halves become one outline. Only edges with *both* ends selected are taken, which is what makes the gesture aimable — you select the seam's ends and nothing outside the seam can be caught. With nothing selected it keeps the old behaviour and merges overlapping parts, and its refusal now points at the other mode instead of stopping at a fact.
+
+The weld afterwards is not a detail: a seam is usually TWO edges, one belonging to each half, and removing them leaves two open chains with stacked ends. Without welding you would have taken the line away and still had two parts — the line gone and the problem not fixed.
+
+**Standing obligation.** When a command sits on a bar next to commands that act on the selection, it acts on the selection or it explains why not. And when a tool's answer is a fact about the geometry rather than an outcome — "those do not overlap" — check whether the question was the one the user asked: the wording was accurate and the command was still wrong.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -954,6 +972,7 @@ Three themes run through every entry:
 13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
 14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
 15. **A fixture covers the case it contains, not the feature it is named after.** F-34's mask fixture used an ellipse inside a group — a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while the two renderers disagreed about even-odd masks and the GPU ignored masks at the top level of a page. Name the *kinds* a feature has and give the gate one of each; a feature with one fixture is a feature with one case checked.
+19. **A selection is a question.** F-38's Dissolve took a network and no selection at all, so four deliberately chosen points could not reach it. A command beside others that read the selection has to read it too, or it is answering something nobody asked.
 18. **The smallest case is not the easiest case.** F-37's weld was tested on a path with a middle anchor in each half, which is what a real one usually looks like. The user's shape was two curves between two anchors and nothing else — the plainest closed path there is — and it broke two different assumptions the bigger fixture had quietly satisfied.
 17. **A guard has to be able to fire.** F-36's Canvas2D fallback sat behind a `try/catch` around an API that reports its errors asynchronously, so the catch had never run once and could not. The fallback was unreachable, and read as protection for as long as nobody checked.
 16. **A fixture has to be big enough to fail.** F-35's per-side stroke fixture was extended with two small shapes and measured 0.27%; with the code it guarded switched off entirely it still measured 2.18% against a 3% limit, because the shapes put too little ink on the canvas to breach it. Sizing is part of the assertion: after splitting it out with shapes that fill the frame, the same break measured 11.94% and caught a second bug on the way.

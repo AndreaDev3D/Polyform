@@ -34,7 +34,7 @@ import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../eng
 import { hasClosedGeometry } from '../engine/paintbox'
 import { collapseAll, expandSelected } from '../engine/layer-collapse'
 import { bridgeVertices, joinVertices, weldLooseEnds } from '../engine/vector-connect'
-import { dissolveParts } from '../engine/vector-dissolve'
+import { dissolveEdges, dissolveParts } from '../engine/vector-dissolve'
 import { networkParts } from '../engine/vector-parts'
 import { partAtPoint, withPartFill } from '../engine/vector-paint'
 import { importSvgDocument } from '../engine/import/svg-import'
@@ -423,12 +423,24 @@ export function paintVectorPartAt(local: Vec2): void {
  * the difference between "it worked" and "it did some of it".
  */
 export function dissolveVectorParts(): void {
-  const { vectorEditId } = editor.get()
-  editOpenVector('Dissolve Parts', (net) => dissolveParts(net))
+  const { vectorEditId, vectorSelection } = editor.get()
   const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
   if (!node || node.type !== 'VECTOR') return
+  const tolerance = Math.max(0.01, Math.hypot(node.width, node.height) * 0.0025)
+  // Points selected means you have AIMED at something — the seam between them —
+  // and that reading has to win. Ignoring the selection and hunting for
+  // overlapping parts instead is what made this look broken: two halves sharing
+  // a seam do not overlap, they touch, so the answer came back "those parts do
+  // not overlap" while a line sat down the middle of the shape.
+  if (vectorSelection.length >= 2) {
+    editOpenVector('Dissolve Segments', (net) => dissolveEdges(net, vectorSelection, tolerance))
+  } else {
+    editOpenVector('Dissolve Parts', (net) => dissolveParts(net))
+  }
+  const after = documentStore.scene.getNode(node.id)
+  if (!after || after.type !== 'VECTOR') return
   if (editor.get().status) return // a refusal already said more than a count would
-  const left = networkParts(node.network).length
+  const left = networkParts(after.network).length
   setStatus(left === 1 ? 'Dissolved into one outline' : `Dissolved — ${left} parts left`)
 }
 

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import type { VectorNetwork } from './types'
 import { networkParts } from './vector-parts'
 import { cycleSteps, ringPolyline } from './vector-rings'
-import { dissolveParts } from './vector-dissolve'
+import { dissolveEdges, dissolveParts } from './vector-dissolve'
 
 /** Axis-aligned rectangle as a closed part, ids from `base`. */
 function rect(base: number, x0: number, y0: number, x1: number, y1: number): VectorNetwork {
@@ -101,5 +101,98 @@ describe('dissolve', () => {
 
   it('declines when there is only one part', () => {
     expect(dissolveParts(rect(0, 0, 0, 100, 100))).toMatch(/two closed parts/)
+  })
+})
+
+describe('dissolving the seam between selected points', () => {
+  /**
+   * A leaf split down the middle: two closed halves that SHARE the seam, each
+   * with its own copy of it and its own stacked endpoints. This is what an
+   * imported shape looks like when it arrived as two regions, and it is the
+   * case the overlap merge above cannot touch — the halves do not cross, they
+   * touch, so there is nothing for a crossing test to find.
+   */
+  function splitLeaf(): VectorNetwork {
+    return {
+      vertices: [
+        // Left half: top, left bulge, bottom.
+        { id: 1, x: 50, y: 0 },
+        { id: 2, x: 0, y: 60 },
+        { id: 3, x: 50, y: 120 },
+        // Right half: its own copies of top and bottom, stacked exactly.
+        { id: 11, x: 50, y: 0 },
+        { id: 12, x: 100, y: 60 },
+        { id: 13, x: 50, y: 120 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+        { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+        { id: 3, v0: 3, v1: 1, cp0: null, cp1: null }, // the seam, left copy
+        { id: 11, v0: 11, v1: 12, cp0: null, cp1: null },
+        { id: 12, v0: 12, v1: 13, cp0: null, cp1: null },
+        { id: 13, v0: 13, v1: 11, cp0: null, cp1: null }, // the seam, right copy
+      ],
+    }
+  }
+
+  it('removes the seam and leaves one closed outline', () => {
+    const net = splitLeaf()
+    expect(networkParts(net)).toHaveLength(2)
+    // The four points at the ends of the two seam segments — what you get by
+    // rubber-banding the top pair and the bottom pair.
+    expect(dissolveEdges(net, [1, 3, 11, 13], 0.5)).toBeNull()
+    const parts = networkParts(net)
+    expect(parts).toHaveLength(1)
+    expect(parts[0].closed).toBe(true)
+    // Both copies of the seam gone, and the stacked ends welded into one each —
+    // without the weld you would have taken the line away and still have two
+    // parts sitting next to each other.
+    expect(net.vertices).toHaveLength(4)
+    expect(net.edges).toHaveLength(4)
+    expect(soleArea(net)).toBeCloseTo(6000, 2)
+  })
+
+  it('works when the two halves already share their seam points', () => {
+    // The same shape built the other way: one seam edge, four vertices.
+    const net: VectorNetwork = {
+      vertices: [
+        { id: 1, x: 50, y: 0 },
+        { id: 2, x: 0, y: 60 },
+        { id: 3, x: 50, y: 120 },
+        { id: 4, x: 100, y: 60 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+        { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+        { id: 3, v0: 3, v1: 4, cp0: null, cp1: null },
+        { id: 4, v0: 4, v1: 1, cp0: null, cp1: null },
+        { id: 5, v0: 1, v1: 3, cp0: null, cp1: null }, // the seam
+      ],
+    }
+    expect(dissolveEdges(net, [1, 3], 0.5)).toBeNull()
+    expect(net.edges).toHaveLength(4)
+    expect(networkParts(net)[0].closed).toBe(true)
+  })
+
+  it('only takes segments with BOTH ends selected', () => {
+    const net = splitLeaf()
+    // Selecting one end of the seam and one bulge names no segment between
+    // them — and must not be read as "take everything nearby".
+    expect(dissolveEdges(net, [1, 12], 0.5)).toMatch(/No segment runs between/)
+    expect(net.edges).toHaveLength(6)
+  })
+
+  it('declines a selection too small to name a segment', () => {
+    expect(dissolveEdges(splitLeaf(), [1], 0.5)).toMatch(/both ends/)
+  })
+
+  it('leaves the rest of the shape alone', () => {
+    const net = splitLeaf()
+    dissolveEdges(net, [1, 3, 11, 13], 0.5)
+    // The bulges are still where they were; dissolve took the seam, not a bite
+    // out of the outline.
+    const at = new Map(net.vertices.map((v) => [`${v.x},${v.y}`, v]))
+    expect(at.has('0,60')).toBe(true)
+    expect(at.has('100,60')).toBe(true)
   })
 })
