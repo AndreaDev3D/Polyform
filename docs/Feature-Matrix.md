@@ -30,7 +30,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Vector Editing](#vector-editing) | 19 | 4 | 1 | 0 | 24 |
 | [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
-| [Fills, Strokes & Effects](#fills-strokes--effects) | 15 | 6 | 3 | 1 | 25 |
+| [Fills, Strokes & Effects](#fills-strokes--effects) | 17 | 6 | 3 | 1 | 27 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
 | [Auto Layout & Constraints](#auto-layout--constraints) | 7 | 0 | 6 | 0 | 13 |
 | [Components, Styles & Libraries](#components-styles--libraries) | 3 | 4 | 4 | 1 | 12 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **156** | **29** | **46** | **23** | **254** |
+| **Total** | **158** | **29** | **46** | **23** | **256** |
 
 ---
 
@@ -179,6 +179,8 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Feature | Figma behavior | Polyform status | Notes |
 | :--- | :--- | :---: | :--- |
 | Solid fills | Flat color fill with opacity | ✅ | |
+| Selection colors | Every colour used inside a selection, grouped and editable at once | ✅ | Select a frame and the palette of everything inside it appears, ordered by how often each colour is used; changing one changes every place it appears, in a single undo step. Grouped by the COLOUR rather than the layer, and gradient stops count individually. A hidden paint is skipped, a hidden layer is not — dropping it would make the palette shift as you toggle visibility (`engine/selection-colors.ts`) |
+| Hex field on every paint | Read, copy and type a colour without opening the picker | ✅ | The hex used to be the label of the paint-type dropdown, so it could be neither selected nor typed into. It is a real field now — selected on focus, accepts `#abc`/`abc`/`#aabbcc` in any case, and puts back anything it cannot read — with opacity beside it. The paint type moved into the picker, which already had tabs for it |
 | Multiple fills per object | Stacked fill list per node | ✅ | |
 | Linear gradients | Two+ stop linear gradient fill | ✅ | |
 | Radial gradients | Center-out gradient fill | ✅ | |
@@ -381,4 +383,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 156 ✅ / 29 🟡 / 46 📋 / 23 ❌ = 254, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 158 ✅ / 29 🟡 / 46 📋 / 23 ❌ = 256, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

@@ -55,6 +55,24 @@ function fail(msg) {
   process.exitCode = 1
 }
 
+/**
+ * Poll until `read()` returns something truthy, or give up.
+ *
+ * Every fixed `sleep` between an input and the assertion that follows it is a
+ * guess about how long the app takes to react, and on a loaded machine the
+ * guess is wrong often enough to make a gate look flaky — which is worse than
+ * one that fails, because people learn to re-run it instead of reading it.
+ * Waiting for the thing itself still fails when it never arrives.
+ */
+async function waitFor(read, tries = 25, gap = 100) {
+  let value = await read()
+  for (let i = 0; i < tries && !value; i++) {
+    await sleep(gap)
+    value = await read()
+  }
+  return value
+}
+
 const electron = spawn(
   process.platform === 'win32' ? 'npx.cmd' : 'npx',
   ['electron', 'out/main/index.js', `--remote-debugging-port=${PORT}`],
@@ -1219,13 +1237,14 @@ try {
             await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: at.x, y: at.y, button: 'right', clickCount: 1 })
             await sleep(60)
             await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at.x, y: at.y, button: 'right', clickCount: 1 })
-            await sleep(400)
-            const ctx = JSON.parse(await evaluate(`(() => {
-              const b = [...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Expand Selected'))
-              if (!b) return 'null'
-              const r = b.getBoundingClientRect()
-              return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
-            })()`))
+            const ctx = await waitFor(async () =>
+              JSON.parse(await evaluate(`(() => {
+                const b = [...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Expand Selected'))
+                if (!b) return 'null'
+                const r = b.getBoundingClientRect()
+                return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+              })()`)),
+            )
             if (!ctx) {
               fail('Expand Selected is missing from the object context menu')
             } else {
@@ -1292,8 +1311,10 @@ try {
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: corner.x - 40, y: corner.y - 40, button: 'left', clickCount: 1 })
     await sleep(50)
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: corner.x, y: corner.y, buttons: 1 })
-    await sleep(50)
-    const banding = await evaluate(`String(globalThis.__polyform.editor.get().marquee !== null)`)
+    const banding = await waitFor(async () => {
+      const v = await evaluate(`String(globalThis.__polyform.editor.get().marquee !== null)`)
+      return v === 'true' ? v : null
+    })
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: corner.x + 40, y: corner.y + 40, buttons: 1 })
     await sleep(50)
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: corner.x + 40, y: corner.y + 40, button: 'left', clickCount: 1 })

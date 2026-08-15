@@ -65,6 +65,29 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Selection colors.** Select a frame — or anything with layers inside it — and
+  the inspector lists every colour used in there, grouped, with a count, most-used
+  first. Click one and it changes everywhere at once, as a single undo step.
+  - Grouped by the COLOUR, not by the layer: a fill and a stroke of the same brown
+    are one swatch, because "the brown in this drawing" is the thing being edited.
+    Gradient stops count individually — a two-stop gradient is two colours, and
+    they are the ones somebody wants to change.
+  - A hidden PAINT is skipped; a hidden LAYER is not. A layer you switched off
+    still carries its colour, and dropping it would make the palette shift as you
+    toggle visibility, which reads as the tool losing track of the document.
+- **The colour row is a colour row now, not a dropdown.** The hex was the selected
+  option of a `<select>` whose real job was picking the paint type — one control
+  doing two things, and neither well: the value could not be selected to copy,
+  could not be typed into, and the type picker hid behind something that looked
+  like data.
+  - The hex is a field: click it and it selects itself, so copying is click and
+    Ctrl+C; type over it to set a colour, with or without the hash, three digits
+    or six, any case. Anything unreadable is put back rather than committed.
+  - **Opacity sits beside it**, because it is half of what a colour is and
+    reaching it meant opening the picker and finding the alpha slider. The two
+    fields keep out of each other's way — typing a hex leaves the alpha alone.
+  - The paint type moved into the colour picker, which already had tabs for it.
+
 - **Line ends you can choose: none, round, square, arrow, circle, diamond** — set
   independently at the start and the end, from the Stroke section. An arrow at
   one end and nothing at the other is the commonest thing anyone wants from this,

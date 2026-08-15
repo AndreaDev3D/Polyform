@@ -15,6 +15,7 @@ import type {
   Paint,
   SceneNode,
   TextNode,
+  RGBA,
   TextStyleProps,
   Vec2,
   VectorNetwork,
@@ -32,6 +33,7 @@ import { exportPng } from '../engine/export/png'
 import { exportSvg } from '../engine/export/svg'
 import { findDropFrame, isInsideInstance, nearestInstanceAncestor } from '../engine/hit-test'
 import { hasClosedGeometry } from '../engine/paintbox'
+import { applyColorToUses, type ColorUse } from '../engine/selection-colors'
 import { collapseAll, expandSelected } from '../engine/layer-collapse'
 import { bridgeVertices, joinVertices, weldLooseEnds } from '../engine/vector-connect'
 import { dissolveEdges, dissolveParts } from '../engine/vector-dissolve'
@@ -297,6 +299,44 @@ export function selectAll(): void {
   const container = editor.get().enteredContainer
   const list = container && scene.hasNode(container) ? scene.childListOf(container) : scene.rootIds()
   setSelection(list.filter((id) => !scene.getNode(id)?.locked))
+}
+
+/**
+ * Put one colour everywhere the selection's palette says it is used.
+ *
+ * `live` keeps it out of the history while a picker is being dragged — the same
+ * arrangement the inspector's own paint editing uses, so recolouring a whole
+ * frame is one undo step rather than one per pixel of slider travel.
+ */
+export function recolorSelectionUses(uses: readonly ColorUse[], next: RGBA, live: boolean): void {
+  if (uses.length === 0) return
+  const scene = documentStore.scene
+  const before = new Map<NodeId, { fills: Paint[]; strokes: Paint[] }>()
+  for (const use of uses) {
+    if (before.has(use.nodeId)) continue
+    const node = scene.getNode(use.nodeId)
+    if (node) before.set(use.nodeId, structuredClone({ fills: node.fills, strokes: node.strokes }))
+  }
+  const touched = applyColorToUses(scene, uses, next)
+  if (touched.length === 0) return
+  scene.bump()
+  if (live) {
+    documentStore.transient()
+    return
+  }
+  documentStore.commit(
+    touched.map((id) => {
+      const node = scene.requireNode(id)
+      return {
+        kind: 'update' as const,
+        id,
+        before: before.get(id) as unknown as Record<string, unknown>,
+        after: structuredClone({ fills: node.fills, strokes: node.strokes }) as unknown as Record<string, unknown>,
+      }
+    }),
+    touched.length === 1 ? 'Set Color' : `Recolor ${touched.length} Layers`,
+    true,
+  )
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 // auto layout, boolean ops, export. Edits apply to the whole selection and
 // commit through the history system (live color edits commit on close).
 
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { bgRemoveState, onBgRemoveState, removeBackground, restoreOriginal } from './bgremove'
 import type {
   AutoLayout,
@@ -27,7 +27,7 @@ import type {
   TextNode,
   VectorNode,
 } from '../engine/types'
-import { defaultPose, solid } from '../engine/types'
+import { defaultPose, solid, isContainer } from '../engine/types'
 import { perSideStroke, seedSides } from '../engine/strokesides'
 import {
   fillPaintBox,
@@ -39,6 +39,7 @@ import {
   withGradientAngle,
   type PaintBox,
 } from '../engine/paintbox'
+import { selectionColors } from '../engine/selection-colors'
 import { isFullEllipse } from '../engine/shapes'
 import { strokeCapsApply } from '../engine/strokecaps'
 import { setVertexMirror } from '../engine/vector-edit'
@@ -56,9 +57,10 @@ import {
   detachStyle,
   distributeSelection,
   flipSelection,
-  rotateSelection,
+  recolorSelectionUses,
   renameSharedStyle,
   resetInstanceOverrides,
+  rotateSelection,
   runExports,
   selectedIds,
   setSelectionSize,
@@ -73,7 +75,7 @@ import { ComponentIcon , SwapIcon } from './icons'
 import type { PatchOp } from '../engine/commands'
 import { Field, NumberInput, Section, Segmented, Select, round } from './components'
 import { ColorPicker, type PickerPaintType } from './ColorPicker'
-import { rgbaToCss, rgbaToHex } from '../engine/color'
+import { hexToRgba, rgbaToCss, rgbaToHex } from '../engine/color'
 import { defaultColorStyleName, defaultTextStyleName, uniqueStyleName } from '../engine/stylename'
 import {
   AlignBottomIcon,
@@ -653,6 +655,11 @@ export function Inspector() {
         </Section>
       )}
 
+      {/* Selection colours: the palette of everything inside what is selected.
+          Only worth showing when there is more than one thing to gather from —
+          on a single leaf shape it would just repeat the Fill row below it. */}
+      <SelectionColors ids={selection} />
+
       {/* Fills */}
       <Section
         title="Fill"
@@ -699,6 +706,24 @@ export function Inspector() {
                   fills.splice(i, 1)
                   return { fills }
                 }, 'Remove Fill')
+              }
+              onColorChange={(c) =>
+                commit((n) => {
+                  const list = structuredClone(n.fills)
+                  const p = list[i]
+                  // The alpha stays where it was: the hex field edits the COLOUR and the
+                  // opacity beside it edits the opacity. One field quietly resetting the
+                  // other is how a two-field row stops being trustworthy.
+                  if (p && p.type === 'SOLID') p.color = { ...c, a: p.color.a }
+                  return { fills: list }
+                }, 'Set Color')
+              }
+              onOpacityChange={(o) =>
+                commit((n) => {
+                  const list = structuredClone(n.fills)
+                  if (list[i]) list[i].opacity = o
+                  return { fills: list }
+                }, 'Set Paint Opacity')
               }
               onTypeChange={(t) =>
                 commit((n) => {
@@ -776,6 +801,24 @@ export function Inspector() {
                 strokes.splice(i, 1)
                 return { strokes }
               }, 'Remove Stroke')
+            }
+            onColorChange={(c) =>
+              commit((n) => {
+                const list = structuredClone(n.strokes)
+                const p = list[i]
+                // The alpha stays where it was: the hex field edits the COLOUR and the
+                // opacity beside it edits the opacity. One field quietly resetting the
+                // other is how a two-field row stops being trustworthy.
+                if (p && p.type === 'SOLID') p.color = { ...c, a: p.color.a }
+                return { strokes: list }
+              }, 'Set Color')
+            }
+            onOpacityChange={(o) =>
+              commit((n) => {
+                const list = structuredClone(n.strokes)
+                if (list[i]) list[i].opacity = o
+                return { strokes: list }
+              }, 'Set Paint Opacity')
             }
             onTypeChange={(t) =>
               commit((n) => {
@@ -1318,6 +1361,121 @@ function popoverAnchor(el: HTMLElement): { x: number; y: number } {
   return { x: panel ? panel.left : own.left, y: own.top }
 }
 
+/**
+ * Every colour used inside the selection, grouped, each editable in place.
+ *
+ * The fastest way to re-colour a drawing: one swatch stands for every place
+ * that colour is used, so changing it changes all of them at once. Doing it
+ * shape by shape is slow and unreliable in the same way — the ones you miss are
+ * the ones you could not see.
+ *
+ * Hidden below two layers, because it earns its space: with a single shape
+ * selected it would only repeat the Fill row underneath it.
+ */
+function SelectionColors({ ids }: { ids: NodeId[] }) {
+  useDocVersion()
+  const scene = documentStore.scene
+  const [picking, setPicking] = useState<{ key: string; anchor: { x: number; y: number } } | null>(null)
+  const groups = useMemo(() => selectionColors(scene, ids), [scene, scene.version, ids])
+  // Re-read on every render rather than caching the uses in state: the picker
+  // is open across edits, and a stale list would recolour places that have
+  // moved on.
+  const live = groups.find((g) => g.key === picking?.key) ?? null
+
+  if (ids.length === 0) return null
+  const single = ids.length === 1 && !isContainer(scene.getNode(ids[0]) ?? ({} as SceneNode))
+  if (single || groups.length === 0) return null
+
+  return (
+    <Section title={`Selection colors`}>
+      <div className="flex flex-wrap gap-1.5">
+        {groups.map((g) => (
+          <button
+            key={g.key}
+            className="flex items-center gap-1.5 pl-1 pr-1.5 h-6 rounded border border-[var(--pf-border)] bg-[var(--pf-bg-2)] hover:border-[var(--pf-accent)]"
+            title={`${rgbaToHex(g.color)} — used ${g.uses.length} time${g.uses.length > 1 ? 's' : ''}. Click to change every one.`}
+            onClick={(e) => setPicking({ key: g.key, anchor: popoverAnchor(e.currentTarget as HTMLElement) })}
+          >
+            <span
+              className="w-4 h-4 rounded-[3px] border border-[rgba(255,255,255,0.25)] shrink-0"
+              style={{ background: rgbaToCss(g.color, 1) }}
+            />
+            <span className="text-[10px] font-mono tracking-wide text-[var(--pf-text-dim)] tabular-nums">
+              {g.uses.length}
+            </span>
+          </button>
+        ))}
+      </div>
+      {picking && live && (
+        <ColorPicker
+          color={live.color}
+          anchor={picking.anchor}
+          onLive={(c) => recolorSelectionUses(live.uses, c, true)}
+          onClose={() => {
+            // One history entry for the whole drag, landed on close — the same
+            // arrangement the paint rows use.
+            recolorSelectionUses(live.uses, live.color, false)
+            setPicking(null)
+          }}
+        />
+      )}
+    </Section>
+  )
+}
+
+/**
+ * The colour, as six characters you can select, copy, and type over.
+ *
+ * Selected on focus, because the commonest thing anyone does with a hex is take
+ * it somewhere else: click, Ctrl+C, done. Typing over it is the second
+ * commonest, and both were impossible while this was the label of a dropdown.
+ *
+ * Accepts what people actually paste — with or without the hash, three digits
+ * or six, any case. Anything it cannot read is put back rather than committed,
+ * so a half-typed value never lands on the shape.
+ */
+function HexField({ color, onCommit }: { color: RGBA; onCommit: (c: RGBA) => void }) {
+  const shown = rgbaToHex(color)
+  const [text, setText] = useState(shown)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    if (!editing) setText(shown)
+  }, [shown, editing])
+
+  const commit = (raw: string) => {
+    setEditing(false)
+    const parsed = hexToRgba(raw.trim(), color.a)
+    if (parsed) onCommit(parsed)
+    else setText(shown)
+  }
+
+  return (
+    <input
+      className="pf-input flex-1 h-6 py-0 text-[11px] font-mono tracking-wide uppercase"
+      value={text}
+      spellCheck={false}
+      title="Hex colour — click to select it, type to change it"
+      aria-label="Hex colour"
+      onFocus={(e) => {
+        setEditing(true)
+        e.target.select()
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        // Kept off the canvas: a hex is full of letters that are tool shortcuts.
+        e.stopPropagation()
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        if (e.key === 'Escape') {
+          setText(shown)
+          setEditing(false)
+          ;(e.target as HTMLInputElement).blur()
+        }
+      }}
+    />
+  )
+}
+
 function PaintRow({
   paint,
   onSwatch,
@@ -1326,6 +1484,8 @@ function PaintRow({
   onTypeChange,
   onScaleModeChange,
   onStopsChange,
+  onColorChange,
+  onOpacityChange,
   box,
 }: {
   paint: Paint
@@ -1341,7 +1501,10 @@ function PaintRow({
   onTypeChange: (t: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL') => void
   onScaleModeChange?: (m: 'FILL' | 'FIT' | 'TILE' | 'STRETCH') => void
   onStopsChange?: (mutate: (p: GradientPaint) => void) => void
+  onColorChange?: (c: RGBA) => void
+  onOpacityChange?: (o: number) => void
 }) {
+  void onTypeChange
   const isGradient = paint.type === 'GRADIENT_LINEAR' || paint.type === 'GRADIENT_RADIAL'
   return (
     <div className="mb-1.5">
@@ -1353,6 +1516,13 @@ function PaintRow({
             onSwatch(popoverAnchor(e.currentTarget as HTMLElement), isGradient ? 0 : undefined)
           }}
         />
+        {/* The hex is a FIELD, not a label.
+            It used to be the selected option of a dropdown whose real job was
+            picking the paint type — one control doing two things, and neither
+            well: the value could not be selected to copy, could not be typed
+            into, and the type picker was hidden behind something that looked
+            like data. The type moved into the colour picker, which already had
+            tabs for it, and the row gave the space back to the value. */}
         {paint.type === 'IMAGE' ? (
           <Select
             value={paint.scaleMode}
@@ -1365,18 +1535,27 @@ function PaintRow({
             onChange={(v) => onScaleModeChange?.(v)}
             className="flex-1"
           />
+        ) : paint.type === 'SOLID' ? (
+          <HexField color={paint.color} onCommit={(c) => onColorChange?.(c)} />
         ) : (
-          <Select
-            value={paint.type}
-            options={[
-              { value: 'SOLID', label: paint.type === 'SOLID' ? rgbaToHex(paint.color) : 'Solid' },
-              { value: 'GRADIENT_LINEAR', label: 'Linear' },
-              { value: 'GRADIENT_RADIAL', label: 'Radial' },
-            ]}
-            onChange={(v) => onTypeChange(v as 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL')}
-            className="flex-1"
-          />
+          // A gradient has no single hex. Its stops are edited on the bar below,
+          // so this says which kind it is and stops pretending to be a value.
+          <span className="flex-1 text-[11px] text-[var(--pf-text-dim)] px-1">
+            {paint.type === 'GRADIENT_LINEAR' ? 'Linear gradient' : 'Radial gradient'}
+          </span>
         )}
+        {/* Opacity, in the row. It is half of what a colour is, and reaching it
+            meant opening the picker and finding the alpha slider. */}
+        <NumberInput
+          className="w-[3.9rem] shrink-0"
+          title="Opacity of this paint"
+          value={Math.round(paint.opacity * 100)}
+          min={0}
+          max={100}
+          precision={0}
+          suffix="%"
+          onCommit={(v) => onOpacityChange?.(Math.max(0, Math.min(100, v)) / 100)}
+        />
         <button className="pf-icon-btn !w-5 !h-5" onClick={onToggle} title={paint.visible ? 'Hide' : 'Show'}>
           {paint.visible ? <EyeIcon width={11} height={11} /> : <EyeOffIcon width={11} height={11} />}
         </button>
