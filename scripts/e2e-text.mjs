@@ -1152,14 +1152,25 @@ try {
       fail('no ⋯ menu in the layers tab strip')
     } else {
       await clickAt(menuBtn.x, menuBtn.y)
-      const items = JSON.parse(await evaluate(`(() => {
-        const found = [...document.querySelectorAll('[role=menuitem]')].map((b) => {
-          const r = b.getBoundingClientRect()
-          return { label: b.textContent, disabled: b.disabled,
-            x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
-        })
-        return JSON.stringify(found)
-      })()`))
+      // Polled, not slept at. A fixed wait is a guess about how long React
+      // takes to put the menu up, and the guess is wrong exactly often enough
+      // to make this gate look flaky — which is worse than a gate that fails,
+      // because people learn to re-run it instead of reading it. Waiting for
+      // the thing itself still fails if it never arrives.
+      const readItems = async () =>
+        JSON.parse(await evaluate(`(() => {
+          const found = [...document.querySelectorAll('[role=menuitem]')].map((b) => {
+            const r = b.getBoundingClientRect()
+            return { label: b.textContent, disabled: b.disabled,
+              x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+          })
+          return JSON.stringify(found)
+        })()`))
+      let items = await readItems()
+      for (let tries = 0; tries < 20 && items.length === 0; tries++) {
+        await sleep(100)
+        items = await readItems()
+      }
       const collapseItem = items.find((i) => i.label === 'Collapse All')
       const expandItem = items.find((i) => i.label === 'Expand Selected')
       if (!collapseItem || !expandItem) {
