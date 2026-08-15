@@ -31,6 +31,9 @@
 //  10. per-side strokes: the toggle beside the weight field opens four fields,
 //      typing into one lands on the node, and collapsing CLEARS them rather
 //      than leaving values stored that nothing reads (F-30).
+//  12. a GPU renderer that dies rebuilds itself and says so - WebGPU errors are
+//      asynchronous, so the try/catch around render() could never see one and
+//      the Canvas2D fallback it guards never fired (F-36).
 //  11. the layer tree's ⋯ menu: Collapse All folds it, and Expand Selected -
 //      taken from the OBJECT CONTEXT MENU, on a layer whose row does not
 //      exist - opens the path back down to it. Neither command touches the
@@ -1225,6 +1228,51 @@ try {
             }
           }
         }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 12. A GPU renderer that dies comes back on its own.
+  //
+  //     WebGPU reports errors ASYNCHRONOUSLY, so `render()` returns normally
+  //     whether the frame drew or was thrown away. The try/catch around it in
+  //     CanvasView can never fire, and the Canvas2D fallback it guards never
+  //     ran — so a lost device (driver reset, sleep/wake, another app taking
+  //     the GPU) left the canvas blank forever with nothing logged anywhere a
+  //     user would look. The only cure was View → GPU Rendering off and on,
+  //     which people were performing by hand. Now the app does it, and SAYS so.
+  //
+  //     Staged rather than waited for: nothing lets a page lose its own device
+  //     on demand, so this drives the same entry point both real signals call.
+  // ---------------------------------------------------------------------
+  {
+    const gpuActive = await evaluate(`String(globalThis.__polyform.editor.get().gpuActive)`)
+    if (gpuActive !== 'true') {
+      // Not a skip: on a machine with no WebGPU there is nothing to recover,
+      // and pretending otherwise would be a gate that always passes.
+      console.log(`E2E PASS: no GPU device here (gpuActive=${gpuActive}) — recovery does not apply`)
+    } else {
+      await evaluate(`(() => { globalThis.__pfGpuBefore = globalThis.__polyformGpu; return 'noted' })()`)
+      await evaluate(`globalThis.__polyformGpu.fail('staged device loss')`)
+      await sleep(2500)
+      const after = JSON.parse(await evaluate(`(() => {
+        const P = globalThis.__polyform
+        return JSON.stringify({
+          active: P.editor.get().gpuActive,
+          status: P.editor.get().status,
+          replaced: globalThis.__polyformGpu !== globalThis.__pfGpuBefore,
+        })
+      })()`))
+      if (!after.replaced) {
+        fail('a failed GPU renderer was left attached instead of being rebuilt')
+      } else if (!after.active) {
+        fail(`the GPU renderer did not come back (status: ${after.status})`)
+      } else if (!String(after.status ?? '').includes('restarted')) {
+        // Silence is what made this bug invisible for as long as it was.
+        fail(`the restart must be announced, status was "${after.status}"`)
+      } else {
+        console.log(`E2E PASS: a dead GPU renderer rebuilds itself and says so — "${after.status}"`)
       }
     }
   }

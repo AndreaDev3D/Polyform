@@ -881,6 +881,37 @@ The mitre and the end cap are two different problems. A wedge answers the first 
 
 ---
 
+## F-36. A try/catch around an asynchronous API is a comment, not a guard
+
+**Severity: High** — the canvas went blank and stayed blank, on a real document, repeatedly. The fallback written to prevent exactly that could not fire. Reported by the user, who had been repairing it by hand for some time with View → GPU Rendering off and on.
+
+The frame loop looked defended:
+
+```ts
+try {
+  gpu.render(documentStore.scene, renderOpts)
+} catch (err) {
+  console.warn('[polyform] WebGPU render failed — falling back to Canvas2D.', err)
+  gpu.dispose()
+  gpu = null
+  setGpuFailed(true)
+}
+```
+
+**WebGPU does not report errors that way.** Validation, out-of-memory and device-loss are all delivered asynchronously — through `device.lost`, through `uncapturederror`, through `popErrorScope`. `render()` returns normally whether the frame drew or was discarded on the floor. So that `catch` had never run and could never run, and the Canvas2D fallback it guards was unreachable code that read as a safety net.
+
+The device can be lost at any time and for reasons that have nothing to do with this app: a driver reset (a TDR on Windows is routine under load), waking from sleep, another process taking the GPU, Chromium recycling its GPU process. After that every command submitted is silently dropped. Nothing throws. `uncapturederror` wrote one line to a console no user has open. The document was fine the whole time, which is exactly why it looked like a rendering mystery rather than a crash.
+
+Nothing subscribed to `device.lost` at all — the one signal that says, unambiguously, "everything you are holding is gone".
+
+**What replaced it.** The renderer now reports its own death once, through `onFail`, from either signal; `render()` becomes a no-op afterwards rather than piling follow-on errors on top of the one worth reading. The view rebuilds the renderer — which is precisely the repair people were performing by hand — up to three times, and then stays on the CPU rather than flickering between the two forever. Every restart is announced on the status bar.
+
+**Announcing it is half the fix.** A renderer that silently restarts is a renderer nobody can report a problem with, and the silence is the reason this survived as long as it did: the failure produced no exception, no dialogue, no log anyone would see, and a workaround that worked. A bug with a working workaround and no evidence trail can persist indefinitely.
+
+**Standing obligation.** Before writing a `catch` around a call, check how that API actually reports failure — an async error channel needs an async handler, and a `catch` that cannot fire is worse than none, because it stops anyone looking. And where a subsystem can die independently of the code that drives it, subscribe to the signal that says so: the alternative is a user discovering the restart procedure on their own.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -900,4 +931,5 @@ Three themes run through every entry:
 13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
 14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
 15. **A fixture covers the case it contains, not the feature it is named after.** F-34's mask fixture used an ellipse inside a group — a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while the two renderers disagreed about even-odd masks and the GPU ignored masks at the top level of a page. Name the *kinds* a feature has and give the gate one of each; a feature with one fixture is a feature with one case checked.
+17. **A guard has to be able to fire.** F-36's Canvas2D fallback sat behind a `try/catch` around an API that reports its errors asynchronously, so the catch had never run once and could not. The fallback was unreachable, and read as protection for as long as nobody checked.
 16. **A fixture has to be big enough to fail.** F-35's per-side stroke fixture was extended with two small shapes and measured 0.27%; with the code it guarded switched off entirely it still measured 2.18% against a 3% limit, because the shapes put too little ink on the canvas to breach it. Sizing is part of the assertion: after splitting it out with shapes that fill the frame, the same break measured 11.94% and caught a second bug on the way.

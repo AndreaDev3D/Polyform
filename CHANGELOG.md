@@ -4,6 +4,26 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.8.0
 
+### Fixed
+
+- **The canvas going blank until you toggled GPU rendering off and on.** WebGPU
+  reports its errors **asynchronously**, so `render()` returns normally whether the
+  frame drew or was discarded — which meant the `try/catch` around it had never
+  run once, and the Canvas2D fallback it guarded was unreachable. Nothing
+  subscribed to `device.lost` at all. A device can go at any time for reasons
+  that have nothing to do with this app (a driver reset, waking from sleep,
+  another process taking the GPU, Chromium recycling its GPU process), and after
+  that every command is silently dropped: the canvas stops being painted, nothing
+  throws, and the one warning goes to a console nobody has open. The document was
+  never damaged, which is exactly why it read as a mystery.
+  - The renderer now reports its own death once, from either signal, and stops
+    issuing commands to a dead device rather than burying the first error under
+    the ones that follow. The view **rebuilds it** — which is precisely the repair
+    people were making by hand — three times before giving up and staying on the
+    CPU, and **says so on the status bar every time**. A renderer that restarts
+    silently is one nobody can report a problem with, and that silence is why
+    this lasted as long as it did (F-36).
+
 ### Added
 
 - **Six new tools in vector edit, and the pointer to use them with.** The bar

@@ -18,7 +18,7 @@ import { documentStore } from '../state/document'
 import { editor, useEditor } from '../state/editor'
 import { interactionController } from '../interactions/controller'
 import { hitTestAll, resolveClickTarget } from '../engine/hit-test'
-import { setSelection } from '../state/actions'
+import { setSelection, setStatus } from '../state/actions'
 import { TextEditOverlay } from './TextEditOverlay'
 
 /** Windows/macOS double-click windows are ~500ms; 400ms with a small slop
@@ -56,22 +56,60 @@ export function CanvasView() {
       dirtyRef.current = true
     }
 
-    if (useGpu) {
-      void WebGPURenderer.create(sceneCanvas).then((renderer) => {
-        if (disposed) {
-          renderer?.dispose()
-          return
-        }
-        if (!renderer) {
-          console.warn('[polyform] WebGPU unavailable — staying on Canvas2D rendering.')
+    // How many times we will quietly rebuild the GPU renderer before deciding
+    // the machine means it. A device that dies once is ordinary — a driver
+    // reset, waking from sleep, another application taking the GPU. A device
+    // that dies three times is telling us something, and retrying forever would
+    // make the app flicker between renderers instead of just working.
+    const MAX_REBUILDS = 3
+    let rebuilds = 0
+
+    const attachGpu = (renderer: WebGPURenderer | null, afterFailure: boolean): void => {
+      if (disposed) {
+        renderer?.dispose()
+        return
+      }
+      if (!renderer) {
+        console.warn('[polyform] WebGPU unavailable — staying on Canvas2D rendering.')
+        setGpuFailed(true)
+        editor.get().setGpuStatus({ active: false })
+        if (afterFailure) setStatus('GPU rendering could not restart — drawing on the CPU instead')
+        return
+      }
+      gpu = renderer
+      // Rebuild rather than fall back. The old device is gone and everything it
+      // held with it, so a new one starts clean — which is precisely the repair
+      // people were performing by hand with View → GPU Rendering, off and on.
+      renderer.onFail = (reason) => {
+        if (disposed || gpu !== renderer) return
+        gpu = null
+        renderer.dispose()
+        if (rebuilds >= MAX_REBUILDS) {
           setGpuFailed(true)
           editor.get().setGpuStatus({ active: false })
+          setStatus(`GPU rendering keeps failing (${reason}) — drawing on the CPU instead`)
           return
         }
-        gpu = renderer
-        editor.get().setGpuStatus({ active: true })
-        markDirty()
-      })
+        rebuilds += 1
+        editor.get().setGpuStatus({ active: false })
+        // Said out loud, every time. A renderer that silently restarts is a
+        // renderer nobody can report a problem with — and this one was
+        // invisible for exactly that reason.
+        setStatus(`GPU rendering restarted — ${reason}`)
+        void WebGPURenderer.create(sceneCanvas).then((next) => attachGpu(next, true))
+      }
+      editor.get().setGpuStatus({ active: true })
+      // The live renderer, for diagnosing exactly the class of bug this
+      // handling exists for: a canvas that has gone blank cannot be
+      // investigated from the document, because the document is fine. Also how
+      // the recovery gets tested — `__polyformGpu.fail('...')` is the only way
+      // to stage a lost device, since nothing lets a page destroy its own.
+      ;(globalThis as Record<string, unknown>).__polyformGpu = renderer
+      markDirty()
+    }
+
+    if (useGpu) {
+      void WebGPURenderer.create(sceneCanvas).then((renderer) => attachGpu(renderer, false))
     }
 
     assetCache.onLoad = () => {

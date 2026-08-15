@@ -234,18 +234,61 @@ export class WebGPURenderer {
     const adapter = await navigator.gpu.requestAdapter()
     if (!adapter) return null
     const device = await adapter.requestDevice()
-    device.addEventListener('uncapturederror', (e) => {
-      console.warn('[polyform] WebGPU error:', (e as GPUUncapturedErrorEvent).error.message)
-    })
     const context = canvas.getContext('webgpu')
     if (!context) return null
     const renderer = new WebGPURenderer(canvas, device, context)
+
+    // A dead device does not throw, and that is the whole problem.
+    //
+    // WebGPU reports errors ASYNCHRONOUSLY: `render()` returns normally whether
+    // the frame drew or was discarded, so a try/catch around it can never see
+    // this, and the Canvas2D fallback it guards never fires. The device can go
+    // at any time — a driver reset, waking from sleep, another application
+    // taking the GPU, Chromium recycling its GPU process — and after that every
+    // command is silently dropped and the canvas simply stops being painted.
+    // Nothing is wrong with the document, nothing is logged where anyone will
+    // look, and the only cure is a NEW device: which is exactly what turning
+    // GPU rendering off and on again did, by hand, every time.
+    void device.lost.then((info) => {
+      // `destroyed` is us, in dispose(). Reporting our own teardown as a crash
+      // would restart the renderer we just deliberately shut down.
+      if (renderer.disposing || info.reason === 'destroyed') return
+      renderer.fail(`the graphics device was lost${info.reason ? ` (${info.reason})` : ''}`)
+    })
+    device.addEventListener('uncapturederror', (e) => {
+      const message = (e as GPUUncapturedErrorEvent).error.message
+      console.warn('[polyform] WebGPU error:', message)
+      // Out of memory is recoverable by starting over — everything this
+      // renderer allocated goes with the old device. A validation error is our
+      // bug and a restart probably will not fix it, but it is also what the
+      // user was already doing by hand, so it is worth one try rather than a
+      // canvas that stays blank.
+      renderer.fail(message.split('\n')[0].slice(0, 120))
+    })
     renderer.adapterInfo = `${adapter.info?.vendor ?? '?'} ${adapter.info?.architecture ?? ''} ${adapter.info?.description ?? ''}`.trim()
     renderer.configure()
     return renderer
   }
 
   adapterInfo = ''
+
+  /**
+   * Why this renderer stopped being able to draw, or null while it is fine.
+   *
+   * Set once and kept: the first failure is the one that says something, and a
+   * dead device produces a cascade of follow-on errors that only bury it.
+   */
+  failure: string | null = null
+  /** Told once, when the renderer first fails, so the view can rebuild it. */
+  onFail: ((reason: string) => void) | null = null
+  /** Set by dispose(), so our own teardown is not mistaken for a crash. */
+  disposing = false
+
+  fail(reason: string): void {
+    if (this.failure) return
+    this.failure = reason
+    this.onFail?.(reason)
+  }
 
   private canvas: HTMLCanvasElement
   private device: GPUDevice
@@ -350,6 +393,7 @@ export class WebGPURenderer {
   lastTimings = { texture: 0, encode: 0, submit: 0, begin: 0, loop: 0, end: 0, segments: 0, indices: 0 }
 
   dispose(): void {
+    this.disposing = true
     this.msaa?.destroy()
     this.depthStencil?.destroy()
     this.resolveTex?.destroy()
@@ -2334,6 +2378,9 @@ export class WebGPURenderer {
   }
 
   render(scene: SceneGraph, opts: RenderOptions): void {
+    // Every command against a dead device is discarded anyway; issuing them
+    // only produces more errors on top of the one worth reading.
+    if (this.failure) return
     const dw = Math.max(1, Math.round(opts.width * opts.dpr))
     const dh = Math.max(1, Math.round(opts.height * opts.dpr))
     if (this.canvas.width !== dw || this.canvas.height !== dh) {
