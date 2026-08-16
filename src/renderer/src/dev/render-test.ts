@@ -441,11 +441,11 @@ const FIXTURES: Fixture[] = [
       const ink = (c: [number, number, number]) => [
         { type: 'SOLID' as const, visible: true, opacity: 1, color: { r: c[0], g: c[1], b: c[2], a: 1 } },
       ]
-      const kinds = ['ROUND', 'SQUARE', 'ARROW', 'CIRCLE', 'DIAMOND'] as const
+      const kinds = ['ROUND', 'SQUARE', 'ROUND_SQUARE', 'ARROW', 'CIRCLE', 'DIAMOND'] as const
       kinds.forEach((kind, i) => {
         make(s, 'LINE', null, {
           x: 90,
-          y: 42 + i * 62,
+          y: 34 + i * 52,
           width: 460,
           height: 0,
           strokes: ink([0.95, 0.72, 0.3]),

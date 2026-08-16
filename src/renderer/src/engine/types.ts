@@ -196,7 +196,7 @@ export type BlendMode =
  * the geometry that builds it, because it is part of the document — a `.poly`
  * written today has to still mean the same thing when the drawing code moves.
  */
-export type StrokeCap = 'NONE' | 'ROUND' | 'SQUARE' | 'ARROW' | 'CIRCLE' | 'DIAMOND'
+export type StrokeCap = 'NONE' | 'ROUND' | 'SQUARE' | 'ROUND_SQUARE' | 'ARROW' | 'CIRCLE' | 'DIAMOND'
 
 export type StrokeAlign = 'CENTER' | 'INSIDE' | 'OUTSIDE'
 

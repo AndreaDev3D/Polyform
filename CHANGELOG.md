@@ -181,6 +181,16 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     that buries the point inside the stroke it terminates and reads as a lump on
     a bar. The concave back is exactly the shape a butt end plugs, so putting it
     on the endpoint makes the two meet flush with the point out in front.
+  - **Round square**, a sixth cap: a flat end with its corners taken off,
+    between Round and Square. It reaches exactly as far forward as Square, so
+    swapping between them does not change how long the line looks.
+  - **The join no longer shows.** A cap and the band it finishes are two
+    separate meshes, and Square was the only one that MET the band along a line
+    rather than overlapping it — so the two anti-aliased against the background
+    independently and the background came through the join as a hairline. On a
+    diagonal at high zoom that reads as a gap in a solid shape, which is what it
+    is. Square now reaches back half a weight into the band, as round, circle
+    and diamond already did (F-43).
   - **The node's bounds now include its caps**, which they never did — the pad
     was the stroke's half-width, and every cap reaches past that, an arrowhead
     by nearly two weights. That is not a cosmetic box: it is the EXPORT box, so

@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { createNode, type LineNode, type VectorNode } from './types'
 import { nodeOutline, type SubPath } from './shapes'
+import type { Vec2 } from './types'
 import { STROKE_CAPS, capShape, openEnds, strokeCapShapes, strokeCapsApply } from './strokecaps'
 import { SceneGraph } from './scene'
 import { rgba } from './types'
@@ -109,6 +110,48 @@ describe('stroke caps', () => {
     const b = bounds(strokeCapShapes(node, nodeOutline(node)))
     expect(b.minX).toBeCloseTo(-1.8 * 10, 6)
     expect(b.maxX).toBeCloseTo(0.8 * 10, 6)
+  })
+
+  it('makes every cap OVERLAP the band rather than meet it along a line', () => {
+    // The band and the cap are two meshes. Sharing an edge, each anti-aliases
+    // against the background independently and the background shows through the
+    // join as a hairline — a gap where the drawing has none. Sharing AREA has no
+    // seam to show.
+    //
+    // Square was the only cap that merely abutted, which is exactly the one it
+    // was reported on; every other kind already straddled the end. Written as a
+    // property over all of them, because "the one that was reported" is not the
+    // set worth checking (F-43).
+    const node = line()
+    const end = openEnds(nodeOutline(node))[0].end
+    for (const kind of STROKE_CAPS) {
+      if (kind === 'NONE') continue
+      const points = capShape(kind, end, node.strokeWeight).flatMap((sp) =>
+        sp.anchors.flatMap((a) => [a.p, a.cpIn, a.cpOut].filter((q): q is Vec2 => q !== null)),
+      )
+      // The band runs in -x from the end, so reaching back is a smaller x.
+      const back = Math.max(...points.map((q) => end.at.x - q.x))
+      expect(back, `${kind} only touches the end of the band, so their join will show`).toBeGreaterThan(0)
+    }
+  })
+
+  it('gives round-square a flat end with its corners taken off', () => {
+    const node = line()
+    node.strokeCapEnd = 'ROUND_SQUARE'
+    const caps = strokeCapShapes(node, nodeOutline(node))
+    const b = bounds(caps)
+    const w = node.strokeWeight
+    // Reaches as far forward as SQUARE and no further, so swapping between them
+    // does not change how long the line looks.
+    expect(b.maxX).toBeCloseTo(100 + w / 2, 6)
+    expect(b.maxY - b.minY).toBeCloseTo(w, 6)
+    // Rounded, so the extreme corner is NOT occupied: a point at the very corner
+    // would mean the curves were dropped and it is a plain square again.
+    const corner = caps[0].anchors.some(
+      (a) => Math.abs(a.p.x - (100 + w / 2)) < 1e-6 && Math.abs(Math.abs(a.p.y) - w / 2) < 1e-6,
+    )
+    expect(corner).toBe(false)
+    expect(caps[0].anchors.some((a) => a.cpIn || a.cpOut)).toBe(true)
   })
 
   it('leaves room in the node bounds for every cap it can draw', () => {

@@ -15,7 +15,15 @@ import { KAPPA_CIRCLE, type Anchor, type SubPath } from './shapes'
 import { hasClosedGeometry } from './paintbox'
 import type { SceneNode, StrokeCap, Vec2 } from './types'
 
-export const STROKE_CAPS: StrokeCap[] = ['NONE', 'ROUND', 'SQUARE', 'ARROW', 'CIRCLE', 'DIAMOND']
+export const STROKE_CAPS: StrokeCap[] = [
+  'NONE',
+  'ROUND',
+  'SQUARE',
+  'ROUND_SQUARE',
+  'ARROW',
+  'CIRCLE',
+  'DIAMOND',
+]
 
 /** One end of an open run: where it is, and which way it points OUT of the path. */
 export interface CapEnd {
@@ -120,7 +128,33 @@ export function capShape(kind: StrokeCap, end: CapEnd, weight: number): SubPath[
       // Exactly what a round lineCap would have drawn, as a shape.
       return [circle(p, w / 2)]
     case 'SQUARE':
-      return [polygon([at(0, w / 2), at(w / 2, w / 2), at(w / 2, -w / 2), at(0, -w / 2)])]
+      // Reaches BACK half a weight as well as forward, so it overlaps the band
+      // instead of meeting it along a line. Two meshes that share an edge each
+      // anti-alias against the background, and the background shows through the
+      // join as a hairline — which this cap was the only one to suffer, because
+      // every other one here already straddles the end (F-43).
+      return [polygon([at(-w / 2, w / 2), at(w / 2, w / 2), at(w / 2, -w / 2), at(-w / 2, -w / 2)])]
+    case 'ROUND_SQUARE': {
+      // A square end with its corners taken off: flatter than ROUND, softer
+      // than SQUARE. Only the two FORWARD corners are rounded — the other two
+      // are buried in the band, where their shape cannot be seen and rounding
+      // them would only remove overlap.
+      const r = w / 4
+      const k = r * KAPPA_CIRCLE
+      return [
+        {
+          closed: true,
+          anchors: [
+            { p: at(-w / 2, w / 2), cpIn: null, cpOut: null },
+            { p: at(w / 2 - r, w / 2), cpIn: null, cpOut: at(w / 2 - r + k, w / 2) },
+            { p: at(w / 2, w / 2 - r), cpIn: at(w / 2, w / 2 - r + k), cpOut: at(w / 2, -w / 2 + r - k) },
+            { p: at(w / 2, -w / 2 + r), cpIn: null, cpOut: at(w / 2 - r + k, -w / 2) },
+            { p: at(w / 2 - r, -w / 2), cpIn: at(w / 2 - r + k, -w / 2), cpOut: null },
+            { p: at(-w / 2, -w / 2), cpIn: null, cpOut: null },
+          ],
+        },
+      ]
+    }
     case 'CIRCLE':
       // Deliberately wider than the stroke: a dot you can see, for marking an
       // endpoint rather than finishing it.

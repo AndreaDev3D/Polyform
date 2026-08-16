@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.8 (F-01…F-42)
+**Project:** Polyform — current through v0.8 (F-01…F-43)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -51,6 +51,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-40](#f-40-two-things-that-cannot-both-be-true-arbitrated-by-a-rule-that-never-runs) | Paste's clipboard arbitration compared a token that could never survive (fixed v0.8) | Process |
 | [F-41](#f-41-the-gate-pressed-the-menu-item-and-the-key-was-the-broken-part) | Ctrl+V was a menu accelerator no harness could press, so nothing tested it (fixed v0.8) | Fixed (Med while live) |
 | [F-42](#f-42-geometry-that-the-bounds-did-not-know-about-so-the-export-cut-it-off) | Stroke caps were outside the node's bounds, so exports cropped them off (fixed v0.8) | Fixed (Med while live) |
+| [F-43](#f-43-two-shapes-that-share-an-edge-leave-a-gap-where-they-meet) | A square cap abutted its band, so the join showed as a hairline (fixed v0.8) | Fixed |
 
 ---
 
@@ -1048,6 +1049,32 @@ The gate walks **every** cap kind and asserts each vertex lands inside `worldAAB
 
 ---
 
+## F-43. Two shapes that share an edge leave a gap where they meet
+
+**Severity: Low** — cosmetic, on one cap kind, visible at high zoom. Reported by the user against a square end: *"it looks like there is a gap there on the cap, and it's more visible with the square than with the others maybe"*. The "maybe" was exactly right, and the reason is worth keeping.
+
+A cap and the band it finishes are two separate filled meshes drawn in the same paint. Where they merely TOUCH, each is anti-aliased against the background along the shared edge, and two half-covered pixels do not add up to one covered pixel — so the background comes through the join as a hairline. On a diagonal at high zoom that reads as a gap in a solid shape, which is what it is.
+
+Measured rather than argued about, over the five caps that existed:
+
+| cap | reaches back into the band |
+| :-- | --: |
+| ROUND | 5.00 |
+| SQUARE | **0.00** |
+| ARROW | 8.00 |
+| CIRCLE | 10.00 |
+| DIAMOND | 10.00 |
+
+Square was the only one that abutted. Every other kind straddles its end for reasons of its own — a round cap is a circle centred on the point, a diamond and a circle are deliberately oversized — and so had been quietly immune. Nobody had decided that overlapping mattered; four caps just happened to.
+
+**The first attempt to see it failed, and that is the useful part.** The check rendered a HORIZONTAL band and cap, magnified the raster and measured the darkest pixel across the join: 217 out of 217 for both the old and the new geometry, no seam either way. An axis-aligned join lands on pixel boundaries, where coverage is 0 or 1 and there is nothing to lose — a case that cannot fail. Rebuilt on the real diagonal geometry, the same measurement gives **55 seam pixels before and none after**, and the magnified image shows a staircase of background running through solid ink.
+
+**What it does now.** Square reaches back half a weight, so it shares AREA with the band instead of an edge. The gate is a property over every cap kind rather than a case for the one that was reported: each must reach past its end. And the new `ROUND_SQUARE` was built overlapping from the start, because the rule now exists to build against.
+
+**Standing obligation.** Adjacent meshes in one colour must overlap, not abut; a shared edge is a visible seam wherever it is not axis-aligned. And when a rendering artifact is reproduced for measurement, reproduce it at an ANGLE — axis-aligned geometry is the one arrangement in which anti-aliasing has nothing to get wrong, so a horizontal fixture will report that a real seam is not there.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -1075,3 +1102,4 @@ Three themes run through every entry:
 21. **An arbitration rule whose inputs cannot co-occur is not a decision.** F-40's paste compared a clipboard token to decide whether layers or an image were copied more recently — but writing the token clears the image, so the branch could never run, and the gate that covered it passed with the whole mechanism removed because its two outcomes shared every asserted field. Ask what makes the losing state reachable, and make the outcomes differ before believing the pass.
 22. **A gate that invokes the command has not tested the gesture.** F-41's Ctrl+V was a registered menu accelerator — matched in the browser process, unreachable by any harness — so the check called the menu item instead and passed while the keystroke reached nothing. When the real trigger cannot be produced, that is a fact about the design: move it somewhere testable, or write down which step nothing covers.
 23. **Geometry outside the node's rectangle has to reach everything that measures the node.** F-42's stroke caps were added as shapes and the bounds were never told, so an arrowhead fell outside the AABB — which is the selection box, the culling test, the fit target and the EXPORT box. Only the last of those loses data, and it lost it silently: the file was a plausible bar with the heads gone. Measure the allowance from the geometry that draws it, so it cannot be remembered in one place and forgotten in the other.
+24. **Adjacent meshes in one colour must overlap, not abut — and a seam has to be reproduced at an ANGLE.** F-43's square cap touched its band along a line, so both anti-aliased against the background and it showed through. Four other caps straddled their end by accident rather than by rule. The first check drew the join horizontally and measured no seam in either the broken or the fixed geometry, because an axis-aligned edge lands on pixel boundaries where coverage has nothing to lose; on the diagonal the same measurement found 55 seam pixels and then none.

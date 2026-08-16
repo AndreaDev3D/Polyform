@@ -142,6 +142,7 @@ const CAP_OPTIONS: { value: StrokeCap; label: string }[] = [
   { value: 'NONE', label: 'None' },
   { value: 'ROUND', label: 'Round' },
   { value: 'SQUARE', label: 'Square' },
+  { value: 'ROUND_SQUARE', label: 'Round square' },
   { value: 'ARROW', label: 'Arrow' },
   { value: 'CIRCLE', label: 'Circle' },
   { value: 'DIAMOND', label: 'Diamond' },
