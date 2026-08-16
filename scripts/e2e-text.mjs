@@ -40,6 +40,9 @@
 //      with a real Windows clipboard write, because the whole point is that the
 //      bytes come from outside the app. Also that layers copied in here still
 //      win while their token survives.
+//  15. the pen: dragging a point pulls a real bezier handle out of it, and
+//      Escape FINISHES an unclosed run as an open stroke rather than throwing
+//      it away - which is the only way to draw one.
 //  11. the layer tree's ⋯ menu: Collapse All folds it, and Expand Selected -
 //      taken from the OBJECT CONTEXT MENU, on a layer whose row does not
 //      exist - opens the path back down to it. Neither command touches the
@@ -1546,6 +1549,88 @@ try {
         }
       }
     }
+  }
+
+  // 15. The pen draws curves, and Escape keeps what you drew.
+  //
+  // Both are gestures, so neither is visible to a unit test: the handle only
+  // exists if a press-move-release is routed to the right place, and the
+  // controller's switch already had a `case 'pen'` that swallowed it (the
+  // second one, added below it, could never run and TypeScript said nothing).
+  {
+    await evaluate(`globalThis.__polyform.editor.set({ tool: 'pen', selection: [] })`)
+    await sleep(250)
+    const before = await evaluate(`globalThis.__polyform.documentStore.scene.rootIds().length`)
+
+    const click = async (x, y) => {
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+      await sleep(120)
+    }
+    await click(cx - 160, cy)
+    await click(cx - 40, cy - 100)
+    // The third point is DRAGGED — that is the whole gesture under test.
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx + 80, y: cy, button: 'left', clickCount: 1 })
+    await sleep(50)
+    for (let i = 1; i <= 6; i++) {
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved', x: cx + 80 + i * 12, y: cy - i * 6, button: 'left', buttons: 1,
+      })
+      await sleep(30)
+    }
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx + 152, y: cy - 36, button: 'left', clickCount: 1 })
+    await sleep(200)
+
+    const dragged = await evaluate(
+      `!!globalThis.__polyform.editor.get().penDraft?.points?.some((p) => p.handleOut)`,
+    )
+    if (!dragged) {
+      fail('dragging a pen point did not pull a handle out of it')
+    } else {
+      await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', code: 'Escape', key: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 })
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', code: 'Escape', key: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 })
+      const made = await waitFor(async () => {
+        const n = await evaluate(`globalThis.__polyform.documentStore.scene.rootIds().length`)
+        return n > before ? n : null
+      })
+      if (!made) {
+        // Escape used to DISCARD the run, so there was no key that kept an
+        // unclosed one and no way to draw an open stroke at all.
+        fail('Escape threw the pen run away instead of finishing it')
+      } else {
+        const shape = JSON.parse(await evaluate(`(() => {
+          const s = globalThis.__polyform.documentStore.scene
+          const ids = s.rootIds()
+          const n = s.getNode(ids[ids.length - 1])
+          return JSON.stringify({
+            type: n.type,
+            verts: n.network?.vertices?.length ?? 0,
+            edges: n.network?.edges?.length ?? 0,
+            curved: (n.network?.edges ?? []).some((e) => e.cp0 || e.cp1),
+            smooth: (n.network?.vertices ?? []).some((v) => v.mirror === 'ANGLE_LENGTH'),
+            fills: n.fills.length,
+            strokes: n.strokes.length,
+          })
+        })()`))
+        if (shape.type !== 'VECTOR' || shape.verts !== 3) {
+          fail(`the pen made ${shape.type} with ${shape.verts} points, expected a 3-point VECTOR`)
+        } else if (shape.edges !== 2) {
+          // Two edges for three points is what OPEN means. Three would be a
+          // ring, which is what the pen used to be able to make and nothing else.
+          fail(`an escaped run must stay open: ${shape.edges} edges across ${shape.verts} points`)
+        } else if (!shape.curved || !shape.smooth) {
+          fail(`the dragged point did not survive as a smooth curve (curved=${shape.curved}, smooth=${shape.smooth})`)
+        } else if (shape.fills !== 0 || shape.strokes !== 1) {
+          // An open path encloses nothing, so a fill would be discarded by every
+          // back end while the inspector went on showing it (F-37).
+          fail(`an open run should arrive stroked and unfilled, got ${shape.fills} fills / ${shape.strokes} strokes`)
+        } else {
+          console.log('E2E PASS: the pen drags out a bezier handle, and Escape keeps the run as an open stroke')
+        }
+      }
+    }
+    await evaluate(`globalThis.__polyform.editor.set({ tool: 'select' })`)
   }
 
 } catch (err) {

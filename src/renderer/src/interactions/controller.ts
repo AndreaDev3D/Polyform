@@ -50,6 +50,7 @@ import {
   type HandleKind,
 } from '../engine/render/overlays'
 import { applyMirror, bendEdge, bezierAt, marqueeVertices, removeEdge, removeVertex, splitEdgeAt } from '../engine/vector-edit'
+import { penNetwork, type PenPoint } from '../engine/pen-draft'
 import { knifeCut } from '../engine/vector-knife'
 import { snapBox } from './snapping'
 
@@ -140,7 +141,8 @@ type Mode =
       allCorners: boolean
     }
   | { kind: 'draw'; rec: OpRecorder; nodeId: NodeId; startWorld: Vec2; parentId: NodeId | null }
-  | { kind: 'pen' }
+  /** Button still down after placing a pen point: dragging pulls its handle out. */
+  | { kind: 'pen'; anchorIndex: number; startScreen: Vec2; dragged: boolean }
   | { kind: 'guide'; axis: 'x' | 'y'; index: number }
   | {
       kind: 'vector-vertex'
@@ -158,16 +160,11 @@ type Mode =
   | { kind: 'vector-marquee'; startScreen: Vec2; additive: boolean; baseSelection: number[] }
   | { kind: 'orbit'; nodeId: NodeId; lastScreen: Vec2; before: ModelPose; dolly: boolean }
 
-interface PenAnchor {
-  p: Vec2
-  handleOut: Vec2 | null
-}
-
 const CLICK_SLOP_PX = 4
 
 export class InteractionController {
   private mode: Mode = { kind: 'idle' }
-  private penAnchors: PenAnchor[] = []
+  private penAnchors: PenPoint[] = []
   private penParent: NodeId | null = null
   private downScreen: Vec2 = { x: 0, y: 0 }
   private lastHoverUpdate = 0
@@ -805,7 +802,10 @@ export class InteractionController {
         return
       }
       case 'pen': {
-        this.updatePenPreview(world, state.camera.zoom)
+        // Button still down on the point just placed: this is the handle drag
+        // that makes it a smooth point. Between clicks the mode is idle and the
+        // rubber band is tracked further down.
+        this.penPointerMove(screen, world)
         return
       }
       case 'guide': {
@@ -1327,14 +1327,60 @@ export class InteractionController {
       this.penParent = findDropFrame(this.scene, this.index, world)
     }
     this.penAnchors.push({ p: world, handleOut: null })
+    this.mode = {
+      kind: 'pen',
+      anchorIndex: this.penAnchors.length - 1,
+      startScreen: worldToScreen(editor.get().camera, world),
+      dragged: false,
+    }
+    this.publishPenDraft(world)
+  }
+
+  /**
+   * Push the run to the overlay. One place, because the preview has to be the
+   * same curve the commit builds — see engine/pen-draft.ts.
+   */
+  private publishPenDraft(cursor: Vec2 | null): void {
+    const first = this.penAnchors[0]
+    const zoom = editor.get().camera.zoom
+    // Closable means "clicking HERE would close it", so it is about where the
+    // pointer is — not about having enough points. Lit permanently, the first
+    // anchor would promise a click that mostly does something else.
+    const closable =
+      this.penAnchors.length >= 3 &&
+      first != null &&
+      cursor != null &&
+      Math.hypot((cursor.x - first.p.x) * zoom, (cursor.y - first.p.y) * zoom) < 8
     editor.set({
       penDraft: {
-        anchors: this.penAnchors.map((a) => a.p),
-        cursor: world,
-        closable: false,
+        points: this.penAnchors.map((a) => ({ p: a.p, handleOut: a.handleOut ? { ...a.handleOut } : null })),
+        cursor,
+        closable,
       },
     })
-    this.mode = { kind: 'pen' }
+  }
+
+  /**
+   * Dragging after placing a point pulls its handle out and makes it smooth —
+   * which is the whole of the bezier pen. Click and it stays a corner; the two
+   * live on one tool because deciding between them before you draw is a choice
+   * nobody can make in advance.
+   */
+  private penPointerMove(screen: Vec2, world: Vec2): void {
+    if (this.mode.kind !== 'pen') return
+    const moved = Math.hypot(screen.x - this.mode.startScreen.x, screen.y - this.mode.startScreen.y)
+    if (!this.mode.dragged && moved < CLICK_SLOP_PX) {
+      this.publishPenDraft(world)
+      return
+    }
+    this.mode.dragged = true
+    const anchor = this.penAnchors[this.mode.anchorIndex]
+    if (!anchor) return
+    anchor.handleOut = { x: world.x, y: world.y }
+    // The cursor is the handle while dragging, not a next-segment preview: the
+    // segment ahead does not exist yet and drawing one to the handle would show
+    // a line the shape will not have.
+    this.publishPenDraft(null)
   }
 
   finishPen(close: boolean): void {
@@ -1342,36 +1388,25 @@ export class InteractionController {
     this.penAnchors = []
     editor.set({ penDraft: null })
     this.mode = { kind: 'idle' }
-    if (anchors.length < 2) return
-
-    // Build the vector network in node-local coordinates.
-    const xs = anchors.map((a) => a.p.x)
-    const ys = anchors.map((a) => a.p.y)
-    const minX = Math.min(...xs)
-    const minY = Math.min(...ys)
-    const network: VectorNetwork = { vertices: [], edges: [] }
-    anchors.forEach((a, i) => {
-      network.vertices.push({ id: i, x: a.p.x - minX, y: a.p.y - minY })
-    })
-    const segCount = close ? anchors.length : anchors.length - 1
-    for (let i = 0; i < segCount; i++) {
-      const a = anchors[i]
-      const b = anchors[(i + 1) % anchors.length]
-      const cp0 = a.handleOut ? { x: a.handleOut.x - minX, y: a.handleOut.y - minY } : null
-      const cp1 = b.handleOut
-        ? { x: 2 * (b.p.x - minX) - (b.handleOut.x - minX), y: 2 * (b.p.y - minY) - (b.handleOut.y - minY) }
-        : null
-      network.edges.push({ id: i, v0: i, v1: (i + 1) % anchors.length, cp0, cp1 })
-    }
+    const built = penNetwork(anchors, close)
+    if (!built) return
 
     const node = createNode('VECTOR', 'Vector')
     if (node.type !== 'VECTOR') return
-    node.network = network
-    node.width = Math.max(1, Math.max(...xs) - minX)
-    node.height = Math.max(1, Math.max(...ys) - minY)
+    node.network = built.network
+    node.width = built.width
+    node.height = built.height
     if (close) {
       node.fills = [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.85, g: 0.85, b: 0.85, a: 1 } }]
+    } else {
+      // An open run is a stroke: it encloses nothing, so a fill would be
+      // discarded by every back end and shown by the inspector anyway (F-37).
+      node.fills = []
+      node.strokes = [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.85, g: 0.85, b: 0.85, a: 1 } }]
+      if (node.strokeWeight <= 0) node.strokeWeight = 1
     }
+    const minX = built.x
+    const minY = built.y
     let x = minX
     let y = minY
     const parentId = this.penParent && this.scene.hasNode(this.penParent) ? this.penParent : null

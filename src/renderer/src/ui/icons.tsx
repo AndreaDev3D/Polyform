@@ -541,6 +541,13 @@ export const PointDeleteIcon = (p: P) => (
     <path d="M10 3l4 4M14 3l-4 4" />
   </I>
 )
+/** A sharp corner: no arms at all, the path turning through the point. */
+export const MirrorSharpIcon = (p: P) => (
+  <I {...p}>
+    <path d="M2.5 12.5L8 4l5.5 8.5" />
+    <circle cx="8" cy="4" r="1.8" fill="currentColor" stroke="none" />
+  </I>
+)
 /** Mirroring off: two independent arms. */
 export const MirrorNoneIcon = (p: P) => (
   <I {...p}>

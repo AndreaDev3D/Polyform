@@ -49,6 +49,16 @@ export function installShortcuts(): () => void {
     if (e.key === 'Escape') {
       if (isTypingTarget(e.target)) return // fields handle their own escape
       if (state.editingTextId) return // overlay handles it
+      // A run in progress is FINISHED, not thrown away — and finishing an
+      // unclosed run is the only way to draw an open stroke with the pen.
+      // Escape used to discard it, which meant the shape existed for as long as
+      // you were drawing it and then did not, and there was no key that kept it.
+      // Undo is the way back; a keystroke that destroys work should not be the
+      // same one people press to mean "I'm done".
+      if (state.penDraft) {
+        interactionController.finishPen(false)
+        return
+      }
       interactionController.cancel()
       if (state.vectorEditId) {
         interactionController.exitVectorEdit(true)
@@ -58,7 +68,6 @@ export function installShortcuts(): () => void {
         interactionController.exitOrbit()
         return
       }
-      if (state.penDraft) return
       if (state.enteredContainer) {
         editor.set({ enteredContainer: null })
       } else {

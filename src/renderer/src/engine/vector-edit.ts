@@ -82,19 +82,25 @@ export function applyMirror(net: VectorNetwork, edgeIndex: number, key: CpKey): 
  * Set a vertex's mirror mode and make the shape agree with it immediately —
  * choosing "mirrored" and seeing nothing happen would be a lie about what the
  * setting does. The handle that already exists is the one kept.
+ *
+ * All three modes turn a CORNER into a curve point, `NONE` included. That reads
+ * odd for a mode named "no mirroring" and is the only coherent reading: these
+ * describe what a point's two arms do about each other, so choosing any of them
+ * for a point with no arms is a request for arms. Left as an early return, NONE
+ * was a setting that changed nothing on a corner — which made the Bend tool's
+ * cycle appear stuck, because sharp and no-mirroring are the same picture.
  */
 export function setVertexMirror(net: VectorNetwork, vid: number, mode: MirrorMode): void {
   const vertex = net.vertices.find((v) => v.id === vid)
   if (!vertex) return
   vertex.mirror = mode
-  if (mode === 'NONE') return
   // Find a handle at this vertex to mirror FROM, preferring one that exists.
   for (let i = 0; i < net.edges.length; i++) {
     const e = net.edges[i]
     for (const key of ['cp0', 'cp1'] as CpKey[]) {
       if (vertexOf(e, key) !== vid) continue
       if (!e[key]) continue
-      applyMirror(net, i, key)
+      if (mode !== 'NONE') applyMirror(net, i, key)
       return
     }
   }
@@ -294,4 +300,88 @@ export function removeEdge(net: VectorNetwork, edgeIndex: number): void {
     used.add(e.v1)
   }
   net.vertices = net.vertices.filter((v) => used.has(v.id))
+}
+
+// ---------------------------------------------------------------------------
+// Sharp, and the choice a UI actually offers
+// ---------------------------------------------------------------------------
+
+/**
+ * What the mirroring control can be set to.
+ *
+ * `SHARP` is not a stored mode and deliberately not part of {@link MirrorMode}
+ * — the document has nothing to remember, because a corner IS a point with no
+ * handles. Keeping it out of the model means there is no way to save a vertex
+ * claiming to be sharp while carrying curvature.
+ */
+export type MirrorChoice = MirrorMode | 'SHARP'
+
+/**
+ * Sharp first, then smoother. The order the buttons read in and the order the
+ * Bend tool steps through, which have to be the same or the two controls
+ * disagree about what "next" means.
+ */
+export const MIRROR_CYCLE: MirrorChoice[] = ['SHARP', 'NONE', 'ANGLE', 'ANGLE_LENGTH']
+
+/** No handles at this vertex on any edge that meets it. */
+export function vertexIsSharp(net: VectorNetwork, vid: number): boolean {
+  return !net.edges.some((e) => (e.v0 === vid && e.cp0) || (e.v1 === vid && e.cp1))
+}
+
+/**
+ * What the control should show for a vertex.
+ *
+ * Read from the geometry rather than from the stored mode, because the stored
+ * mode outlives the handles: a point set to ANGLE_LENGTH and then stripped is a
+ * corner, and saying "mirrored" about it would describe a shape that is not
+ * there.
+ */
+export function vertexMirrorChoice(net: VectorNetwork, vid: number): MirrorChoice {
+  if (vertexIsSharp(net, vid)) return 'SHARP'
+  return net.vertices.find((v) => v.id === vid)?.mirror ?? 'NONE'
+}
+
+/**
+ * Take every handle off a vertex, so the path goes straight through it again.
+ *
+ * The stored mode goes with them. Leaving `mirror: 'ANGLE_LENGTH'` on a corner
+ * is invisible until the next handle appears, at which point the point springs
+ * smooth for no reason the user can see.
+ */
+export function makeVertexSharp(net: VectorNetwork, vid: number): void {
+  for (const e of net.edges) {
+    if (e.v0 === vid) e.cp0 = null
+    if (e.v1 === vid) e.cp1 = null
+  }
+  const vertex = net.vertices.find((v) => v.id === vid)
+  if (vertex) delete vertex.mirror
+}
+
+/** Apply any of the four choices, including the one that is a command. */
+export function applyMirrorChoice(net: VectorNetwork, vid: number, choice: MirrorChoice): void {
+  if (choice === 'SHARP') makeVertexSharp(net, vid)
+  else setVertexMirror(net, vid, choice)
+}
+
+/** The next choice round the cycle; a mixed or unknown selection starts at the top. */
+export function nextMirrorChoice(current: MirrorChoice | null): MirrorChoice {
+  const i = current ? MIRROR_CYCLE.indexOf(current) : -1
+  return MIRROR_CYCLE[(i + 1) % MIRROR_CYCLE.length]
+}
+
+/**
+ * The points among these where mirroring can mean anything.
+ *
+ * Mirroring is about what a point's two arms do to each other, so it needs two
+ * segments meeting there. The END of an open path has one, and setting a mode
+ * on it changes nothing you can see — which is enough to make a cycling control
+ * look broken, because the state it reads back never moves.
+ */
+export function mirrorablePoints(net: VectorNetwork, ids: readonly number[]): number[] {
+  return ids.filter((id) => net.edges.filter((e) => e.v0 === id || e.v1 === id).length >= 2)
+}
+
+/** Whether any of these points carries a handle at all. */
+export function anyPointHasHandle(net: VectorNetwork, ids: readonly number[]): boolean {
+  return ids.some((id) => !vertexIsSharp(net, id))
 }

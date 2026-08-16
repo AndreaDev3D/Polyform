@@ -9,6 +9,13 @@ import {
   removeEdge,
   removeVertex,
   setVertexMirror,
+  MIRROR_CYCLE,
+  applyMirrorChoice,
+  makeVertexSharp,
+  nextMirrorChoice,
+  vertexIsSharp,
+  vertexMirrorChoice,
+  type MirrorChoice,
 } from './vector-edit'
 
 /** A square path: 4 vertices, 4 straight edges, closed. */
@@ -181,5 +188,122 @@ describe('rubber-band anchor selection', () => {
 
   it('selects nothing from an empty box, which is how you clear', () => {
     expect(marqueeVertices(pts, { minX: 200, minY: 200, maxX: 210, maxY: 210 }, [1, 2], false)).toEqual([])
+  })
+})
+
+describe('sharp, and the choice the control offers', () => {
+  /** A three-point open path with a curve into the middle vertex. */
+  function curved(): VectorNetwork {
+    return {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 10, y: 10 },
+        { id: 3, x: 20, y: 0 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: { x: 4, y: 10 } },
+        { id: 2, v0: 2, v1: 3, cp0: { x: 16, y: 10 }, cp1: null },
+      ],
+    }
+  }
+
+  it('calls a point with no handles sharp, whatever the stored mode says', () => {
+    const net = curved()
+    setVertexMirror(net, 2, 'ANGLE_LENGTH')
+    expect(vertexMirrorChoice(net, 2)).toBe('ANGLE_LENGTH')
+    makeVertexSharp(net, 2)
+    // The geometry is the answer. A vertex still claiming ANGLE_LENGTH while
+    // carrying nothing to mirror would make the control describe a shape that
+    // is not on screen.
+    expect(vertexMirrorChoice(net, 2)).toBe('SHARP')
+    expect(vertexIsSharp(net, 2)).toBe(true)
+  })
+
+  it('takes the stored mode off with the handles', () => {
+    const net = curved()
+    setVertexMirror(net, 2, 'ANGLE')
+    makeVertexSharp(net, 2)
+    // Left behind, it is invisible until the next handle appears — at which
+    // point the corner springs smooth for no reason anyone can see.
+    expect(net.vertices.find((v) => v.id === 2)?.mirror).toBeUndefined()
+    expect(net.edges[0].cp1).toBeNull()
+    expect(net.edges[1].cp0).toBeNull()
+  })
+
+  it('leaves the other points alone', () => {
+    const net = curved()
+    makeVertexSharp(net, 2)
+    expect(net.vertices).toHaveLength(3)
+    expect(net.edges).toHaveLength(2)
+  })
+
+  it('cycles through every choice and comes back', () => {
+    const seen: MirrorChoice[] = []
+    let choice = nextMirrorChoice(null)
+    for (let i = 0; i < MIRROR_CYCLE.length; i++) {
+      seen.push(choice)
+      choice = nextMirrorChoice(choice)
+    }
+    expect(new Set(seen).size).toBe(MIRROR_CYCLE.length)
+    // Back where it started, or the button walks off the end of its own list.
+    expect(choice).toBe(seen[0])
+  })
+
+  it('starts the cycle from the top when the points disagree', () => {
+    expect(nextMirrorChoice(null)).toBe(MIRROR_CYCLE[0])
+  })
+
+  it('applies sharp as a command and the rest as modes', () => {
+    const net = curved()
+    applyMirrorChoice(net, 2, 'ANGLE_LENGTH')
+    expect(vertexMirrorChoice(net, 2)).toBe('ANGLE_LENGTH')
+    applyMirrorChoice(net, 2, 'SHARP')
+    expect(vertexMirrorChoice(net, 2)).toBe('SHARP')
+    // …and back out of sharp: choosing a mirror mode on a corner has to give it
+    // arms, or the setting reads back and does nothing.
+    applyMirrorChoice(net, 2, 'ANGLE_LENGTH')
+    expect(vertexIsSharp(net, 2)).toBe(false)
+  })
+})
+
+describe('the cycle moves every time', () => {
+  /** A plain corner: three points, no handles anywhere. */
+  function corner(): VectorNetwork {
+    return {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 10, y: 10 },
+        { id: 3, x: 20, y: 0 },
+      ],
+      edges: [
+        { id: 1, v0: 1, v1: 2, cp0: null, cp1: null },
+        { id: 2, v0: 2, v1: 3, cp0: null, cp1: null },
+      ],
+    }
+  }
+
+  it('gives a corner arms whichever mirroring is chosen, NONE included', () => {
+    // Sharp and no-mirroring are the same picture on a point with no handles,
+    // so a NONE that only set a field left the Bend cycle looking stuck: two of
+    // its four steps drew the same thing.
+    for (const mode of ['NONE', 'ANGLE', 'ANGLE_LENGTH'] as const) {
+      const net = corner()
+      setVertexMirror(net, 2, mode)
+      expect(vertexIsSharp(net, 2), `${mode} left the corner with no handles`).toBe(false)
+      expect(vertexMirrorChoice(net, 2)).toBe(mode)
+    }
+  })
+
+  it('lands somewhere new on every step, all the way round', () => {
+    // The property that matters for a cycling button: press it four times from
+    // a corner and see four different things, ending back where it began.
+    const net = corner()
+    const seen: MirrorChoice[] = []
+    for (let i = 0; i < MIRROR_CYCLE.length; i++) {
+      const next = nextMirrorChoice(vertexMirrorChoice(net, 2))
+      applyMirrorChoice(net, 2, next)
+      seen.push(vertexMirrorChoice(net, 2))
+    }
+    expect(seen).toEqual(MIRROR_CYCLE.slice(1).concat(MIRROR_CYCLE[0]))
   })
 })

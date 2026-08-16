@@ -65,6 +65,49 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **The pen draws curves: drag a point instead of clicking it.** Click for a
+  corner, press-and-drag for a smooth point whose handle you aim as you place
+  it. The two arms are one arm — the back one is the front one reflected — so a
+  point drawn smooth cannot arrive with a kink in it, and it is recorded as
+  *mirror angle and length* so editing it later keeps it smooth rather than
+  breaking on the first handle drag.
+  - The preview draws the curve you are about to get, from the same functions
+    that build the committed node (`engine/pen-draft.ts`). A preview with its own
+    idea of the shape is a preview you cannot aim with.
+  - **Not a second tool.** The suggestion was to split this — the clicking
+    behaviour becoming a "pencil", the pen becoming bezier-only. Every vector
+    editor puts both on the pen and lets the gesture decide, which is what this
+    does, and it leaves the name *pencil* for the freehand tool already on the
+    roadmap, which means something else. Say the word if a corners-only tool is
+    still wanted.
+
+- **Escape finishes an unclosed path as an open stroke.** There was no way to
+  draw one: Escape discarded the run, and closing it was the only ending the pen
+  offered. It now commits what you drew, unfilled and stroked, because an open
+  path encloses nothing and a fill on one is thrown away by every back end while
+  the inspector goes on showing it (F-37). Undo is the way to discard.
+  - Enter did this already, and had since the pen shipped. Nobody found it,
+    which is its own answer about where a path-ending key is looked for.
+
+- **Sharp is the fourth mirroring mode, and Bend steps through them.** Click
+  Bend once to enter the mode; click it again to move the selected points on to
+  the next mirroring — sharp, free, mirrored angle, mirrored angle and length —
+  with the current one shown on the button and named on the status bar.
+  - **With nothing selected it acts on the whole path**, which is what makes
+    sharp the reset it is meant to be: it takes the handles off everything, ends
+    included, and the shape goes back to straight lines.
+  - Sharp is deliberately NOT stored on the vertex. A corner IS a point with no
+    handles, so there is no way to save one claiming to be sharp while carrying
+    curvature, and the control reads the geometry rather than a remembered
+    intention.
+  - Choosing any mirroring for a corner now gives it handles, *no mirroring*
+    included — these modes describe what a point's two arms do about each other,
+    so picking one for a point with no arms is a request for arms. Left as it
+    was, two of the cycle's four steps drew the same thing and the button looked
+    stuck.
+  - Points where two segments do not meet are skipped by the mirror modes, since
+    an end has one arm and nothing to mirror it against; sharp still reaches them.
+
 - **Ctrl+V pastes an image from the clipboard, where the mouse is.** Copy a
   screenshot, a picture from a browser, anything on the system clipboard, and it
   arrives as a layer under the pointer — the same rectangle with an image fill

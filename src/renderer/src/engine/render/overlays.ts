@@ -7,6 +7,7 @@ import type { SceneGraph } from '../scene'
 import type { AABB } from '../geometry'
 import { aabbIsEmpty, applyMat } from '../geometry'
 import { nearestInstanceAncestor } from '../hit-test'
+import { handleIn, penSegmentControls, type PenPoint } from '../pen-draft'
 import type { Camera } from './canvas2d'
 
 export const HANDLE_SIZE = 8
@@ -41,9 +42,9 @@ export interface SnapGuide {
 }
 
 export interface PenDraft {
-  /** World-space committed anchors. */
-  anchors: Vec2[]
-  /** Current cursor (world) for the preview segment. */
+  /** World-space points placed so far, with their handles. */
+  points: PenPoint[]
+  /** Current cursor (world) for the preview segment; null while dragging a handle. */
   cursor: Vec2 | null
   closable: boolean
 }
@@ -784,21 +785,56 @@ export function drawOverlays(ctx: CanvasRenderingContext2D, scene: SceneGraph, s
   }
 
   // Pen draft preview
-  if (state.penDraft && state.penDraft.anchors.length > 0) {
-    const pts = state.penDraft.anchors.map((p) => worldToScreen(camera, p))
+  if (state.penDraft && state.penDraft.points.length > 0) {
+    const draft = state.penDraft
+    const pts = draft.points.map((pt) => worldToScreen(camera, pt.p))
     ctx.strokeStyle = ACCENT
     ctx.lineWidth = 1.5
     ctx.beginPath()
     ctx.moveTo(pts[0].x, pts[0].y)
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
-    if (state.penDraft.cursor) {
-      const c = worldToScreen(camera, state.penDraft.cursor)
-      ctx.lineTo(c.x, c.y)
+    // Curves, drawn from the same controls the commit will use — a preview with
+    // its own idea of the shape is a preview you cannot aim with.
+    for (let i = 1; i < draft.points.length; i++) {
+      const { c0, c1 } = penSegmentControls(draft.points[i - 1], draft.points[i])
+      if (c0 || c1) {
+        const a0 = worldToScreen(camera, c0 ?? draft.points[i - 1].p)
+        const a1 = worldToScreen(camera, c1 ?? draft.points[i].p)
+        ctx.bezierCurveTo(a0.x, a0.y, a1.x, a1.y, pts[i].x, pts[i].y)
+      } else {
+        ctx.lineTo(pts[i].x, pts[i].y)
+      }
+    }
+    if (draft.cursor) {
+      const last = draft.points[draft.points.length - 1]
+      const c = worldToScreen(camera, draft.cursor)
+      const out = last.handleOut ? worldToScreen(camera, last.handleOut) : null
+      if (out) ctx.bezierCurveTo(out.x, out.y, c.x, c.y, c.x, c.y)
+      else ctx.lineTo(c.x, c.y)
     }
     ctx.stroke()
+    // The arms of the point being dragged, so the curve can be aimed rather
+    // than guessed at.
+    ctx.lineWidth = 1
+    for (const pt of draft.points) {
+      if (!pt.handleOut) continue
+      const a = worldToScreen(camera, pt.p)
+      for (const h of [pt.handleOut, handleIn(pt)]) {
+        if (!h) continue
+        const s = worldToScreen(camera, h)
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(s.x, s.y)
+        ctx.stroke()
+        ctx.fillStyle = ACCENT
+        ctx.beginPath()
+        ctx.arc(s.x, s.y, 2.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    ctx.lineWidth = 1.5
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]
-      ctx.fillStyle = i === 0 && state.penDraft.closable ? ACCENT : '#ffffff'
+      ctx.fillStyle = i === 0 && draft.closable ? ACCENT : '#ffffff'
       ctx.strokeStyle = ACCENT
       ctx.beginPath()
       ctx.arc(p.x, p.y, i === 0 ? 4.5 : 3.5, 0, Math.PI * 2)

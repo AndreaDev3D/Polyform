@@ -38,6 +38,14 @@ import { collapseAll, expandSelected } from '../engine/layer-collapse'
 import { bridgeVertices, joinVertices, weldLooseEnds } from '../engine/vector-connect'
 import { dissolveEdges, dissolveParts } from '../engine/vector-dissolve'
 import { networkParts } from '../engine/vector-parts'
+import {
+  anyPointHasHandle,
+  applyMirrorChoice,
+  mirrorablePoints,
+  nextMirrorChoice,
+  vertexMirrorChoice,
+  type MirrorChoice,
+} from '../engine/vector-edit'
 import { partAtPoint, withPartFill } from '../engine/vector-paint'
 import { importSvgDocument } from '../engine/import/svg-import'
 import { describeFigReport, mapFigDocument } from '../engine/import/fig/map'
@@ -480,6 +488,92 @@ function editOpenVector(label: string, edit: (net: VectorNetwork) => string | nu
     label,
     true,
   )
+}
+
+/**
+ * Step the selected points to the next mirroring, and say which one.
+ *
+ * Bound to a second click on the Bend button, which is where the hand already
+ * is while shaping a curve — reaching the inspector to make a point smooth
+ * breaks the gesture the tool exists for.
+ *
+ * With nothing selected it acts on the WHOLE path, which is what makes "sharp"
+ * the reset it is described as: no selection is not an empty target here, it is
+ * "all of it". The status line names the mode and the count, because a cycle
+ * you cannot see the position of is a control you have to guess at.
+ */
+export function cycleVectorMirroring(): void {
+  const target = mirrorCycleTarget()
+  if (!target) return
+  if (target.mirrorable.length === 0) {
+    // Nothing here has two segments, so three of the four choices are no-ops.
+    // Sharp is not: an end can still be carrying a handle from a bend.
+    if (!anyPointHasHandle(target.net, target.ids)) {
+      setStatus('Mirroring needs a point where two segments meet')
+      return
+    }
+    editOpenVector('Set Point Mirroring', (net) => {
+      for (const id of target.ids) applyMirrorChoice(net, id, 'SHARP')
+      return null
+    })
+    setStatus(`${MIRROR_LABEL.SHARP} — ${countLabel(target.ids.length)}`)
+    return
+  }
+  const next = nextMirrorChoice(target.current)
+  editOpenVector('Set Point Mirroring', (net) => {
+    // Sharp reaches every point in the target, mirror modes only the ones that
+    // can hold two arms — otherwise "reset this shape" would leave a handle on
+    // the ends, which is exactly the thing being reset.
+    for (const id of next === 'SHARP' ? target.ids : target.mirrorable) {
+      applyMirrorChoice(net, id, next)
+    }
+    return null
+  })
+  const touched = next === 'SHARP' ? target.ids.length : target.mirrorable.length
+  setStatus(`${MIRROR_LABEL[next]} — ${countLabel(touched)}`)
+}
+
+function countLabel(n: number): string {
+  return `${n} point${n === 1 ? '' : 's'}`
+}
+
+/**
+ * What the Bend cycle acts on, and where it currently is.
+ *
+ * Shared with the badge on the button, so the position shown and the position
+ * stepped from are the same reading — two of those would drift the moment the
+ * selection contained something the cycle skips.
+ *
+ * With nothing selected the target is the WHOLE path, which is what makes
+ * "sharp" the reset it is meant to be.
+ */
+export function mirrorCycleTarget(): {
+  net: VectorNetwork
+  ids: number[]
+  mirrorable: number[]
+  current: MirrorChoice | null
+} | null {
+  const { vectorEditId, vectorSelection } = editor.get()
+  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
+  if (!node || node.type !== 'VECTOR') return null
+  const ids = vectorSelection.length > 0 ? [...vectorSelection] : node.network.vertices.map((v) => v.id)
+  if (ids.length === 0) return null
+  const mirrorable = mirrorablePoints(node.network, ids)
+  const read = mirrorable.length > 0 ? mirrorable : ids
+  return { net: node.network, ids, mirrorable, current: commonMirrorChoice(node.network, read) }
+}
+
+/** What every one of these points agrees on, or null when they do not. */
+export function commonMirrorChoice(net: VectorNetwork, ids: readonly number[]): MirrorChoice | null {
+  const modes = new Set(ids.map((id) => vertexMirrorChoice(net, id)))
+  return modes.size === 1 ? [...modes][0] : null
+}
+
+export const MIRROR_LABEL: Record<MirrorChoice, string> = {
+  SHARP: 'Sharp corner',
+  NONE: 'No mirroring',
+  ANGLE: 'Mirror angle',
+  ANGLE_LENGTH: 'Mirror angle and length',
 }
 
 /** Connect the two selected points with a straight segment. */

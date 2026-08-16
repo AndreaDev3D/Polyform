@@ -16,7 +16,6 @@ import type {
   ImagePaint,
   InstanceNode,
   LightingPreset,
-  MirrorMode,
   StrokeCap,
   Model3dNode,
   ModelPose,
@@ -42,7 +41,8 @@ import {
 import { selectionColors } from '../engine/selection-colors'
 import { isFullEllipse } from '../engine/shapes'
 import { strokeCapsApply } from '../engine/strokecaps'
-import { setVertexMirror } from '../engine/vector-edit'
+import { applyMirrorChoice, type MirrorChoice } from '../engine/vector-edit'
+import { commonMirrorChoice } from '../state/actions'
 import { isSplatFormat } from '../render3d/island'
 import { documentStore, useDocVersion } from '../state/document'
 import { useEditor } from '../state/editor'
@@ -105,6 +105,7 @@ import {
   MirrorAngleIcon,
   MirrorFullIcon,
   MirrorNoneIcon,
+  MirrorSharpIcon,
   OpacityIcon,
   PlusIcon,
   Rotate90Icon,
@@ -1119,8 +1120,9 @@ function VectorPointSection({ node }: { node: VectorNode }) {
     )
   }
 
-  const modes = new Set(chosen.map((v) => v.mirror ?? 'NONE'))
-  const current = modes.size === 1 ? [...modes][0] : null
+  // Read from the geometry, not the stored field: a point set to mirrored and
+  // then stripped of its handles IS a corner, and the control has to say so.
+  const current = commonMirrorChoice(node.network, chosen.map((v) => v.id))
 
   const radii = new Set(chosen.map((v) => round(v.cornerRadius ?? 0)))
   const radius = radii.size === 1 ? [...radii][0] : null
@@ -1150,9 +1152,9 @@ function VectorPointSection({ node }: { node: VectorNode }) {
     )
   }
 
-  const apply = (mode: MirrorMode) => {
+  const apply = (choice: MirrorChoice) => {
     commitNetwork(() => {
-      for (const v of chosen) setVertexMirror(node.network, v.id, mode)
+      for (const v of chosen) applyMirrorChoice(node.network, v.id, choice)
     }, 'Set Point Mirroring')
   }
 
@@ -1172,10 +1174,17 @@ function VectorPointSection({ node }: { node: VectorNode }) {
 
   return (
     <Section title={chosen.length === 1 ? 'Point' : `${chosen.length} points`}>
-      <Field label="Mirroring" hint="What the opposite handle does when you drag one">
-        <Segmented<MirrorMode>
+      <Field label="Mirroring" hint="What the opposite handle does when you drag one · Bend steps through these">
+        <Segmented<MirrorChoice>
           value={current}
           options={[
+            {
+              value: 'SHARP',
+              label: <MirrorSharpIcon width={13} height={13} />,
+              // Not a stored mode: a corner is a point with no handles, so this
+              // takes them off rather than remembering an intention.
+              title: 'Sharp corner — take the handles off and let the path turn through the point',
+            },
             { value: 'NONE', label: <MirrorNoneIcon width={13} height={13} />, title: 'No mirroring — each handle is independent' },
             { value: 'ANGLE', label: <MirrorAngleIcon width={13} height={13} />, title: 'Mirror the angle — the other handle keeps its own length' },
             { value: 'ANGLE_LENGTH', label: <MirrorFullIcon width={13} height={13} />, title: 'Mirror angle and length — both arms stay equal' },

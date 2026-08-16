@@ -16,7 +16,10 @@ import {
   booleanSelection,
   bridgeVectorPoints,
   closeVectorPath,
+  cycleVectorMirroring,
+  mirrorCycleTarget,
   dissolveVectorParts,
+  MIRROR_LABEL,
   carveSelection,
   joinVectorPoints,
   topSelection,
@@ -24,6 +27,7 @@ import {
   zoomToSelection,
 } from '../state/actions'
 import { interactionController } from '../interactions/controller'
+import { useDocVersion } from '../state/document'
 import { READING_WINDOW_MS, isReading, useMcpStatus } from '../agent/status'
 import { useEffect, useRef, useState } from 'react'
 import { MENU, formatAccelerator } from '../../../shared/menu-def'
@@ -54,6 +58,10 @@ import {
   FrameIcon,
   HandIcon,
   LineIcon,
+  MirrorAngleIcon,
+  MirrorFullIcon,
+  MirrorNoneIcon,
+  MirrorSharpIcon,
   PenIcon,
   PointDeleteIcon,
   PointMoveIcon,
@@ -339,7 +347,12 @@ const VECTOR_MODES: { mode: VectorMode; title: string; hint: string; icon: React
     hint: 'A dot rides the outline showing where the point lands · click a point you already have to pick it up instead',
     icon: <PointAddIcon />,
   },
-  { mode: 'bend', title: 'Bend', hint: 'Drag a segment and the curve follows the pointer', icon: <BendIcon /> },
+  {
+    mode: 'bend',
+    title: 'Bend',
+    hint: 'Drag a segment and the curve follows the pointer · click again to step the selected points through sharp, free, mirrored angle, mirrored angle and length',
+    icon: <BendIcon />,
+  },
   {
     mode: 'knife',
     title: 'Knife',
@@ -398,6 +411,40 @@ function PaintSwatch() {
 }
 
 /**
+ * Which mirroring the next Bend click will step away from.
+ *
+ * On the button rather than only in the inspector, because the cycle is
+ * driven from here — a position you can step through but not see is a control
+ * that has to be counted rather than read.
+ */
+function MirrorBadge() {
+  // Subscribed to both, so the badge follows a change of selection and a change
+  // of shape; the target itself is read from the same helper the cycle uses.
+  useEditor((s) => s.vectorSelection)
+  useDocVersion()
+  const choice = mirrorCycleTarget()?.current ?? null
+  return (
+    <span
+      className="ml-0.5 opacity-90"
+      title={choice ? MIRROR_LABEL[choice] : 'These points do not agree'}
+      aria-label={choice ? MIRROR_LABEL[choice] : 'Mixed mirroring'}
+    >
+      {choice === 'SHARP' ? (
+        <MirrorSharpIcon width={12} height={12} />
+      ) : choice === 'ANGLE' ? (
+        <MirrorAngleIcon width={12} height={12} />
+      ) : choice === 'ANGLE_LENGTH' ? (
+        <MirrorFullIcon width={12} height={12} />
+      ) : choice === 'NONE' ? (
+        <MirrorNoneIcon width={12} height={12} />
+      ) : (
+        <span className="text-[11px] leading-none">–</span>
+      )}
+    </span>
+  )
+}
+
+/**
  * While a vector is open for editing, the centre of the bar becomes its own
  * tools. Swapping rather than stacking, because you cannot draw a rectangle
  * mid-path anyway, and one row keeps the modes where the tools already were.
@@ -415,10 +462,14 @@ function VectorModes() {
           className={`pf-btn h-[30px] px-2 gap-1.5 ${mode === m.mode ? 'bg-[var(--pf-accent-solid)] text-white' : ''}`}
           title={`${m.title} — ${m.hint}`}
           aria-pressed={mode === m.mode}
-          onClick={() => setMode(m.mode)}
+          // Bend is the one mode where a second click does something else: it
+          // steps the mirroring. Entering the mode has to stay the first click,
+          // or the tool would change the shape on the way in.
+          onClick={() => (m.mode === 'bend' && mode === 'bend' ? cycleVectorMirroring() : setMode(m.mode))}
         >
           {m.icon}
           <span className="text-[11px]">{m.title}</span>
+          {m.mode === 'bend' && mode === 'bend' && <MirrorBadge />}
         </button>
       ))}
       {/* Only while the bucket is out: a colour well with no bucket selected is

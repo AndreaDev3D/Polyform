@@ -83,7 +83,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Polygon tool | Draw N-sided polygons | ✅ | |
 | Star tool | Draw stars | ✅ | |
 | Polygon/star point-count editing | Adjust vertex count and star ratio after drawing | ✅ | Inspector N / inner-radius fields |
-| Pen tool (P) | Place vertices and bezier curves | ✅ | Draws vector paths; see Vector Editing for edit-mode gaps |
+| Pen tool (P) | Place vertices and bezier curves | ✅ | Click for a corner, press-and-drag for a smooth point whose handle you aim as you place it — one tool, the gesture decides. The preview is built by the same code as the committed node (`engine/pen-draft.ts`). Escape finishes an unclosed run as an OPEN stroke, Enter likewise, clicking the first point closes it; see Vector Editing for edit-mode gaps |
 | Pencil tool (freehand) | Freehand drawing smoothed into vectors | 📋 | |
 | Text tool (T) | Click or drag to create text | ✅ | Detailed in Text & Typography |
 | Image placement | Place bitmap images onto the canvas | ✅ | Stored content-addressed in `assets/`, deduplicated |
@@ -100,8 +100,8 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Bezier path drawing | Pen tool places lines and cubic curves | ✅ | |
 | Dedicated vector edit mode | Enter/exit object to edit vertices and handles | ✅ | Double-click or Enter; the bottom bar becomes Move / Bend / Delete modes with a selected-point count; round anchor handles |
 | Branching edges per vertex | One vertex can join N edges | 🟡 | Data model supports it; no branching-edge editing UI |
-| Bend tool | Drag a segment and the curve follows | ✅ | Both handles move, split by bernstein influence at the grabbed t, so the curve lands on the pointer; a straight segment gets handles at the thirds first |
-| Per-point handle mirroring | None / angle / angle+length, per vertex | ✅ | Inspector control on the selected point(s); applying it smooths the corner immediately; Alt breaks the pairing for one drag |
+| Bend tool | Drag a segment and the curve follows | ✅ | Both handles move, split by bernstein influence at the grabbed t, so the curve lands on the pointer; a straight segment gets handles at the thirds first. Clicking Bend while already in it steps the selected points through the four mirroring choices — the whole path when nothing is selected, which is what makes sharp a reset |
+| Per-point handle mirroring | None / angle / angle+length, per vertex | ✅ | Four choices: sharp / none / angle / angle+length, in the inspector and on the Bend button. Applying any of the three mirror modes to a corner gives it handles; **sharp** takes them off and is not stored — a corner IS a point with no handles, so the control reads the geometry rather than a remembered intention. Alt breaks the pairing for one drag |
 | Add points with a preview | A dot shows where the new point lands before you commit | ✅ | The Add mode of the vector bar: a hollow dot rides the outline as you move, and a click places it there. Clicking an anchor that already exists hands the gesture to Move rather than stacking a second one on it — two anchors in the same place cannot be told apart or selected separately afterwards |
 | Marquee-select anchors | Drag a box to select several points at once | ✅ | Shift adds rather than toggles. The case it exists for is anchors stacked in the SAME place — clicking reaches one of them and clicking again reaches the same one, so a box is the only gesture that can select both (F-37) |
 | Close an open path | Weld ends that sit on top of each other | ✅ | The repair for a path that looks closed and is not — an outline that arrived in pieces has ends at identical coordinates that are still separate anchors, and a fill has nothing to go inside. Join cannot do it: two anchors in the same place cannot be told apart by clicking. Welds ENDS only, and reports whether the shape actually closed (F-37) |
