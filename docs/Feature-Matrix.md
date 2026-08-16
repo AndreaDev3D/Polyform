@@ -148,7 +148,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Copy / paste | Clipboard for design objects | ✅ | Layers are held in-app; Copy claims the OS clipboard so paste can tell which is newer. Pastes at the POINTER, centred on it as a group, falling back to the middle of the view when the mouse is off the canvas |
 | Duplicate (Ctrl+D) | Duplicate in place with offset | ✅ | |
 | Delete | Remove selection | ✅ | |
-| Paste from OS clipboard | Paste images/text copied from other apps | 🟡 | IMAGES land as a layer under the mouse, read through main because Ctrl+V is a menu accelerator and the page never gets a `paste` event. Gated against a real Windows clipboard write. Pasting TEXT as a text layer is not done |
+| Paste from OS clipboard | Paste images/text copied from other apps | 🟡 | IMAGES land as a layer under the mouse, read through main, since the page has no user gesture to hang the async Clipboard API off. Gated against a real Windows clipboard write, pressing the real key — Ctrl+C/V/A are handled in the renderer rather than registered as menu accelerators, which is what makes them testable and what lets a focused text field keep its own paste (F-41). Pasting TEXT as a text layer is not done |
 | Math in inspector fields | Type `100+20` or `50%` into number fields | 📋 | |
 
 ## Layers & Hierarchy

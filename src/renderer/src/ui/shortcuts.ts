@@ -2,7 +2,7 @@
 // (accelerators); this handles single-key tools, nudging and Escape/Enter.
 
 import { editor, type Tool } from '../state/editor'
-import { deleteSelection, flipSelection, nudgeSelection, setSelection, zoomToFit, zoomToSelection } from '../state/actions'
+import { copySelection, deleteSelection, flipSelection, nudgeSelection, paste, selectAll, setSelection, zoomToFit, zoomToSelection } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { documentStore } from '../state/document'
 import { isTypingTarget } from '../state/focus'
@@ -21,6 +21,30 @@ const TOOL_KEYS: Record<string, Tool> = {
 export function installShortcuts(): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     const state = editor.get()
+
+    // Copy, paste and select-all.
+    //
+    // Here rather than on the native menu, which is where they used to live.
+    // A registered accelerator is claimed by the browser process before the
+    // page ever sees the key, which made these three untestable — no harness
+    // can produce the OS key event an accelerator needs — and meant Ctrl+V
+    // never reached a text field either. The menu still SHOWS the shortcut and
+    // its items still work; it just no longer owns the key (F-41).
+    //
+    // A field with focus is left alone entirely: not preventing the default is
+    // what lets Chromium do the ordinary text edit, which is the behaviour
+    // anyone typing expects and the one an accelerator cannot give them.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      const combo = e.key.toLowerCase()
+      if (combo === 'c' || combo === 'v' || combo === 'a') {
+        if (isTypingTarget(e.target) || state.editingTextId) return
+        e.preventDefault()
+        if (combo === 'c') copySelection()
+        else if (combo === 'v') void paste()
+        else selectAll()
+        return
+      }
+    }
 
     if (e.key === 'Escape') {
       if (isTypingTarget(e.target)) return // fields handle their own escape

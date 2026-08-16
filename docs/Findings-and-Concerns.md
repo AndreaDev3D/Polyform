@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.8 (F-01…F-40)
+**Project:** Polyform — current through v0.8 (F-01…F-41)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -49,6 +49,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-38](#f-38-a-command-that-ignores-what-you-selected-is-answering-a-different-question) | Dissolve could not read the selection it was aimed with (fixed v0.8) | Fixed |
 | [F-39](#f-39-both-ends-of-a-round-trip-were-tested-and-the-trip-was-not) | The cursor's "edit it in Polyform" round trip had never been walked (fixed v0.8) | Fixed |
 | [F-40](#f-40-two-things-that-cannot-both-be-true-arbitrated-by-a-rule-that-never-runs) | Paste's clipboard arbitration compared a token that could never survive (fixed v0.8) | Process |
+| [F-41](#f-41-the-gate-pressed-the-menu-item-and-the-key-was-the-broken-part) | Ctrl+V was a menu accelerator no harness could press, so nothing tested it (fixed v0.8) | Fixed (Med while live) |
 
 ---
 
@@ -1005,6 +1006,27 @@ Writing to a clipboard CLEARS it. `clipboard.writeText(token)` drops the image i
 
 ---
 
+## F-41. The gate pressed the menu item, and the key was the broken part
+
+**Severity: Med** — image paste shipped into the working build with its only advertised trigger doing nothing. Reported by the user within the hour: *"I had an image in the clipboard and ctrl+V still doesn't work for me, why?"*
+
+Ctrl+V was a **registered menu accelerator**. Electron matches those in the browser process, before the page sees a keystroke — which has two consequences that only look separate:
+
+* it made the shortcut untestable, because no harness can produce the OS-level key event an accelerator waits for. CDP-injected keys go to the renderer and never reach the accelerator table; `SendKeys` cannot activate a window a background process brought forward. So the end-to-end gate did the reasonable-looking thing and called `menuInvoke('edit.paste')` — **the command**. The command was correct. It always had been.
+* it made the accelerator the *only* listener. Nothing in the renderer handled Ctrl+V, on the stated grounds that "Ctrl/Cmd combos live in the native menu". One mechanism, no fallback, no coverage.
+
+Measured rather than guessed, with real key events into the built app: `r` reached the renderer and switched tools, so keys were being delivered; Ctrl+A did nothing at all; and a Ctrl+V keydown **arrived at the page unclaimed**, with no handler waiting for it. Whatever the accelerator does on a physical keyboard, the app had no second answer — and the user's keyboard did not get the first one.
+
+**What it does now.** Copy, Paste and Select All keep their menu items and still display their shortcuts, but no longer *register* them (`registerAccelerator: false`, the same `displayOnlyAccelerator` the view and object menus already used). The renderer owns the three keys. One owner, and it is the one a harness can reach — the gate now presses Ctrl+V and Ctrl+C, and removing the renderer's handler turns it red.
+
+It also fixed a bug underneath: a registered accelerator steals the key from a focused text field, which is why Ctrl+V had never worked in one. The repair is to do nothing — the handler returns early when a field has focus, and Chromium performs the ordinary edit.
+
+**Stated plainly, because it is a limit and not a result:** re-registering the accelerator does *not* fail the gate. A synthetic key falls through to the renderer either way, so what the gate guards is the renderer path — the one now carrying the feature — and not the absence of the accelerator. The physical-keyboard leg of that remains unguarded.
+
+**Standing obligation.** When a harness cannot produce a feature's real trigger, that is a finding about the design, not permission to test one step downstream. Testing the command instead of the gesture guarantees a green suite for a dead shortcut. Move the trigger to something reachable, or write down which step nothing covers.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -1030,3 +1052,4 @@ Three themes run through every entry:
 19. **A selection is a question.** F-38's Dissolve took a network and no selection at all, so four deliberately chosen points could not reach it. A command beside others that read the selection has to read it too, or it is answering something nobody asked.
 20. **A documented workflow is a feature.** F-39's pointer file said "edit it in Polyform and re-run the generator", and both halves of that were tested — against fixtures in their own dialects. What Polyform actually exports would have produced a cursor aimed at the frame's corner. Where a comment says *and then run*, the *and then* is the untested part, and both ends being green is what hides it.
 21. **An arbitration rule whose inputs cannot co-occur is not a decision.** F-40's paste compared a clipboard token to decide whether layers or an image were copied more recently — but writing the token clears the image, so the branch could never run, and the gate that covered it passed with the whole mechanism removed because its two outcomes shared every asserted field. Ask what makes the losing state reachable, and make the outcomes differ before believing the pass.
+22. **A gate that invokes the command has not tested the gesture.** F-41's Ctrl+V was a registered menu accelerator — matched in the browser process, unreachable by any harness — so the check called the menu item instead and passed while the keystroke reached nothing. When the real trigger cannot be produced, that is a fact about the design: move it somewhere testable, or write down which step nothing covers.

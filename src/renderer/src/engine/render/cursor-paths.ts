@@ -2,7 +2,7 @@
 // Edit resources/cursor-arrow.svg and re-run `node scripts/make-cursor.mjs`.
 
 /** The pointer outline. Filled; the renderer supplies every colour. */
-export const CURSOR_ARROW = 'M 3.577 4.103 C 3.494 3.847 3.772 3.623 4.005 3.76 L 19.843 13.103 C 20.303 13.374 20.19 14.068 19.668 14.18 L 13.065 15.595 C 12.861 15.639 12.696 15.787 12.631 15.985 L 10.595 22.169 C 10.418 22.707 9.657 22.706 9.481 22.168 Z'
+export const CURSOR_ARROW = 'M 3.577 4.103 C 3.494 3.847 3.772 3.623 4.005 3.76 L 20.49 13.484 C 20.72 13.62 20.663 13.967 20.402 14.023 L 13.394 15.525 C 12.987 15.612 12.656 15.909 12.526 16.304 L 10.316 23.017 C 10.227 23.286 9.847 23.286 9.759 23.017 Z'
 
 /**
  * Side of the square the arrow is drawn in. Fixed: the badge disc, the rounding

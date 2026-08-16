@@ -54,7 +54,6 @@ const api: PolyformApi = {
   assetsWrite: (bytes, ext) => ipcRenderer.invoke('assets:write', bytes, ext),
   clipboardRead: () => ipcRenderer.invoke('clipboard:read'),
   clipboardWriteMarker: (token) => ipcRenderer.invoke('clipboard:writeMarker', token),
-  clipboardNativeEdit: (op) => ipcRenderer.invoke('clipboard:nativeEdit', op),
   bgModelStatus: () => ipcRenderer.invoke('bgmodel:status'),
   bgModelEnsure: () => ipcRenderer.invoke('bgmodel:ensure'),
   bgModelRead: () => ipcRenderer.invoke('bgmodel:read'),

@@ -73,9 +73,15 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   the screen.
   - Nothing in the app had ever read the system clipboard. `paste()` only knew
     about layers copied in Polyform, so an image on the clipboard was invisible
-    to it — and the renderer cannot see one either: Ctrl+V is claimed by the
-    menu accelerator, so the page never gets a `paste` event and there is no
-    user gesture for the async Clipboard API to hang off. It goes through main.
+    to it — and the renderer cannot see one either: there is no user gesture for
+    the async Clipboard API to hang off. It goes through main.
+  - **The key itself had to move.** Ctrl+V was a registered menu accelerator,
+    which is matched in the browser process before the page sees anything — so
+    it was the one trigger no harness could produce, the gate reached past it to
+    call the command, and the command was never the broken part. Measured with
+    real key events: `r` switched tools, Ctrl+A did nothing, and the Ctrl+V
+    keydown arrived at the page with nothing listening. The renderer owns these
+    three keys now; the menu still shows them (F-41).
   - **Which one you get is decided by what was copied last**, and the OS cannot
     be asked that — there is no "when did this change". It does not need to be:
     any copy, in any application, empties the clipboard first. So an image being
@@ -90,10 +96,11 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     feature and nothing of ours can stand in for it.
 
 - **Ctrl+C, Ctrl+V and Ctrl+A work inside text fields.** They never had. All
-  three are menu accelerators, which are claimed before the page sees them, so
-  the app acted on the selected LAYERS however they were pressed — pasting into
-  a layer name did nothing to the name, and Ctrl+A while renaming selected the
-  whole document. When a field has focus they now perform the native edit on it.
+  three were menu accelerators, claimed before the page sees them, so the app
+  acted on the selected LAYERS however they were pressed — pasting into a layer
+  name did nothing to the name, and Ctrl+A while renaming selected the whole
+  document. The fix is to do nothing: with the keys handled in the renderer, a
+  focused field is left alone and Chromium performs the ordinary text edit.
 
 - **Selection colors.** Select a frame — or anything with layers inside it — and
   the inspector lists every colour used in there, grouped, most-used first. Each
@@ -146,6 +153,8 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   - The arrow is rounder now — a round-joined stroke in its own fill colour,
     which softens the corners of whatever is dropped in, plus fillets drawn into
     the shape itself. The two compose; the stroke only ever adds.
+  - The shipped arrow is the one drawn in that frame, sharpened at the tail
+    after the first pass came out too round.
   - **The corner under a rounded tip is reconstructed.** The hotspot had always
     been "the first point of the path", which is the tip only while the tip is
     sharp. Round it and the path starts *beside* the point, so the aim drifts a

@@ -1451,10 +1451,25 @@ try {
               }))
             })()`),
           )
+        // The KEY, not the menu item behind it. Driving `menuInvoke` here is
+        // what let a broken Ctrl+V ship: the command worked perfectly and the
+        // keystroke reached nothing, because a registered menu accelerator is
+        // claimed in the browser process and no harness can produce the OS
+        // event it waits for (F-41). Now the renderer owns the key, so pressing
+        // it is testable — and this gate presses it.
+        const chord = async (code, vk, letter) => {
+          const mods = 2 // Ctrl
+          for (const type of ['rawKeyDown', 'keyUp']) {
+            await send('Input.dispatchKeyEvent', {
+              type, modifiers: mods, code, key: letter,
+              windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk,
+            })
+          }
+        }
         const pasteAt = async (x, y, had) => {
           await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
           await sleep(80)
-          await evaluate(`window.polyform.menuInvoke('edit.paste')`)
+          await chord('KeyV', 86, 'v')
           return waitFor(async () => {
             const now = await nodesNow()
             return now.length > had ? now : null
@@ -1505,7 +1520,7 @@ try {
               P.editor.set({ selection: [${JSON.stringify(a.id)}] })
             })()`)
             await sleep(150)
-            await evaluate(`window.polyform.menuInvoke('edit.copy')`)
+            await chord('KeyC', 67, 'c')
             await sleep(250)
             const n0 = (await nodesNow()).length
             const after = await pasteAt(cx - 150, cy, n0)

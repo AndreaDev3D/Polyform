@@ -76,12 +76,18 @@ export const MENU: MenuDef[] = [
       { id: 'edit.undo', label: 'Undo', accelerator: 'CmdOrCtrl+Z', action: 'edit.undo' },
       { id: 'edit.redo', label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', action: 'edit.redo' },
       sep,
-      { id: 'edit.copy', label: 'Copy', accelerator: 'CmdOrCtrl+C', action: 'edit.copy' },
-      { id: 'edit.paste', label: 'Paste', accelerator: 'CmdOrCtrl+V', action: 'edit.paste' },
+      // Copy/Paste/Select All show their accelerator but do NOT register it.
+      // A registered accelerator is claimed before the page sees the key, which
+      // put the whole shortcut on one mechanism the app cannot test and cannot
+      // fall back from — and stole Ctrl+V from every text field on the way. The
+      // renderer owns these three keys now (ui/shortcuts.ts), so the canvas and
+      // a focused field each get the paste they should.
+      { id: 'edit.copy', label: 'Copy', accelerator: 'CmdOrCtrl+C', displayOnlyAccelerator: true, action: 'edit.copy' },
+      { id: 'edit.paste', label: 'Paste', accelerator: 'CmdOrCtrl+V', displayOnlyAccelerator: true, action: 'edit.paste' },
       { id: 'edit.duplicate', label: 'Duplicate', accelerator: 'CmdOrCtrl+D', action: 'edit.duplicate' },
       { id: 'edit.delete', label: 'Delete', action: 'edit.delete' },
       sep,
-      { id: 'edit.selectAll', label: 'Select All', accelerator: 'CmdOrCtrl+A', action: 'edit.selectAll' },
+      { id: 'edit.selectAll', label: 'Select All', accelerator: 'CmdOrCtrl+A', displayOnlyAccelerator: true, action: 'edit.selectAll' },
     ],
   },
   {

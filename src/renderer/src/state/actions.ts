@@ -56,7 +56,6 @@ import { listComponents } from '../engine/components'
 import { SceneGraph } from '../engine/scene'
 import { decodeScene } from '../engine/serialization'
 import { pointerWorld } from './pointer'
-import { isTypingNow } from './focus'
 import { CLIP_MARKER } from '../../../shared/types'
 
 // ---------------------------------------------------------------------------
@@ -2382,12 +2381,10 @@ export function dispatchMenuAction(id: string): void {
       documentStore.redo()
       break
     case 'edit.copy':
-      if (isTypingNow()) void window.polyform.clipboardNativeEdit('copy')
-      else copySelection()
+      copySelection()
       break
     case 'edit.paste':
-      if (isTypingNow()) void window.polyform.clipboardNativeEdit('paste')
-      else void paste()
+      void paste()
       break
     case 'edit.duplicate':
       duplicateSelection()
@@ -2396,8 +2393,7 @@ export function dispatchMenuAction(id: string): void {
       deleteSelection()
       break
     case 'edit.selectAll':
-      if (isTypingNow()) void window.polyform.clipboardNativeEdit('selectAll')
-      else selectAll()
+      selectAll()
       break
     case 'view.zoomIn':
       zoomAt(null, 1.25)

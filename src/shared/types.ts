@@ -290,8 +290,6 @@ export interface PolyformApi {
    */
   clipboardRead: () => Promise<ClipboardRead>
   clipboardWriteMarker: (token: string) => Promise<void>
-  /** Perform a clipboard action on the focused element rather than the canvas. */
-  clipboardNativeEdit: (op: 'copy' | 'cut' | 'paste' | 'selectAll') => Promise<void>
   /** Background-removal model (v0.4.1): consent-gated one-time download. */
   /** Agent connectivity (v0.6 spike, ADR-021): the loopback MCP endpoint. */
   bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number; inputSize: number }>

@@ -465,23 +465,6 @@ function registerIpc(): void {
     return { image: { bytes: image.toPNG(), width: size.width, height: size.height } }
   })
 
-  /**
-   * The native edit action, on whatever has focus.
-   *
-   * Ctrl+C/V/A are menu accelerators, so they are taken before the page sees
-   * them and the app acts on the SELECTED LAYERS however they were pressed —
-   * which means paste has never worked inside a text field, and Ctrl+A while
-   * renaming a layer selected the whole document. The renderer sends the ones
-   * that arrive while a field has focus back here to be performed properly.
-   */
-  ipcMain.handle('clipboard:nativeEdit', (e, op: 'copy' | 'cut' | 'paste' | 'selectAll') => {
-    const wc = e.sender
-    if (op === 'copy') wc.copy()
-    else if (op === 'cut') wc.cut()
-    else if (op === 'paste') wc.paste()
-    else wc.selectAll()
-  })
-
   ipcMain.handle('clipboard:writeMarker', (_e, token: string) => {
     // Text, not an image: this only has to be recognisable to us, and harmless
     // to anyone who pastes it somewhere else by accident.
