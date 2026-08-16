@@ -43,6 +43,9 @@
 //  15. the pen: dragging a point pulls a real bezier handle out of it, and
 //      Escape FINISHES an unclosed run as an open stroke rather than throwing
 //      it away - which is the only way to draw one.
+//  16. Add grows a path from the selected end and starts a second run in the
+//      same shape; Bend steps a point's mirroring when you CLICK it, which is
+//      only distinguishable from dragging it on release.
 //  11. the layer tree's ⋯ menu: Collapse All folds it, and Expand Selected -
 //      taken from the OBJECT CONTEXT MENU, on a layer whose row does not
 //      exist - opens the path back down to it. Neither command touches the
@@ -1631,6 +1634,123 @@ try {
       }
     }
     await evaluate(`globalThis.__polyform.editor.set({ tool: 'select' })`)
+  }
+
+  // 16. Add grows a path, and a click in Bend steps a point's mirroring.
+  //
+  // Both are decided on RELEASE — Add has to tell an empty click from a drag of
+  // the point it just made, and Bend has to tell a click on a point from a drag
+  // of it. Neither distinction exists until the button comes up, so neither can
+  // be reached by calling the command.
+  {
+    const nid = await evaluate(`(() => {
+      const P = globalThis.__polyform, s = P.documentStore.scene
+      for (const id of s.rootIds()) s.removeNode(id)
+      const n = { id: 'e2e-vec', type: 'VECTOR', name: 'V', visible: true, locked: false, opacity: 1,
+        blendMode: 'NORMAL', x: 400, y: 300, width: 200, height: 100, rotation: 0, windingRule: 'NONZERO',
+        fills: [], strokes: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+        strokeWeight: 3, strokeAlign: 'CENTER', strokeDash: [], effects: [],
+        cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 },
+        network: { vertices: [{ id: 1, x: 0, y: 100 }, { id: 2, x: 100, y: 0 }, { id: 3, x: 200, y: 100 }],
+                   edges: [{ id: 1, v0: 1, v1: 2, cp0: null, cp1: null }, { id: 2, v0: 2, v1: 3, cp0: null, cp1: null }] } }
+      s.addNode(n, null, 0); P.documentStore.transient(); return n.id })()`)
+    // Earlier gates leave the camera wherever they finished, and a click
+    // computed against a panned view lands on a panel or off the window — which
+    // looks exactly like a feature that does nothing.
+    await evaluate(`globalThis.__polyform.editor.set({ camera: { x: 250, y: 150, zoom: 1 } })`)
+    await evaluate(`globalThis.__polyform.interactionController.enterVectorEdit(${JSON.stringify(nid)})`)
+    await sleep(400)
+
+    /** Window coordinates of a point in the shape's own space. */
+    const at = async (lx, ly) => {
+      const hit = JSON.parse(await evaluate(`(() => {
+        const P = globalThis.__polyform, s = P.documentStore.scene
+        const m = s.worldMatrix(${JSON.stringify(nid)})
+        const w = { x: m.a * ${lx} + m.c * ${ly} + m.e, y: m.b * ${lx} + m.d * ${ly} + m.f }
+        const p = P.overlays.worldToScreen(P.editor.get().camera, w)
+        const r = document.querySelector('canvas').getBoundingClientRect()
+        return JSON.stringify({
+          x: Math.round(p.x + r.left), y: Math.round(p.y + r.top),
+          inside: p.x >= 0 && p.y >= 0 && p.x <= r.width && p.y <= r.height,
+        })
+      })()`))
+      // Said out loud rather than clicked into the void: a gate that aims off
+      // the canvas passes or fails for reasons that have nothing to do with the
+      // feature (F-26).
+      if (!hit.inside) fail(`gate 16 aimed at ${lx},${ly} which is off the canvas — the check below means nothing`)
+      return hit
+    }
+    const tap = async (p) => {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y })
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+      await sleep(50)
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+      await sleep(220)
+    }
+    const shape = async () =>
+      JSON.parse(await evaluate(`JSON.stringify((() => {
+        const P = globalThis.__polyform
+        const n = P.documentStore.scene.getNode(${JSON.stringify(nid)})
+        return { v: n.network.vertices.length, e: n.network.edges.length,
+                 mirror: n.network.vertices.find((x) => x.id === 2)?.mirror ?? null,
+                 curved: n.network.edges.some((x) => x.cp0 || x.cp1),
+                 status: P.editor.get().status }
+      })())`))
+
+    await evaluate(`globalThis.__polyform.editor.get().setVectorMode('add')`)
+    await evaluate(`globalThis.__polyform.editor.set({ vectorSelection: [3] })`)
+    await sleep(150)
+    await tap(await at(320, 40))
+    const grown = await shape()
+    if (grown.v !== 4 || grown.e !== 3) {
+      fail(`Add on empty space should run a line from the selected end: ${grown.v} points / ${grown.e} segments`)
+    } else {
+      // From the MIDDLE it has to refuse and say why: three edges at a vertex is
+      // a branch, and nothing that draws can walk one.
+      await evaluate(`globalThis.__polyform.editor.set({ vectorSelection: [2] })`)
+      await tap(await at(340, 200))
+      const branched = await shape()
+      if (branched.v !== 4 || !String(branched.status ?? '').includes('grow it from an end')) {
+        fail(`Add from a middle point must refuse out loud, got ${branched.v} points and "${branched.status}"`)
+      } else {
+        // Nothing selected: a lone point, then a segment to it — a second run
+        // inside the same shape.
+        await evaluate(`globalThis.__polyform.editor.set({ vectorSelection: [] })`)
+        await tap(await at(-80, 200))
+        const started = await shape()
+        await tap(await at(20, 240))
+        const second = await shape()
+        if (started.v !== 5 || started.e !== 3) {
+          fail(`Add with nothing selected should drop a loose point: ${started.v} points / ${started.e} segments`)
+        } else if (second.v !== 6 || second.e !== 4) {
+          fail(`the second click should join the new run up: ${second.v} points / ${second.e} segments`)
+        } else {
+          console.log('E2E PASS: Add grows a path from its end and starts a second run in the same shape')
+        }
+      }
+    }
+
+    // Bend: four clicks on one point, four different mirrorings.
+    await evaluate(`globalThis.__polyform.editor.get().setVectorMode('bend')`)
+    await evaluate(`globalThis.__polyform.editor.set({ vectorSelection: [] })`)
+    await sleep(150)
+    const seen = []
+    for (let i = 0; i < 4; i++) {
+      await tap(await at(100, 0))
+      const s2 = await shape()
+      seen.push(`${s2.mirror ?? 'sharp'}${s2.curved ? '+curve' : ''}`)
+    }
+    // Every press has to land somewhere new, and the last one takes the handles
+    // off again — a cycle that repeats a state looks stuck even when it moved.
+    if (new Set(seen).size !== 4) {
+      fail(`clicking a point in Bend must step through four distinct states, got ${JSON.stringify(seen)}`)
+    } else if (seen[3] !== 'sharp') {
+      fail(`the cycle should come back to a sharp corner, ended at ${seen[3]}`)
+    } else {
+      console.log(`E2E PASS: clicking a point in Bend steps its mirroring — ${seen.join(' → ')}`)
+    }
+    await evaluate(`globalThis.__polyform.interactionController.exitVectorEdit(true)`)
+    await sleep(200)
   }
 
 } catch (err) {

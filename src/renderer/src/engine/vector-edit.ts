@@ -385,3 +385,81 @@ export function mirrorablePoints(net: VectorNetwork, ids: readonly number[]): nu
 export function anyPointHasHandle(net: VectorNetwork, ids: readonly number[]): boolean {
   return ids.some((id) => !vertexIsSharp(net, id))
 }
+
+// ---------------------------------------------------------------------------
+// Growing a path: extending an end, and starting a run beside it
+// ---------------------------------------------------------------------------
+
+/**
+ * The next free ids, as `max + 1` — the same rule splitEdgeAt uses.
+ *
+ * Note what that is NOT: a high-water mark. Delete the last point and the next
+ * one added takes its id back. Nothing here breaks on that (the selection is
+ * filtered when a point goes, and undo stores whole networks), but anything
+ * that remembers a vertex id ACROSS an edit cannot assume it still means the
+ * same point — `partFills` keys parts by their smallest anchor id and is the
+ * one place where a reused id could carry a colour to the wrong outline.
+ */
+function nextIds(net: VectorNetwork): { vid: number; eid: number } {
+  return {
+    vid: Math.max(0, ...net.vertices.map((v) => v.id)) + 1,
+    eid: Math.max(0, ...net.edges.map((e) => e.id)) + 1,
+  }
+}
+
+/** How many segments meet at a point. */
+export function edgeCountAt(net: VectorNetwork, vid: number): number {
+  return net.edges.filter((e) => e.v0 === vid || e.v1 === vid).length
+}
+
+/**
+ * Put a new point at `at` and join it to `from` with a straight segment.
+ *
+ * Only from an END — a point with one segment, or a loose one with none.
+ * Extending from the middle would give that vertex three edges, and a network
+ * with a branch is a shape `networkToSubPaths` has no way to walk into an
+ * outline: it follows chains, so the third arm would simply be dropped from
+ * everything that draws. Branching is a data-model capability with no editor
+ * behind it yet, and quietly making one here would produce geometry that
+ * renders differently from what the network says.
+ *
+ * Returns the new vertex id, or -1 when it refused.
+ */
+export function extendFromVertex(net: VectorNetwork, from: number, at: Vec2): number {
+  const anchor = net.vertices.find((v) => v.id === from)
+  if (!anchor) return -1
+  if (edgeCountAt(net, from) > 1) return -1
+  const { vid, eid } = nextIds(net)
+  net.vertices.push({ id: vid, x: at.x, y: at.y })
+  net.edges.push({ id: eid, v0: from, v1: vid, cp0: null, cp1: null })
+  return vid
+}
+
+/**
+ * A point with nothing attached, which is how a second run inside one shape
+ * begins: the next click extends from it and the shape now has two outlines.
+ */
+export function startLooseVertex(net: VectorNetwork, at: Vec2): number {
+  const { vid } = nextIds(net)
+  net.vertices.push({ id: vid, x: at.x, y: at.y })
+  return vid
+}
+
+/**
+ * Drop points nothing connects to.
+ *
+ * A lone point draws nothing in any back end, so leaving one in a saved
+ * document is a thing that exists, cannot be seen, and turns up later as an
+ * anchor nobody remembers placing. Run when the path is closed for editing —
+ * during editing it is the legitimate first half of a new run.
+ */
+export function pruneLoneVertices(net: VectorNetwork): number {
+  const used = new Set<number>()
+  for (const e of net.edges) {
+    used.add(e.v0)
+    used.add(e.v1)
+  }
+  const before = net.vertices.length
+  net.vertices = net.vertices.filter((v) => used.has(v.id))
+  return before - net.vertices.length
+}

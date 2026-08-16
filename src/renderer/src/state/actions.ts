@@ -491,76 +491,41 @@ function editOpenVector(label: string, edit: (net: VectorNetwork) => string | nu
 }
 
 /**
- * Step the selected points to the next mirroring, and say which one.
+ * Step ONE point on to the next mirroring.
  *
- * Bound to a second click on the Bend button, which is where the hand already
- * is while shaping a curve — reaching the inspector to make a point smooth
- * breaks the gesture the tool exists for.
- *
- * With nothing selected it acts on the WHOLE path, which is what makes "sharp"
- * the reset it is described as: no selection is not an empty target here, it is
- * "all of it". The status line names the mode and the count, because a cycle
- * you cannot see the position of is a control you have to guess at.
+ * Bound to a click on the point itself while Bend is out, which is where the
+ * hand already is: the alternative was a control on the toolbar that had to be
+ * aimed at whatever happened to be selected, and it read as a second button
+ * rather than as a property of the point under the cursor.
  */
-export function cycleVectorMirroring(): void {
-  const target = mirrorCycleTarget()
-  if (!target) return
-  if (target.mirrorable.length === 0) {
-    // Nothing here has two segments, so three of the four choices are no-ops.
-    // Sharp is not: an end can still be carrying a handle from a bend.
-    if (!anyPointHasHandle(target.net, target.ids)) {
+export function cycleVertexMirroring(vid: number): void {
+  const { vectorEditId } = editor.get()
+  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
+  if (!node || node.type !== 'VECTOR') return
+  const net = node.network
+
+  // An END has one segment, so three of the four choices are no-ops there and
+  // the cycle would appear stuck. Sharp is not a no-op: an end can still be
+  // carrying a handle from a bend.
+  if (mirrorablePoints(net, [vid]).length === 0) {
+    if (!anyPointHasHandle(net, [vid])) {
       setStatus('Mirroring needs a point where two segments meet')
       return
     }
-    editOpenVector('Set Point Mirroring', (net) => {
-      for (const id of target.ids) applyMirrorChoice(net, id, 'SHARP')
+    editOpenVector('Set Point Mirroring', (n) => {
+      applyMirrorChoice(n, vid, 'SHARP')
       return null
     })
-    setStatus(`${MIRROR_LABEL.SHARP} — ${countLabel(target.ids.length)}`)
+    setStatus(MIRROR_LABEL.SHARP)
     return
   }
-  const next = nextMirrorChoice(target.current)
-  editOpenVector('Set Point Mirroring', (net) => {
-    // Sharp reaches every point in the target, mirror modes only the ones that
-    // can hold two arms — otherwise "reset this shape" would leave a handle on
-    // the ends, which is exactly the thing being reset.
-    for (const id of next === 'SHARP' ? target.ids : target.mirrorable) {
-      applyMirrorChoice(net, id, next)
-    }
+
+  const next = nextMirrorChoice(vertexMirrorChoice(net, vid))
+  editOpenVector('Set Point Mirroring', (n) => {
+    applyMirrorChoice(n, vid, next)
     return null
   })
-  const touched = next === 'SHARP' ? target.ids.length : target.mirrorable.length
-  setStatus(`${MIRROR_LABEL[next]} — ${countLabel(touched)}`)
-}
-
-function countLabel(n: number): string {
-  return `${n} point${n === 1 ? '' : 's'}`
-}
-
-/**
- * What the Bend cycle acts on, and where it currently is.
- *
- * Shared with the badge on the button, so the position shown and the position
- * stepped from are the same reading — two of those would drift the moment the
- * selection contained something the cycle skips.
- *
- * With nothing selected the target is the WHOLE path, which is what makes
- * "sharp" the reset it is meant to be.
- */
-export function mirrorCycleTarget(): {
-  net: VectorNetwork
-  ids: number[]
-  mirrorable: number[]
-  current: MirrorChoice | null
-} | null {
-  const { vectorEditId, vectorSelection } = editor.get()
-  const node = vectorEditId ? documentStore.scene.getNode(vectorEditId) : null
-  if (!node || node.type !== 'VECTOR') return null
-  const ids = vectorSelection.length > 0 ? [...vectorSelection] : node.network.vertices.map((v) => v.id)
-  if (ids.length === 0) return null
-  const mirrorable = mirrorablePoints(node.network, ids)
-  const read = mirrorable.length > 0 ? mirrorable : ids
-  return { net: node.network, ids, mirrorable, current: commonMirrorChoice(node.network, read) }
+  setStatus(MIRROR_LABEL[next])
 }
 
 /** What every one of these points agrees on, or null when they do not. */

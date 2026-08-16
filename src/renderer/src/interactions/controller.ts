@@ -16,7 +16,15 @@ import { applyMat, clamp, distToSegment, flattenCubic, matInvert, matRotateDeg, 
 import { clampZoom } from '../engine/zoom'
 import { documentStore } from '../state/document'
 import { editor, type Tool, type VectorMode } from '../state/editor'
-import { OpRecorder, guidesChanged, paintVectorPartAt, setSelection, setStatus, topSelection } from '../state/actions'
+import {
+  OpRecorder,
+  cycleVertexMirroring,
+  guidesChanged,
+  paintVectorPartAt,
+  setSelection,
+  setStatus,
+  topSelection,
+} from '../state/actions'
 import { setPointerScreen } from '../state/pointer'
 import { findDropFrame, hitTestAll, nearestInstanceAncestor, resolveClickTarget, nodesInRect } from '../engine/hit-test'
 import { constrainFrameChildren } from '../engine/constraints'
@@ -49,7 +57,18 @@ import {
   type Handle,
   type HandleKind,
 } from '../engine/render/overlays'
-import { applyMirror, bendEdge, bezierAt, marqueeVertices, removeEdge, removeVertex, splitEdgeAt } from '../engine/vector-edit'
+import {
+  applyMirror,
+  bendEdge,
+  bezierAt,
+  extendFromVertex,
+  marqueeVertices,
+  pruneLoneVertices,
+  removeEdge,
+  removeVertex,
+  splitEdgeAt,
+  startLooseVertex,
+} from '../engine/vector-edit'
 import { penNetwork, type PenPoint } from '../engine/pen-draft'
 import { knifeCut } from '../engine/vector-knife'
 import { snapBox } from './snapping'
@@ -150,6 +169,12 @@ type Mode =
       startWorld: Vec2
       startVerts: Map<number, Vec2>
       startCps: Map<string, Vec2>
+      /**
+       * Set in Bend mode: if the press turns out to be a CLICK rather than a
+       * drag, this point's mirroring steps on instead. Decided on release,
+       * because whether a press was a drag is not knowable when it starts.
+       */
+      tapVid?: number
     }
   | { kind: 'vector-cp'; edgeIndex: number; key: 'cp0' | 'cp1' }
   /** Bend: the segment and the point along it that follows the pointer. */
@@ -1250,7 +1275,14 @@ export class InteractionController {
         this.cursorOverride = null
         break
       }
-      case 'vector-vertex':
+      case 'vector-vertex': {
+        const tapVid = this.mode.tapVid
+        // Nothing moved means it was a click, and in Bend mode a click on a
+        // point is how its mirroring is changed.
+        const moved = this.commitVectorGesture()
+        if (tapVid !== undefined && !moved) cycleVertexMirroring(tapVid)
+        break
+      }
       case 'vector-cp':
       case 'vector-bend':
         this.commitVectorGesture()
@@ -1490,6 +1522,27 @@ export class InteractionController {
     if (!id || !commit) return
     const node = this.scene.getNode(id)
     if (!node || node.type !== 'VECTOR') return
+    // A point that never got a segment draws nothing in any back end, so
+    // leaving one in the saved document is a thing that exists, cannot be seen,
+    // and turns up later as an anchor nobody remembers placing. During editing
+    // it is the legitimate first half of a new run, which is why this waits
+    // until the path is closed.
+    const withOrphans = structuredClone(node.network)
+    if (pruneLoneVertices(node.network) > 0) {
+      this.scene.bump()
+      documentStore.commit(
+        [
+          {
+            kind: 'update',
+            id,
+            before: { network: withOrphans },
+            after: { network: structuredClone(node.network) },
+          },
+        ],
+        'Drop Loose Points',
+        true,
+      )
+    }
     if (node.network.vertices.length === 0) {
       // Everything was deleted — remove the empty node.
       const ops = removeSubtreeOps(this.scene, id)
@@ -1610,7 +1663,34 @@ export class InteractionController {
         // Draggable straight away, so placing a point and then nudging it is
         // one gesture rather than two.
         this.beginVectorVertexDrag(node, [vid], world, this.gestureNetwork)
+        return
       }
+
+      // Empty space. With one point selected the path GROWS from it; with none
+      // it starts a second run inside the same shape, which is a lone point
+      // until the next click gives it a segment.
+      const local = applyMat(matInvert(m), world)
+      const from = state.vectorSelection.length === 1 ? state.vectorSelection[0] : null
+      this.gestureNetwork = structuredClone(net)
+      let vid: number
+      if (from !== null) {
+        vid = extendFromVertex(net, from, local)
+        if (vid < 0) {
+          this.gestureNetwork = null
+          // Said out loud, because the click looked exactly like the ones that
+          // work. Branching is in the data model and has no editor behind it,
+          // so a third arm here would draw nothing and silently disagree with
+          // what the network says.
+          setStatus('That point is in the middle of the path — grow it from an end')
+          return
+        }
+      } else {
+        vid = startLooseVertex(net, local)
+      }
+      editor.set({ vectorSelection: [vid], vectorAddPreview: null })
+      this.scene.bump()
+      documentStore.transient()
+      this.beginVectorVertexDrag(node, [vid], world, this.gestureNetwork)
       return
     }
 
@@ -1662,7 +1742,10 @@ export class InteractionController {
           sel = selected.has(v.id) ? state.vectorSelection : [v.id]
         }
         editor.set({ vectorSelection: sel })
-        this.beginVectorVertexDrag(node, sel, world)
+        // In Bend mode a point still drags, and a CLICK on it steps its
+        // mirroring — the two are told apart on release, by whether anything
+        // actually moved.
+        this.beginVectorVertexDrag(node, sel, world, undefined, state.vectorMode === 'bend' ? v.id : undefined)
         return
       }
     }
@@ -1842,7 +1925,14 @@ export class InteractionController {
     )
   }
 
-  private beginVectorVertexDrag(node: VectorNode, vids: number[], world: Vec2, presetGesture?: VectorNetwork): void {
+  private beginVectorVertexDrag(
+    node: VectorNode,
+    vids: number[],
+    world: Vec2,
+    presetGesture?: VectorNetwork,
+    /** Cycle this point's mirroring if the press turns out to be a click. */
+    tapVid?: number,
+  ): void {
     this.gestureNetwork = presetGesture ?? structuredClone(node.network)
     const startVerts = new Map<number, Vec2>()
     for (const v of node.network.vertices) startVerts.set(v.id, { x: v.x, y: v.y })
@@ -1851,7 +1941,7 @@ export class InteractionController {
       if (e.cp0) startCps.set(`${i}:cp0`, { ...e.cp0 })
       if (e.cp1) startCps.set(`${i}:cp1`, { ...e.cp1 })
     })
-    this.mode = { kind: 'vector-vertex', vids, startWorld: world, startVerts, startCps }
+    this.mode = { kind: 'vector-vertex', vids, startWorld: world, startVerts, startCps, tapVid }
   }
 
   /** Nearest point on any edge (screen-space distance + curve parameter). */
@@ -1893,20 +1983,21 @@ export class InteractionController {
     return splitEdgeAt(node.network, edgeIndex, t)
   }
 
-  /** Commit the in-flight vector gesture as one history entry. */
-  private commitVectorGesture(): void {
+  /** Commit the in-flight vector gesture as one history entry; false if nothing moved. */
+  private commitVectorGesture(): boolean {
     const id = editor.get().vectorEditId
     const before = this.gestureNetwork
     this.gestureNetwork = null
-    if (!id || !before) return
+    if (!id || !before) return false
     const node = this.scene.getNode(id)
-    if (!node || node.type !== 'VECTOR') return
-    if (JSON.stringify(node.network) === JSON.stringify(before)) return
+    if (!node || node.type !== 'VECTOR') return false
+    if (JSON.stringify(node.network) === JSON.stringify(before)) return false
     documentStore.commit(
       [{ kind: 'update', id, before: { network: before }, after: { network: structuredClone(node.network) } }],
       'Edit Vector',
       true,
     )
+    return true
   }
 
   /** Delete the selected vertices (and their edges) in vector edit mode. */

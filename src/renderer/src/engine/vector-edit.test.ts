@@ -16,6 +16,10 @@ import {
   vertexIsSharp,
   vertexMirrorChoice,
   type MirrorChoice,
+  edgeCountAt,
+  extendFromVertex,
+  pruneLoneVertices,
+  startLooseVertex,
 } from './vector-edit'
 
 /** A square path: 4 vertices, 4 straight edges, closed. */
@@ -305,5 +309,72 @@ describe('the cycle moves every time', () => {
       seen.push(vertexMirrorChoice(net, 2))
     }
     expect(seen).toEqual(MIRROR_CYCLE.slice(1).concat(MIRROR_CYCLE[0]))
+  })
+})
+
+describe('growing a path', () => {
+  /** An open two-point line: ids 1 and 2, one segment. */
+  function line(): VectorNetwork {
+    return {
+      vertices: [
+        { id: 1, x: 0, y: 0 },
+        { id: 2, x: 10, y: 0 },
+      ],
+      edges: [{ id: 1, v0: 1, v1: 2, cp0: null, cp1: null }],
+    }
+  }
+
+  it('runs a straight segment from an end to the new point', () => {
+    const net = line()
+    const vid = extendFromVertex(net, 2, { x: 10, y: 10 })
+    expect(vid).toBeGreaterThan(2)
+    expect(net.vertices).toHaveLength(3)
+    expect(net.edges).toHaveLength(2)
+    const added = net.edges[1]
+    expect(added).toMatchObject({ v0: 2, v1: vid, cp0: null, cp1: null })
+  })
+
+  it('refuses to grow from the middle, where it would make a branch', () => {
+    // The data model allows three edges at a vertex; nothing that DRAWS does —
+    // networkToSubPaths follows chains, so the third arm would be dropped from
+    // the outline and the shape would disagree with its own network.
+    const net = line()
+    const mid = extendFromVertex(net, 2, { x: 10, y: 10 })
+    expect(extendFromVertex(net, 2, { x: 20, y: 20 })).toBe(-1)
+    expect(net.vertices).toHaveLength(3)
+    expect(net.edges).toHaveLength(2)
+    // …but the new END is fair game, which is what continuing a run means.
+    expect(extendFromVertex(net, mid, { x: 20, y: 20 })).toBeGreaterThan(0)
+  })
+
+  it('starts a run as a point with nothing attached, and grows from it', () => {
+    const net = line()
+    const loose = startLooseVertex(net, { x: 50, y: 50 })
+    expect(edgeCountAt(net, loose)).toBe(0)
+    // A loose point has no segments, so it is an end by definition and the very
+    // next click has to be able to reach it.
+    const second = extendFromVertex(net, loose, { x: 60, y: 50 })
+    expect(second).toBeGreaterThan(0)
+    expect(net.edges).toHaveLength(2)
+  })
+
+  it('drops points that never got a segment', () => {
+    const net = line()
+    startLooseVertex(net, { x: 50, y: 50 })
+    expect(pruneLoneVertices(net)).toBe(1)
+    expect(net.vertices.map((v) => v.id)).toEqual([1, 2])
+    // Idempotent: nothing left to drop, and the answer says so.
+    expect(pruneLoneVertices(net)).toBe(0)
+  })
+
+  it('takes a deleted id back, which is worth knowing rather than assuming', () => {
+    // Written down because the comment above nextIds used to claim otherwise.
+    // Ids are max+1, not a high-water mark: delete the last point and the next
+    // one added is that point's id. Harmless here; a trap for anything that
+    // remembers an id across an edit.
+    const net = line()
+    const first = extendFromVertex(net, 2, { x: 10, y: 10 })
+    removeVertex(net, first)
+    expect(extendFromVertex(net, 2, { x: 20, y: 20 })).toBe(first)
   })
 })
