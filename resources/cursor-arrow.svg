@@ -30,7 +30,9 @@
     black arrow, which is what most reference art is, disappears on Polyform's
     own background.
   * Keep the bottom right of the box clear. That is where the badge disc goes
-    (plus for add, minus for remove, and the rest).
+    (plus for add, minus for remove, and the rest): a circle of radius 6.4 at
+    23, 23, so it spans 16.6 to 29.4 on both axes. The rendered outline is
+    about 2.9 units fatter than what you draw here, so leave that much again.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">
   <path d="M 3.577 4.103 C 3.494 3.847 3.772 3.623 4.005 3.76 L 20.49 13.484 C 20.72 13.62 20.663 13.967 20.402 14.023 L 13.394 15.525 C 12.987 15.612 12.656 15.909 12.526 16.304 L 10.316 23.017 C 10.227 23.286 9.847 23.286 9.759 23.017 Z" />

@@ -82,10 +82,19 @@ const BADGES: Record<Exclude<CursorBadge, 'none'>, string> = {
  * drift apart.
  */
 function svg(badge: CursorBadge): string {
-  const disc =
-    badge === 'none'
-      ? ''
-      : `<circle cx="23" cy="23" r="8" fill="#000"/><circle cx="23" cy="23" r="6.4" fill="#2f7bff"/>${BADGES[badge]}`
+  // Bare blue, no rim.
+  //
+  // The badge used to sit on a black disc a shade wider than itself, matching
+  // the arrow's treatment. Rendered side by side that reads as two heavy black
+  // outlines competing inside 13 pixels — the badge stopped being a mark beside
+  // the arrow and became a second object. Dropping the ring also drops the
+  // badge below the arrow's own silhouette, so the two no longer touch.
+  //
+  // It costs exactly one case, and it is a real one: over artwork this same
+  // blue the disc dissolves and only the white glyph is left. That is a
+  // legible outcome rather than a broken one — the glyph is what carries the
+  // meaning — and it was chosen with both rendered next to each other.
+  const disc = badge === 'none' ? '' : `<circle cx="23" cy="23" r="6.4" fill="#2f7bff"/>${BADGES[badge]}`
   // Three passes over the SAME path, widest first: the rim, then the rounded
   // white body, then the body's own fill. Painting one shape three times is
   // what keeps the rim exactly parallel to the ink — two hand-offset paths

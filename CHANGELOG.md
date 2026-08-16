@@ -155,6 +155,15 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     the shape itself. The two compose; the stroke only ever adds.
   - The shipped arrow is the one drawn in that frame, sharpened at the tail
     after the first pass came out too round.
+  - **The badge lost its black ring.** It used to sit on a black disc a shade
+    wider than itself, matching the arrow's treatment — which side by side reads
+    as two heavy black outlines competing inside thirteen pixels, the badge
+    becoming a second object rather than a mark beside the arrow. Bare blue is
+    lighter and now clears the arrow's silhouette entirely instead of grazing
+    it. It costs one real case: over artwork this same blue the disc dissolves
+    and only the white glyph is left, which is legible rather than broken. Both
+    were rendered over white, over the canvas, over that blue and over dark blue
+    before choosing.
   - **The corner under a rounded tip is reconstructed.** The hotspot had always
     been "the first point of the path", which is the tip only while the tip is
     sharp. Round it and the path starts *beside* the point, so the aim drifts a
