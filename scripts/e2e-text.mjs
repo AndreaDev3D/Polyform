@@ -1707,8 +1707,17 @@ try {
     } else {
       // From the MIDDLE it has to refuse and say why: three edges at a vertex is
       // a branch, and nothing that draws can walk one.
+      //
+      // x=240 rather than 340, which is the widest point this gate aims at and
+      // the only one that did not fit a CI runner. With the camera at 250 and
+      // the shape at 400, a local x maps to canvas x = 150 + x, so 340 needed
+      // 490px of canvas: fine against a 1520px window, one pixel too much
+      // against the 1024x768 display a Windows runner has, where the two side
+      // panels leave about 489. Anywhere empty proves the refusal, so aim
+      // somewhere that fits the smallest screen this runs on rather than the
+      // largest. The F-26 guard above caught it honestly instead of passing.
       await evaluate(`globalThis.__polyform.editor.set({ vectorSelection: [2] })`)
-      await tap(await at(340, 200))
+      await tap(await at(240, 200))
       const branched = await shape()
       if (branched.v !== 4 || !String(branched.status ?? '').includes('grow it from an end')) {
         fail(`Add from a middle point must refuse out loud, got ${branched.v} points and "${branched.status}"`)
