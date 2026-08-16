@@ -9,7 +9,9 @@
 import { describe, expect, it } from 'vitest'
 import { createNode, type LineNode, type VectorNode } from './types'
 import { nodeOutline, type SubPath } from './shapes'
-import { capShape, openEnds, strokeCapShapes, strokeCapsApply } from './strokecaps'
+import { STROKE_CAPS, capShape, openEnds, strokeCapShapes, strokeCapsApply } from './strokecaps'
+import { SceneGraph } from './scene'
+import { rgba } from './types'
 
 /** A horizontal line 100 long, weight 10. */
 function line(): LineNode {
@@ -80,16 +82,23 @@ describe('stroke caps', () => {
     expect(run.start.dir.y).toBeCloseTo(1, 6)
   })
 
-  it('puts an arrowhead TIP on the end of the line', () => {
+  it('puts the arrowhead AHEAD of the line, with its notch on the end', () => {
     const node = line()
     node.strokeCapEnd = 'ARROW'
     const caps = strokeCapShapes(node, nodeOutline(node))
     expect(caps).toHaveLength(1)
+    const pts = caps[0].anchors.map((a) => a.p)
     const b = bounds(caps)
-    // The tip is at the line's end and the head grows BACKWARDS along it, so
-    // adding an arrow does not make the line longer than it was.
-    expect(b.maxX).toBeCloseTo(100, 6)
-    expect(b.minX).toBeCloseTo(100 - 2.6 * 10, 6)
+    // The point is out in FRONT. Built the other way first — tip on the end,
+    // head growing backwards — which buries the point inside the stroke it
+    // terminates and reads as a lump on a bar rather than as an arrow.
+    expect(b.maxX).toBeCloseTo(100 + 1.8 * 10, 6)
+    // …and the concave back sits exactly on the end, which is what a butt end
+    // plugs flush. A gap here is a visible notch between line and head.
+    const notch = pts.find((p) => Math.abs(p.y) < 1e-9 && p.x < b.maxX - 1e-9)
+    expect(notch?.x).toBeCloseTo(100, 6)
+    // The barbs reach back over the line rather than floating off the end.
+    expect(b.minX).toBeCloseTo(100 - 0.8 * 10, 6)
     // Wider than the stroke, or it would not read as a head at all.
     expect(b.maxY - b.minY).toBeGreaterThan(node.strokeWeight)
   })
@@ -98,8 +107,36 @@ describe('stroke caps', () => {
     const node = line()
     node.strokeCapStart = 'ARROW'
     const b = bounds(strokeCapShapes(node, nodeOutline(node)))
-    expect(b.minX).toBeCloseTo(0, 6)
-    expect(b.maxX).toBeCloseTo(2.6 * 10, 6)
+    expect(b.minX).toBeCloseTo(-1.8 * 10, 6)
+    expect(b.maxX).toBeCloseTo(0.8 * 10, 6)
+  })
+
+  it('leaves room in the node bounds for every cap it can draw', () => {
+    // The bounds are not decoration: the same number is the EXPORT box, so a
+    // cap outside them is a cap cropped off the PNG and the SVG — which is how
+    // a line with arrowheads exported as a plain bar (F-42). Checked for every
+    // kind, because the stroke's half-width is smaller than all of them.
+    for (const kind of STROKE_CAPS) {
+      if (kind === 'NONE') continue
+      const scene = new SceneGraph()
+      const node = line()
+      node.x = 60
+      node.y = 100
+      node.strokes = [{ type: 'SOLID', visible: true, opacity: 1, color: rgba(0, 0, 0, 1) }]
+      node.strokeCapStart = kind
+      node.strokeCapEnd = kind
+      scene.addNode(node, null, 0)
+      const box = scene.worldAABB(node.id)
+      for (const sp of strokeCapShapes(node, nodeOutline(node))) {
+        for (const a of sp.anchors) {
+          const p = { x: a.p.x + node.x, y: a.p.y + node.y }
+          expect(
+            p.x >= box.minX && p.x <= box.maxX && p.y >= box.minY && p.y <= box.maxY,
+            `${kind} cap point ${p.x},${p.y} is outside the node's bounds`,
+          ).toBe(true)
+        }
+      }
+    }
   })
 
   it('caps the two ends independently', () => {

@@ -19,6 +19,7 @@ import {
 } from './geometry'
 import { flattenSubPath, nodeOutline } from './shapes'
 import { perSideStroke, strokeSideOutset } from './strokesides'
+import { capOutset, strokeCapsApply } from './strokecaps'
 
 export class SceneGraph {
   doc: PolyformDocument
@@ -265,18 +266,29 @@ export class SceneGraph {
     return m
   }
 
-  /** Extra padding needed around geometry for strokes and effects. */
+  /** Extra padding needed around geometry for strokes, caps and effects. */
   nodePad(node: SceneNode): number {
     let pad = 0
+    // Caps are geometry hanging off the ends, and every one of them reaches
+    // further than the stroke's own half-width — an arrowhead by nearly two
+    // weights. Leaving them out did not merely draw a small selection box: the
+    // export box is this same number, so a line with arrowheads exported as a
+    // bare bar with the heads cropped off (F-42).
+    const capStart = node.strokeCapStart ?? 'NONE'
+    const capEnd = node.strokeCapEnd ?? 'NONE'
+    if ((capStart !== 'NONE' || capEnd !== 'NONE') && strokeCapsApply(node)) {
+      pad = Math.max(capOutset(capStart, node.strokeWeight), capOutset(capEnd, node.strokeWeight))
+    }
     if (node.strokes.some((s) => s.visible)) {
       const sides = perSideStroke(node)
-      pad = sides
+      const stroke = sides
         ? strokeSideOutset(node)
         : node.strokeAlign === 'INSIDE'
           ? 0
           : node.strokeAlign === 'CENTER'
             ? node.strokeWeight / 2
             : node.strokeWeight
+      pad = Math.max(pad, stroke)
     }
     for (const fx of node.effects) {
       if (!fx.visible) continue

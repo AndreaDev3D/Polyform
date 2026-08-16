@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.8 (F-01…F-41)
+**Project:** Polyform — current through v0.8 (F-01…F-42)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -50,6 +50,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-39](#f-39-both-ends-of-a-round-trip-were-tested-and-the-trip-was-not) | The cursor's "edit it in Polyform" round trip had never been walked (fixed v0.8) | Fixed |
 | [F-40](#f-40-two-things-that-cannot-both-be-true-arbitrated-by-a-rule-that-never-runs) | Paste's clipboard arbitration compared a token that could never survive (fixed v0.8) | Process |
 | [F-41](#f-41-the-gate-pressed-the-menu-item-and-the-key-was-the-broken-part) | Ctrl+V was a menu accelerator no harness could press, so nothing tested it (fixed v0.8) | Fixed (Med while live) |
+| [F-42](#f-42-geometry-that-the-bounds-did-not-know-about-so-the-export-cut-it-off) | Stroke caps were outside the node's bounds, so exports cropped them off (fixed v0.8) | Fixed (Med while live) |
 
 ---
 
@@ -1027,6 +1028,26 @@ It also fixed a bug underneath: a registered accelerator steals the key from a f
 
 ---
 
+## F-42. Geometry that the bounds did not know about, so the export cut it off
+
+**Severity: Med** — every line with an arrowhead exported as a plain bar, in PNG and SVG alike, with the heads gone and no error. Reported by the user against the drawn appearance: *"the tip of the arrow is inside the line"* — the cosmetic complaint sat on top of a silent data-loss bug in export.
+
+Two defects with one origin: caps were added as geometry, and nothing that measures a node was told.
+
+**The reported one.** The arrowhead was built with its TIP on the path's end and the head growing backwards, reasoned out as "a cap should not make a line longer". Rendered, that is wrong — the point lands inside the stroke it terminates, so the shape reads as a lump on the end of a bar rather than as something pointing. The concave back of an arrowhead is exactly the shape a butt end plugs, so the notch belongs on the endpoint and the point belongs out in front. The other pointed caps already straddled the end: `CIRCLE` reaches a full weight past it and `DIAMOND` likewise, so the arrow was the odd one out as well as the wrong one.
+
+**The one underneath.** `nodePad` — the allowance the AABB adds around a node's own rectangle — accounted for strokes and effects and knew nothing about caps. It returned the stroke's half-width. Every cap in the set exceeds that: `ROUND` by nothing, `SQUARE` by 0.7 weights diagonally, `CIRCLE` and `DIAMOND` by a whole weight, `ARROW` by 1.8. A 400×0 line at weight 30 with arrows at both ends had a box 30 tall around geometry 81 tall.
+
+That box is not decoration. It is the selection rectangle, the culling test, what zoom-to-fit frames — and **the export box**. `exportSvg` sizes its viewBox from the union of `worldAABB`, so the arrowheads were outside the document and clipped away. The exported file was a valid, plausible black rectangle. Nothing failed.
+
+**What it does now.** The head is shifted forward so its notch is on the end. `capOutset` measures how far a cap reaches by walking the shape `capShape` returns for a canonical end — derived, not written down beside it, so redrawing a cap moves its allowance with it — and `nodePad` takes the larger of that and the stroke. The pad is a scalar applied on both axes, so the box is a little generous for a cap that is longer than it is wide; generous and correct beats tight and cropping.
+
+The gate walks **every** cap kind and asserts each vertex lands inside `worldAABB`, because the one that was reported is not the only one that was outside. Shown to fail first: with the allowance removed it reports `ARROW cap point 42,100 is outside the node's bounds`.
+
+**Standing obligation.** When a feature adds geometry outside a node's own rectangle, find everything that measures the node before shipping it — bounds are consumed by selection, culling, fit and export, and only the last of those loses data. And a cap, a shadow or an overhanging decoration should be *measured* from the geometry that draws it, never given a constant that has to be remembered twice.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -1053,3 +1074,4 @@ Three themes run through every entry:
 20. **A documented workflow is a feature.** F-39's pointer file said "edit it in Polyform and re-run the generator", and both halves of that were tested — against fixtures in their own dialects. What Polyform actually exports would have produced a cursor aimed at the frame's corner. Where a comment says *and then run*, the *and then* is the untested part, and both ends being green is what hides it.
 21. **An arbitration rule whose inputs cannot co-occur is not a decision.** F-40's paste compared a clipboard token to decide whether layers or an image were copied more recently — but writing the token clears the image, so the branch could never run, and the gate that covered it passed with the whole mechanism removed because its two outcomes shared every asserted field. Ask what makes the losing state reachable, and make the outcomes differ before believing the pass.
 22. **A gate that invokes the command has not tested the gesture.** F-41's Ctrl+V was a registered menu accelerator — matched in the browser process, unreachable by any harness — so the check called the menu item instead and passed while the keystroke reached nothing. When the real trigger cannot be produced, that is a fact about the design: move it somewhere testable, or write down which step nothing covers.
+23. **Geometry outside the node's rectangle has to reach everything that measures the node.** F-42's stroke caps were added as shapes and the bounds were never told, so an arrowhead fell outside the AABB — which is the selection box, the culling test, the fit target and the EXPORT box. Only the last of those loses data, and it lost it silently: the file was a plausible bar with the heads gone. Measure the allowance from the geometry that draws it, so it cannot be remembered in one place and forgotten in the other.

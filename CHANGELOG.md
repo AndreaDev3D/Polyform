@@ -132,6 +132,19 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   independently at the start and the end, from the Stroke section. An arrow at
   one end and nothing at the other is the commonest thing anyone wants from this,
   and it is the case a rasterizer setting cannot express at all.
+  - **The arrowhead sits ahead of the line, with its notch on the end.** It was
+    built the other way first, tip on the endpoint and the head growing
+    backwards, on the reasoning that a cap should not lengthen a line. Drawn,
+    that buries the point inside the stroke it terminates and reads as a lump on
+    a bar. The concave back is exactly the shape a butt end plugs, so putting it
+    on the endpoint makes the two meet flush with the point out in front.
+  - **The node's bounds now include its caps**, which they never did — the pad
+    was the stroke's half-width, and every cap reaches past that, an arrowhead
+    by nearly two weights. That is not a cosmetic box: it is the EXPORT box, so
+    a line with arrowheads exported to PNG or SVG as a plain bar with the heads
+    cropped off, and the selection rectangle excluded them on screen. The
+    allowance is measured from the cap geometry itself, so redrawing a cap moves
+    it (F-42).
   - Built as filled GEOMETRY rather than `lineCap`. That setting applies to both
     ends of every subpath at once, so the moment the two ends can differ it is
     out of the running — and it has no arrowhead in it. Shapes cost a little more

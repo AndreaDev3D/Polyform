@@ -127,11 +127,45 @@ export function capShape(kind: StrokeCap, end: CapEnd, weight: number): SubPath[
       return [circle(p, w)]
     case 'DIAMOND':
       return [polygon([at(w, 0), at(0, w), at(-w, 0), at(0, -w)])]
-    case 'ARROW':
-      // The TIP sits on the path's end, so adding an arrow does not make the
-      // line longer — the head grows backwards along it.
-      return [polygon([at(0, 0), at(-2.6 * w, 1.35 * w), at(-1.8 * w, 0), at(-2.6 * w, -1.35 * w)])]
+    case 'ARROW': {
+      // The head sits AHEAD of the path's end, with its NOTCH on it.
+      //
+      // It was built the other way first — tip on the end, head growing
+      // backwards — on the reasoning that a cap should not make a line longer.
+      // Drawn, that is wrong: the point lands inside the stroke it terminates,
+      // so the arrow reads as a lump on the end of a bar rather than as
+      // something pointing. Putting the notch on the end makes the two meet
+      // flush, because the concave back is exactly the shape a butt end plugs,
+      // and leaves the point out in front where it is looked for.
+      //
+      // The other pointed caps already did this — CIRCLE and DIAMOND both
+      // straddle the end — so the arrow was the odd one out as well as wrong.
+      const nose = 1.8 * w
+      const back = -0.8 * w
+      return [polygon([at(nose, 0), at(back, 1.35 * w), at(0, 0), at(back, -1.35 * w)])]
+    }
   }
+}
+
+/**
+ * How far a cap can reach from the end it sits on.
+ *
+ * Measured from the shape rather than written down beside it, so redrawing a
+ * cap moves its allowance with it. The bounds are what selection, zoom-to-fit,
+ * culling and export all trust — and they used to be the stroke's half-width,
+ * which every cap here exceeds. An exported line with arrowheads came out as a
+ * plain bar, cropped at the box, with nothing to say it had happened (F-42).
+ */
+export function capOutset(kind: StrokeCap, weight: number): number {
+  let far = 0
+  for (const sp of capShape(kind, { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 } }, weight)) {
+    for (const a of sp.anchors) {
+      for (const q of [a.p, a.cpIn, a.cpOut]) {
+        if (q) far = Math.max(far, Math.hypot(q.x, q.y))
+      }
+    }
+  }
+  return far
 }
 
 /** Every cap on a node, ready to fill with the stroke's paint. */
