@@ -65,6 +65,36 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ### Added
 
+- **Ctrl+V pastes an image from the clipboard, where the mouse is.** Copy a
+  screenshot, a picture from a browser, anything on the system clipboard, and it
+  arrives as a layer under the pointer — the same rectangle with an image fill
+  that File → Import Image produces, so it behaves identically afterwards. It
+  drops into the frame it lands on, and scales down if it would otherwise fill
+  the screen.
+  - Nothing in the app had ever read the system clipboard. `paste()` only knew
+    about layers copied in Polyform, so an image on the clipboard was invisible
+    to it — and the renderer cannot see one either: Ctrl+V is claimed by the
+    menu accelerator, so the page never gets a `paste` event and there is no
+    user gesture for the async Clipboard API to hang off. It goes through main.
+  - **Which one you get is decided by what was copied last**, and the OS cannot
+    be asked that — there is no "when did this change". It does not need to be:
+    any copy, in any application, empties the clipboard first. So an image being
+    there at all means it is the newest thing, and Copy claiming the clipboard
+    is what makes that true the other way round.
+  - **Pasted layers land at the pointer too**, centred on it as a group, with
+    the old offset-by-ten kept for when the mouse is off the canvas — from the
+    menu, or parked over the inspector, "here" has no meaning and the middle of
+    the view is the honest answer.
+  - Gated end to end with a real image written to the real Windows clipboard by
+    PowerShell, because "an image copied in another application" is the whole
+    feature and nothing of ours can stand in for it.
+
+- **Ctrl+C, Ctrl+V and Ctrl+A work inside text fields.** They never had. All
+  three are menu accelerators, which are claimed before the page sees them, so
+  the app acted on the selected LAYERS however they were pressed — pasting into
+  a layer name did nothing to the name, and Ctrl+A while renaming selected the
+  whole document. When a field has focus they now perform the native edit on it.
+
 - **Selection colors.** Select a frame — or anything with layers inside it — and
   the inspector lists every colour used in there, grouped, most-used first. Each
   is a row laid out like the Fill row below it: swatch, the hex as an editable

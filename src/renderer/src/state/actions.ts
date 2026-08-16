@@ -55,6 +55,9 @@ import {
 import { listComponents } from '../engine/components'
 import { SceneGraph } from '../engine/scene'
 import { decodeScene } from '../engine/serialization'
+import { pointerWorld } from './pointer'
+import { isTypingNow } from './focus'
+import { CLIP_MARKER } from '../../../shared/types'
 
 // ---------------------------------------------------------------------------
 // Op recorder: imperative mutation + reversible op capture in one pass
@@ -205,15 +208,55 @@ export function copySelection(): void {
   const ids = byZ(topSelection())
   if (ids.length === 0) return
   clipboard = extractBundle(documentStore.scene, ids)
+  // Claim the system clipboard. The layers stay here — they mean nothing to
+  // another application — but this is not bookkeeping: WRITING clears whatever
+  // was on the clipboard, which is the only way paste can tell that the image
+  // someone copied in a browser ten minutes ago is no longer the newest thing.
+  // Without it, copying layers and pressing Ctrl+V would paste that image.
+  void window.polyform.clipboardWriteMarker(`${CLIP_MARKER}${newId()}`)
 }
 
-function insertBundleCopy(source: NodeBundle, label: string): void {
+/**
+ * Where a paste lands: on the pointer, or in the middle of the view.
+ *
+ * Pasting at the pointer is what every editor does and what makes Ctrl+V a
+ * placement rather than a lucky dip — but only while there IS a pointer on the
+ * canvas. Triggered from the menu, or with the mouse parked over the inspector,
+ * the honest answer is the centre of what you are looking at.
+ */
+function pasteAnchor(): Vec2 {
+  const at = pointerWorld()
+  if (at) return at
+  const { camera, viewportSize } = editor.get()
+  return {
+    x: camera.x + viewportSize.w / (2 * camera.zoom),
+    y: camera.y + viewportSize.h / (2 * camera.zoom),
+  }
+}
+
+function insertBundleCopy(source: NodeBundle, label: string, at: Vec2 | null): void {
   const scene = documentStore.scene
   const bundle = reIdBundle(source, newId)
-  for (const rid of bundle.rootIds) {
-    const node = bundle.nodes[rid]
-    node.x += 10
-    node.y += 10
+  if (at) {
+    // Centre the whole bundle on the point, not each root on it: a copied group
+    // of shapes has to arrive in the arrangement it left in.
+    let box = emptyAABB()
+    for (const rid of bundle.rootIds) {
+      const n = bundle.nodes[rid]
+      const b = { minX: n.x, minY: n.y, maxX: n.x + n.width, maxY: n.y + n.height }
+      box = aabbIsEmpty(box) ? b : aabbUnion(box, b)
+    }
+    const dx = at.x - (box.minX + box.maxX) / 2
+    const dy = at.y - (box.minY + box.maxY) / 2
+    for (const rid of bundle.rootIds) {
+      bundle.nodes[rid].x += dx
+      bundle.nodes[rid].y += dy
+    }
+  } else {
+    for (const rid of bundle.rootIds) {
+      bundle.nodes[rid].x += 10
+      bundle.nodes[rid].y += 10
+    }
   }
   const rec = new OpRecorder()
   const parent = editor.get().enteredContainer
@@ -224,9 +267,78 @@ function insertBundleCopy(source: NodeBundle, label: string): void {
   setSelection(bundle.rootIds)
 }
 
-export function paste(): void {
-  if (!clipboard) return
-  insertBundleCopy(clipboard, 'Paste')
+/**
+ * Ctrl+V: an image off the system clipboard, or the layers copied in here.
+ *
+ * Which one is a question of what was copied LAST, and the OS cannot be asked
+ * that — there is no "when did this change". It does not have to be: a copy in
+ * any application, including ours, empties the clipboard first. So an image
+ * being there at all means it is the most recent thing copied anywhere, and
+ * Copy claiming the clipboard is what makes that true in the other direction.
+ *
+ * Measured, not assumed — `clipboard.writeText` was checked against a seeded
+ * image and does drop it, on this platform, in this Electron.
+ */
+export async function paste(): Promise<void> {
+  const read = await window.polyform.clipboardRead().catch(() => null)
+  const image = read?.image ?? null
+  if (image) {
+    await withBusy('Pasting image…', () => pasteImage(image))
+    return
+  }
+  if (!clipboard) {
+    setStatus('Nothing to paste')
+    return
+  }
+  insertBundleCopy(clipboard, 'Paste', pasteAnchor())
+}
+
+/**
+ * An image off the clipboard, as a rectangle with an image fill — the same
+ * shape File → Import Image produces, because a pasted screenshot and an
+ * imported PNG are the same object and should behave identically afterwards.
+ *
+ * Arrives as PNG whatever it started as: the system clipboard holds a bitmap,
+ * not a file, so there is no original encoding to preserve.
+ */
+async function pasteImage(image: { bytes: Uint8Array; width: number; height: number }): Promise<void> {
+  const written = await window.polyform.assetsWrite(image.bytes, 'png')
+  if (!written) {
+    setStatus('Could not store the pasted image')
+    return
+  }
+  const scene = documentStore.scene
+  const { camera, viewportSize } = editor.get()
+  let w = image.width
+  let h = image.height
+  // Same fit as an imported image: a 4K screenshot pasted at full size is a
+  // wall you then have to zoom out of to find.
+  const scale = Math.min(1, ((viewportSize.w / camera.zoom) * 0.7) / w, ((viewportSize.h / camera.zoom) * 0.7) / h)
+  w *= scale
+  h *= scale
+  try {
+    await assetCache.primeFromBytes(written.hash, image.bytes, written.mime)
+  } catch {
+    /* the fill still resolves once the asset is read back from the bundle */
+  }
+  const at = pasteAnchor()
+  const node = createNode('RECTANGLE', 'Pasted Image')
+  node.width = w
+  node.height = h
+  node.x = at.x - w / 2
+  node.y = at.y - h / 2
+  node.fills = [{ type: 'IMAGE', visible: true, opacity: 1, assetHash: written.hash, scaleMode: 'FILL' }]
+  const dropFrame = findDropFrame(scene, documentStore.index, at)
+  if (dropFrame) {
+    const inv = matInvert(scene.worldMatrix(dropFrame))
+    const local = applyMat(inv, { x: node.x, y: node.y })
+    node.x = local.x
+    node.y = local.y
+  }
+  const rec = new OpRecorder()
+  rec.add(node, dropFrame, scene.childListOf(dropFrame).length)
+  rec.commit('Paste Image')
+  setSelection([node.id])
 }
 
 /**
@@ -2270,10 +2382,12 @@ export function dispatchMenuAction(id: string): void {
       documentStore.redo()
       break
     case 'edit.copy':
-      copySelection()
+      if (isTypingNow()) void window.polyform.clipboardNativeEdit('copy')
+      else copySelection()
       break
     case 'edit.paste':
-      paste()
+      if (isTypingNow()) void window.polyform.clipboardNativeEdit('paste')
+      else void paste()
       break
     case 'edit.duplicate':
       duplicateSelection()
@@ -2282,7 +2396,8 @@ export function dispatchMenuAction(id: string): void {
       deleteSelection()
       break
     case 'edit.selectAll':
-      selectAll()
+      if (isTypingNow()) void window.polyform.clipboardNativeEdit('selectAll')
+      else selectAll()
       break
     case 'view.zoomIn':
       zoomAt(null, 1.25)

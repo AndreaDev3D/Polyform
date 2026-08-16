@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.8 (F-01…F-39)
+**Project:** Polyform — current through v0.8 (F-01…F-40)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -48,6 +48,7 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-37](#f-37-an-open-path-throws-its-fill-away-and-says-nothing) | An open path discarded its fill while the inspector showed one (fixed v0.8) | Fixed |
 | [F-38](#f-38-a-command-that-ignores-what-you-selected-is-answering-a-different-question) | Dissolve could not read the selection it was aimed with (fixed v0.8) | Fixed |
 | [F-39](#f-39-both-ends-of-a-round-trip-were-tested-and-the-trip-was-not) | The cursor's "edit it in Polyform" round trip had never been walked (fixed v0.8) | Fixed |
+| [F-40](#f-40-two-things-that-cannot-both-be-true-arbitrated-by-a-rule-that-never-runs) | Paste's clipboard arbitration compared a token that could never survive (fixed v0.8) | Process |
 
 ---
 
@@ -985,6 +986,25 @@ The gate is `engine/export/cursor-roundtrip.test.ts`, and the only thing that ma
 
 ---
 
+## F-40. Two things that cannot both be true, arbitrated by a rule that never runs
+
+**Severity: Low** — caught during the work that introduced it, by breaking it on purpose. Nothing shipped. Recorded because the test agreed with the mistake, which is the part worth remembering.
+
+Ctrl+V has to choose between an image on the system clipboard and layers copied inside Polyform, and the OS cannot say which came last — there is no "when did this change". So Copy stamped a token on the clipboard, and paste compared it: **token still ours, therefore the layers are newer**. It reads well. It cannot happen.
+
+Writing to a clipboard CLEARS it. `clipboard.writeText(token)` drops the image in the same call that adds the text, so the two states the comparison arbitrates between — our token present *and* an image present — are mutually exclusive on every platform that implements the clipboard the usual way. The branch was unreachable, and reasoning could not see it because the reasoning was about *ownership* while the mechanism was about *replacement*.
+
+**The gate agreed.** An end-to-end check drove the real app with a real image on the real Windows clipboard, copied a layer, pasted, and asserted the layer won — and it passed with the token comparison disabled, and again with the whole token *write* removed. Two separate reasons:
+
+* the comparison was doing nothing, so removing it changed nothing;
+* the layer being copied was itself a pasted image, so a copy of it and a fresh paste of the same clipboard image agreed on name, size and fill. **The assertion could not distinguish the two outcomes it existed to distinguish.** Renaming the layer first is the entire fix, and with it the gate fails the moment Copy stops claiming the clipboard.
+
+**What it does now.** No token comparison. Copy claims the clipboard, and the comment says why — the write is not bookkeeping, it is the mechanism: it drops the stale image so that pressing Ctrl+V after copying layers gives you the layers. Paste asks one question, "is there an image?", which is answerable and answered correctly. The `marker` field the comparison needed is gone from the IPC payload rather than left there unread (F-30). The clearing behaviour was measured against a seeded clipboard rather than assumed from the docs.
+
+**Standing obligation.** When two sources compete and code picks between them, ask what makes the losing state possible at all — an arbitration rule whose inputs cannot co-occur is dead code wearing the costume of a decision. And when a check is meant to tell outcome A from outcome B, make A and B differ in the field being asserted *before* believing the pass: a fixture built from the feature's own output will often satisfy both.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -1009,3 +1029,4 @@ Three themes run through every entry:
 18. **The smallest case is not the easiest case.** F-37's weld was tested on a path with a middle anchor in each half, which is what a real one usually looks like. The user's shape was two curves between two anchors and nothing else — the plainest closed path there is — and it broke two different assumptions the bigger fixture had quietly satisfied.
 19. **A selection is a question.** F-38's Dissolve took a network and no selection at all, so four deliberately chosen points could not reach it. A command beside others that read the selection has to read it too, or it is answering something nobody asked.
 20. **A documented workflow is a feature.** F-39's pointer file said "edit it in Polyform and re-run the generator", and both halves of that were tested — against fixtures in their own dialects. What Polyform actually exports would have produced a cursor aimed at the frame's corner. Where a comment says *and then run*, the *and then* is the untested part, and both ends being green is what hides it.
+21. **An arbitration rule whose inputs cannot co-occur is not a decision.** F-40's paste compared a clipboard token to decide whether layers or an image were copied more recently — but writing the token clears the image, so the branch could never run, and the gate that covered it passed with the whole mechanism removed because its two outcomes shared every asserted field. Ask what makes the losing state reachable, and make the outcomes differ before believing the pass.

@@ -28,7 +28,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Canvas & Viewport](#canvas--viewport) | 18 | 1 | 1 | 0 | 20 |
 | [Drawing & Shape Tools](#drawing--shape-tools) | 13 | 1 | 3 | 0 | 17 |
 | [Vector Editing](#vector-editing) | 19 | 4 | 1 | 0 | 24 |
-| [Selection & Transform](#selection--transform) | 21 | 0 | 4 | 0 | 25 |
+| [Selection & Transform](#selection--transform) | 21 | 1 | 3 | 0 | 25 |
 | [Layers & Hierarchy](#layers--hierarchy) | 16 | 0 | 2 | 0 | 18 |
 | [Fills, Strokes & Effects](#fills-strokes--effects) | 17 | 6 | 3 | 1 | 27 |
 | [Text & Typography](#text--typography) | 11 | 1 | 6 | 1 | 19 |
@@ -41,7 +41,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **158** | **29** | **46** | **23** | **256** |
+| **Total** | **158** | **30** | **45** | **23** | **256** |
 
 ---
 
@@ -145,10 +145,10 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Align 6-way | Left/center/right, top/middle/bottom alignment | ✅ | |
 | Distribute | Even horizontal/vertical distribution | ✅ | |
 | Tidy up | Auto-arrange into an even grid | 📋 | |
-| Copy / paste | Clipboard for design objects | ✅ | App-internal clipboard |
+| Copy / paste | Clipboard for design objects | ✅ | Layers are held in-app; Copy claims the OS clipboard so paste can tell which is newer. Pastes at the POINTER, centred on it as a group, falling back to the middle of the view when the mouse is off the canvas |
 | Duplicate (Ctrl+D) | Duplicate in place with offset | ✅ | |
 | Delete | Remove selection | ✅ | |
-| Paste from OS clipboard | Paste images/text copied from other apps | 📋 | Clipboard is app-internal for now |
+| Paste from OS clipboard | Paste images/text copied from other apps | 🟡 | IMAGES land as a layer under the mouse, read through main because Ctrl+V is a menu accelerator and the page never gets a `paste` event. Gated against a real Windows clipboard write. Pasting TEXT as a text layer is not done |
 | Math in inspector fields | Type `100+20` or `50%` into number fields | 📋 | |
 
 ## Layers & Hierarchy
@@ -383,4 +383,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-16: 158 ✅ / 29 🟡 / 46 📋 / 23 ❌ = 256, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-16: 158 ✅ / 30 🟡 / 45 📋 / 23 ❌ = 256, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

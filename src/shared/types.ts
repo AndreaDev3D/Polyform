@@ -150,6 +150,23 @@ export interface PolyformAgentGate {
   claim: () => PolyformAgentApi | null
 }
 
+/**
+ * What Copy writes to the system clipboard.
+ *
+ * Copying layers puts nothing useful there — the layers live in the renderer —
+ * so this looks like bookkeeping, and is not. Writing to the clipboard CLEARS
+ * it, which is the only way pasting can tell that the image someone copied in a
+ * browser ten minutes ago has been superseded. The text is a recognisable token
+ * rather than an empty string so that pasting it somewhere by accident says
+ * where it came from.
+ */
+export const CLIP_MARKER = 'polyform-clipboard:'
+
+/** What the system clipboard holds, as far as paste is concerned. */
+export interface ClipboardRead {
+  image: { bytes: Uint8Array; width: number; height: number } | null
+}
+
 export type MenuActionId =
   | 'file.new'
   | 'file.open'
@@ -266,6 +283,15 @@ export interface PolyformApi {
   exportSaveAll: (files: { name: string; data: Uint8Array }[]) => Promise<string | null>
   /** Write renderer-produced bytes as a content-addressed project asset. */
   assetsWrite: (bytes: Uint8Array, ext: string) => Promise<{ hash: string; mime: string } | null>
+  /**
+   * The system clipboard, for paste. Only main can see it: Ctrl+V is claimed by
+   * the menu accelerator, so the document never gets a `paste` event and the
+   * async Clipboard API has no user gesture to hang off.
+   */
+  clipboardRead: () => Promise<ClipboardRead>
+  clipboardWriteMarker: (token: string) => Promise<void>
+  /** Perform a clipboard action on the focused element rather than the canvas. */
+  clipboardNativeEdit: (op: 'copy' | 'cut' | 'paste' | 'selectAll') => Promise<void>
   /** Background-removal model (v0.4.1): consent-gated one-time download. */
   /** Agent connectivity (v0.6 spike, ADR-021): the loopback MCP endpoint. */
   bgModelStatus: () => Promise<{ ready: boolean; sizeMB: number; inputSize: number }>

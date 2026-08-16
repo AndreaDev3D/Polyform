@@ -36,6 +36,10 @@
 //  12. a GPU renderer that dies rebuilds itself and says so - WebGPU errors are
 //      asynchronous, so the try/catch around render() could never see one and
 //      the Canvas2D fallback it guards never fired (F-36).
+//  14. Ctrl+V pastes an image off the SYSTEM clipboard, at the mouse - seeded
+//      with a real Windows clipboard write, because the whole point is that the
+//      bytes come from outside the app. Also that layers copied in here still
+//      win while their token survives.
 //  11. the layer tree's ⋯ menu: Collapse All folds it, and Expand Selected -
 //      taken from the OBJECT CONTEXT MENU, on a layer whose row does not
 //      exist - opens the path back down to it. Neither command touches the
@@ -76,7 +80,15 @@ async function waitFor(read, tries = 25, gap = 100) {
 const electron = spawn(
   process.platform === 'win32' ? 'npx.cmd' : 'npx',
   ['electron', 'out/main/index.js', `--remote-debugging-port=${PORT}`],
-  { cwd: ROOT, stdio: 'ignore', shell: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } },
+  {
+    cwd: ROOT,
+    stdio: 'ignore',
+    shell: true,
+    // The harness hook creates a REAL bundle on disk, which gate 14 needs: a
+    // pasted image is written as a project asset, and there is no project to
+    // write into when the document is only synthesized in the renderer.
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, POLYFORM_AGENT_TEST: '1' },
+  },
 )
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -114,6 +126,15 @@ try {
     })
   const evaluate = async (expression) => {
     const r = await send('Runtime.evaluate', { expression, returnByValue: true })
+    return r.result?.result?.value
+  }
+  /**
+   * The same, but for an expression that returns a promise. Without
+   * `awaitPromise` the Promise ITSELF is serialized, which comes back as `{}` —
+   * a value that looks like an empty result rather than like a mistake.
+   */
+  const evaluateAsync = async (expression) => {
+    const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
     return r.result?.result?.value
   }
   await new Promise((r) => (ws.onopen = r))
@@ -1371,6 +1392,143 @@ try {
         fail(`the restart must be announced, status was "${after.status}"`)
       } else {
         console.log(`E2E PASS: a dead GPU renderer rebuilds itself and says so — "${after.status}"`)
+      }
+    }
+  }
+
+  // 14. An image on the SYSTEM clipboard pastes onto the canvas, at the mouse.
+  //
+  // Seeded through Windows' own clipboard rather than through anything of ours,
+  // because "an image copied in another application" is the entire feature —
+  // and the app cannot see it from the renderer at all: Ctrl+V is claimed by
+  // the menu accelerator, so the document never gets a `paste` event.
+  {
+    if (process.platform !== 'win32') {
+      // Said out loud and counted. A gate that quietly skips is a gate that
+      // reports success for work it never did (F-26).
+      fail('gate 14 (clipboard image paste) has no Linux/macOS leg yet — it did NOT run')
+    } else {
+      // A real bundle on disk: a pasted image is stored as a project asset, and
+      // the synthesized document above has no project to store it in.
+      const tmp = (process.env.TEMP ?? '.').split('\\').join('/')
+      const dir = `${tmp}/polyform-e2e-paste-${Date.now()}/Paste.poly`
+      const made = await evaluateAsync(
+        `window.__polyformTest.projectCreate(${JSON.stringify(dir)})
+           .then((r) => { globalThis.__polyform.documentStore.loadFromResult(r); return r.info.manifest.title })`,
+      )
+      if (made !== 'Paste') {
+        fail(`gate 14 could not create a test bundle: ${JSON.stringify(made)}`)
+      } else {
+        await evaluate(`globalThis.__polyform.editor.set({ hasProject: true, selection: [] })`)
+        await sleep(400)
+
+        // 40x24 of solid red, straight onto the Windows clipboard.
+        const ps = [
+          'Add-Type -AssemblyName System.Windows.Forms,System.Drawing;',
+          '$b = New-Object System.Drawing.Bitmap 40,24;',
+          '$g = [System.Drawing.Graphics]::FromImage($b);',
+          '$g.Clear([System.Drawing.Color]::Red); $g.Dispose();',
+          '[System.Windows.Forms.Clipboard]::SetImage($b)',
+        ].join(' ')
+        const seedClipboard = () =>
+          new Promise((resolve) => {
+            const p = spawn('powershell', ['-NoProfile', '-STA', '-Command', ps], {
+              stdio: 'ignore',
+              shell: false,
+            })
+            p.on('exit', (code) => resolve(code === 0))
+            p.on('error', () => resolve(false))
+          })
+
+        const nodesNow = async () =>
+          JSON.parse(
+            await evaluate(`(() => {
+              const s = globalThis.__polyform.documentStore.scene
+              return JSON.stringify(s.rootIds().map((id) => {
+                const n = s.getNode(id)
+                return { id, type: n.type, name: n.name, fill: n.fills?.[0]?.type ?? null,
+                         cx: n.x + n.width / 2, cy: n.y + n.height / 2, w: n.width, h: n.height }
+              }))
+            })()`),
+          )
+        const pasteAt = async (x, y, had) => {
+          await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+          await sleep(80)
+          await evaluate(`window.polyform.menuInvoke('edit.paste')`)
+          return waitFor(async () => {
+            const now = await nodesNow()
+            return now.length > had ? now : null
+          })
+        }
+
+        if (!(await seedClipboard())) {
+          fail('gate 14 could not put an image on the Windows clipboard')
+        } else {
+          const zoom = await evaluate(`globalThis.__polyform.editor.get().camera.zoom`)
+          const before = (await nodesNow()).length
+          const first = await pasteAt(cx, cy, before)
+          const a = first && first[first.length - 1]
+          if (!a) {
+            fail('pasting an image from the clipboard created nothing')
+          } else if (a.fill !== 'IMAGE') {
+            fail(`a pasted image should arrive as an IMAGE fill, got ${a.fill}`)
+          } else if (Math.round(a.w) !== 40 || Math.round(a.h) !== 24) {
+            fail(`a pasted image should keep its own size, got ${a.w}x${a.h}`)
+          } else {
+            // Moved by a known number of screen pixels: the second paste has to
+            // land the same number of WORLD units away, or it is not following
+            // the mouse — which was the whole report.
+            const second = await pasteAt(cx + 200, cy + 100, first.length)
+            const b = second && second[second.length - 1]
+            const dx = b ? b.cx - a.cx : 0
+            const dy = b ? b.cy - a.cy : 0
+            if (!b) {
+              fail('the second image paste created nothing')
+            } else if (Math.abs(dx - 200 / zoom) > 1.5 || Math.abs(dy - 100 / zoom) > 1.5) {
+              fail(`paste did not follow the mouse: moved (${dx.toFixed(1)}, ${dy.toFixed(1)}), expected (${(200 / zoom).toFixed(1)}, ${(100 / zoom).toFixed(1)})`)
+            } else {
+              console.log('E2E PASS: an image on the system clipboard pastes at the mouse')
+            }
+
+            // Copying layers here has to WIN over the image on the clipboard.
+            // Copy claims the clipboard to make that true — writing to it drops
+            // the image — so this fails the moment that write goes away, which
+            // is the only thing making Ctrl+V paste layers after a browser copy.
+            // Renamed first, or the check cannot tell the two outcomes apart:
+            // the layer being copied IS a pasted image, so a copy of it and a
+            // fresh paste of the same clipboard image agree on every field
+            // that matters. A distinct name is the whole assertion.
+            await evaluate(`(() => {
+              const P = globalThis.__polyform
+              P.documentStore.scene.updateNode(${JSON.stringify(a.id)}, { name: 'Copy Me' })
+              P.documentStore.transient()
+              P.editor.set({ selection: [${JSON.stringify(a.id)}] })
+            })()`)
+            await sleep(150)
+            await evaluate(`window.polyform.menuInvoke('edit.copy')`)
+            await sleep(250)
+            const n0 = (await nodesNow()).length
+            const after = await pasteAt(cx - 150, cy, n0)
+            const copied = after && after[after.length - 1]
+            if (!copied) {
+              fail('pasting after copying layers created nothing')
+            } else if (copied.name !== 'Copy Me') {
+              fail(`copying layers should win over the stale clipboard image, got "${copied.name}"`)
+            } else {
+              // …and once something else is copied outside the app, the image
+              // wins again. Both directions, or the rule is only half checked.
+              await seedClipboard()
+              const n1 = (await nodesNow()).length
+              const again = await pasteAt(cx, cy - 120, n1)
+              const img = again && again[again.length - 1]
+              if (!img || img.fill !== 'IMAGE' || img.name !== 'Pasted Image') {
+                fail(`a fresh clipboard image should win again, got "${img?.name}" (${img?.fill})`)
+              } else {
+                console.log('E2E PASS: copying layers claims the clipboard from a stale image, and a fresh image claims it back')
+              }
+            }
+          }
+        }
       }
     }
   }

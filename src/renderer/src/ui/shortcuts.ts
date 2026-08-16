@@ -5,6 +5,7 @@ import { editor, type Tool } from '../state/editor'
 import { deleteSelection, flipSelection, nudgeSelection, setSelection, zoomToFit, zoomToSelection } from '../state/actions'
 import { interactionController } from '../interactions/controller'
 import { documentStore } from '../state/document'
+import { isTypingTarget } from '../state/focus'
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: 'select',
@@ -15,12 +16,6 @@ const TOOL_KEYS: Record<string, Tool> = {
   p: 'pen',
   t: 'text',
   h: 'hand',
-}
-
-function isTypingTarget(el: EventTarget | null): boolean {
-  if (!(el instanceof HTMLElement)) return false
-  const tag = el.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
 }
 
 export function installShortcuts(): () => void {

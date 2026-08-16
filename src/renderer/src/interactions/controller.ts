@@ -17,6 +17,7 @@ import { clampZoom } from '../engine/zoom'
 import { documentStore } from '../state/document'
 import { editor, type Tool, type VectorMode } from '../state/editor'
 import { OpRecorder, guidesChanged, paintVectorPartAt, setSelection, setStatus, topSelection } from '../state/actions'
+import { setPointerScreen } from '../state/pointer'
 import { findDropFrame, hitTestAll, nearestInstanceAncestor, resolveClickTarget, nodesInRect } from '../engine/hit-test'
 import { constrainFrameChildren } from '../engine/constraints'
 import type { PatchOp } from '../engine/commands'
@@ -605,6 +606,8 @@ export class InteractionController {
   pointerMove(screen: Vec2, mods: PointerMods): void {
     const state = editor.get()
     const world = screenToWorld(state.camera, screen)
+    // Remembered for paste, which aims at the pointer.
+    setPointerScreen(screen)
 
     switch (this.mode.kind) {
       case 'pan': {

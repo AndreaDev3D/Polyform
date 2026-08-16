@@ -19,6 +19,7 @@ import { editor, useEditor } from '../state/editor'
 import { interactionController } from '../interactions/controller'
 import { hitTestAll, resolveClickTarget } from '../engine/hit-test'
 import { setSelection, setStatus } from '../state/actions'
+import { setPointerScreen } from '../state/pointer'
 import { TextEditOverlay } from './TextEditOverlay'
 
 /** Windows/macOS double-click windows are ~500ms; 400ms with a small slop
@@ -287,6 +288,10 @@ export function CanvasView() {
           ctrl: e.ctrlKey || e.metaKey,
         })
       }}
+      // Paste aims at the pointer, so it has to know when there is no longer a
+      // pointer to aim at — otherwise moving to a panel and pasting drops the
+      // image wherever the mouse last crossed the canvas edge.
+      onPointerLeave={() => setPointerScreen(null)}
       onContextMenu={(e) => {
         e.preventDefault()
         const state = editor.get()

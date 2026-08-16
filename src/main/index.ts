@@ -1,7 +1,7 @@
 // Polyform main process: window lifecycle, native dialogs, IPC endpoints,
 // project persistence, and the local-fonts permission grant.
 
-import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron'
+import { BrowserWindow, app, clipboard, dialog, ipcMain, session, shell } from 'electron'
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { McpGrants, SaveProjectPayload } from '../shared/types'
@@ -446,6 +446,47 @@ function registerIpc(): void {
   ipcMain.handle('assets:write', (_e, bytes: Uint8Array, ext: string) =>
     projects.writeAssetBytes(bytes, ext),
   )
+
+  /**
+   * What the system clipboard is holding, for paste.
+   *
+   * The renderer cannot ask: `navigator.clipboard.read()` needs a user gesture
+   * the page never sees, because Ctrl+V is claimed by the menu accelerator
+   * before it reaches the document — so there is no `paste` event either. This
+   * is the only door.
+   *
+   * PNG whatever it started as: the clipboard holds a bitmap, not a file, so
+   * there is no original encoding to preserve.
+   */
+  ipcMain.handle('clipboard:read', () => {
+    const image = clipboard.readImage()
+    if (image.isEmpty()) return { image: null }
+    const size = image.getSize()
+    return { image: { bytes: image.toPNG(), width: size.width, height: size.height } }
+  })
+
+  /**
+   * The native edit action, on whatever has focus.
+   *
+   * Ctrl+C/V/A are menu accelerators, so they are taken before the page sees
+   * them and the app acts on the SELECTED LAYERS however they were pressed —
+   * which means paste has never worked inside a text field, and Ctrl+A while
+   * renaming a layer selected the whole document. The renderer sends the ones
+   * that arrive while a field has focus back here to be performed properly.
+   */
+  ipcMain.handle('clipboard:nativeEdit', (e, op: 'copy' | 'cut' | 'paste' | 'selectAll') => {
+    const wc = e.sender
+    if (op === 'copy') wc.copy()
+    else if (op === 'cut') wc.cut()
+    else if (op === 'paste') wc.paste()
+    else wc.selectAll()
+  })
+
+  ipcMain.handle('clipboard:writeMarker', (_e, token: string) => {
+    // Text, not an image: this only has to be recognisable to us, and harmless
+    // to anyone who pastes it somewhere else by accident.
+    clipboard.writeText(token)
+  })
 
   // Agent connectivity (v0.6 spike 7.1, ADR-021): a loopback MCP endpoint.
   // The document lives in the renderer, so every tool call round-trips over
