@@ -15,11 +15,13 @@
 
   Rules for whatever replaces it:
 
-  * One filled `<path>`, starting at the TIP. The first point is read as the
-    hotspot — the pixel the click actually lands on — so the shape and the aim
-    cannot disagree. Leave it about 3.5 units clear of the edges: the renderer
-    rounds the corners with a fat stroke, and a tip against the boundary gets
-    its rim shaved off.
+  * One filled `<path>`, starting at the TIP. The corner the path starts at is
+    read as the hotspot — the pixel the click actually lands on — so the shape
+    and the aim cannot disagree. If that corner is ROUNDED the generator
+    reconstructs it from the fillet's tangents, which is why the first point
+    below is beside the point of the arrow rather than on it. Leave the tip
+    about 3.5 units clear of the edges: the renderer rounds the corners further
+    with a fat stroke, and a tip against the boundary gets its rim shaved off.
   * A square box. 30x30 here, but any size is rescaled into it — the badge, the
     rounding and the rim are all measured in 30ths.
   * Geometry only. Do not give it colours. The renderer paints it white over a
@@ -31,5 +33,5 @@
     (plus for add, minus for remove, and the rest).
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">
-  <path d="M3.6 3.6 21.4 14.1 13.0 15.9 10.3 24.1Z" />
+  <path d="M 3.577 4.103 C 3.494 3.847 3.772 3.623 4.005 3.76 L 19.843 13.103 C 20.303 13.374 20.19 14.068 19.668 14.18 L 13.065 15.595 C 12.861 15.639 12.696 15.787 12.631 15.985 L 10.595 22.169 C 10.418 22.707 9.657 22.706 9.481 22.168 Z" />
 </svg>

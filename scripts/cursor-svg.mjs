@@ -153,7 +153,41 @@ function transformPath(d, m) {
   const text = out
     .map((c) => (c.pts.length === 0 ? c.letter : `${c.letter} ${c.pts.map((p) => `${f(p.x)} ${f(p.y)}`).join(' ')}`))
     .join(' ')
-  return { d: text, points }
+  return { d: text, points, commands: out }
+}
+
+/**
+ * The corner the outline starts at — the tip, and therefore the hotspot.
+ *
+ * On a polygon that is just the first point. On a shape whose tip has been
+ * ROUNDED it is not: the path now starts where the fillet starts, off to one
+ * side of the point, and taking it would aim about a pixel away from where the
+ * arrow visibly points. A fillet is a corner that was cut off, though, and the
+ * corner is recoverable exactly — it is where the two tangents meet.
+ *
+ * Falls back to the first point whenever that reconstruction is not meaningful:
+ * tangents that are parallel are not a corner, and an intersection miles from
+ * the path is a curve that merely happens to start there.
+ */
+function cornerAt(commands) {
+  const first = commands[0]?.pts[0]
+  if (!first) return null
+  const arc = commands[1]
+  if (!arc || arc.letter !== 'C') return first
+  const [c0, c1, end] = arc.pts
+  // Each tangent as point + direction, pointing INTO the corner from both ends.
+  const r = { x: c0.x - first.x, y: c0.y - first.y }
+  const s = { x: c1.x - end.x, y: c1.y - end.y }
+  const denom = r.x * s.y - r.y * s.x
+  if (Math.abs(denom) < 1e-9) return first
+  const dx = end.x - first.x
+  const dy = end.y - first.y
+  const t = (dx * s.y - dy * s.x) / denom
+  // Rounded to the same 3dp as the path, so the generated hotspot is a number
+  // somebody can read next to the coordinates it came from.
+  const corner = { x: Number((first.x + t * r.x).toFixed(3)), y: Number((first.y + t * r.y).toFixed(3)) }
+  const reach = Math.hypot(corner.x - first.x, corner.y - first.y)
+  return t > 0 && reach < CURSOR_BOX / 4 ? corner : first
 }
 
 // --- the document ---------------------------------------------------------
@@ -236,7 +270,7 @@ export function readCursorSvg(svg) {
       notes.push('an unfilled path (a guide or a border)')
       continue
     }
-    const { d, points } = transformPath(p.d, compose(normalise, p.matrix))
+    const { d, points, commands } = transformPath(p.d, compose(normalise, p.matrix))
     if (points.length === 0) continue
     const xs = points.map((q) => q.x)
     const ys = points.map((q) => q.y)
@@ -248,7 +282,7 @@ export function readCursorSvg(svg) {
       notes.push('a full-box path (the frame background)')
       continue
     }
-    kept.push({ d, points })
+    kept.push({ d, points, commands })
   }
   if (kept.length === 0) {
     throw new Error(
@@ -256,7 +290,7 @@ export function readCursorSvg(svg) {
     )
   }
 
-  const tip = kept[0].points[0]
+  const tip = cornerAt(kept[0].commands)
   // A tip in the very corner means the box is the arrow's own bounding box,
   // which happens when the arrow layer is exported instead of the frame around
   // it. The shape would survive; the hotspot and the badge placement would not.

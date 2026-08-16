@@ -30,11 +30,14 @@ export type CursorBadge =
 /**
  * How much the arrow's corners are rounded, in the units it was drawn in.
  *
- * Done with a round-joined stroke in the fill colour rather than by authoring
- * curves, so the shape stays editable as a plain polygon — the SVG the
- * generator reads is something you can draw in a design tool without thinking
- * about corner radii. It also grows the silhouette by this much on every side,
- * which is why the drawn shape is a little lean.
+ * A round-joined stroke in the fill colour, which softens every corner without
+ * the source having to describe one — so a polygon dropped in here still comes
+ * out looking like a cursor. The drawn shape can round its own corners as well,
+ * and now does; the two compose, and the stroke only ever adds.
+ *
+ * It also grows the silhouette by half of this on every side, which is why the
+ * drawn shape is a little lean and why the tip is set in from the edge of the
+ * box.
  */
 const ROUNDING = 2.6
 /** The dark rim, on top of the rounding, so the whole thing survives a white shape. */
@@ -103,9 +106,14 @@ function svg(badge: CursorBadge): string {
 const cache = new Map<CursorBadge, string>()
 
 /**
- * The pointer, with an optional badge. Hotspot on the arrow's tip, which is
- * where the fill comes to a point — the rim bleeds under it, so the pixel you
- * aim with is the one that looks sharp.
+ * The pointer, with an optional badge.
+ *
+ * The hotspot is the arrow's drawn corner, which is where the white fill comes
+ * to a point once `ROUNDING` has grown it — measured, not assumed: at the
+ * current shape the fill's point and the corner round to the same pixel. The
+ * rim then bleeds about two pixels further up-left, so the very tip of the
+ * black is outside the aim. That is deliberate and it is what every system
+ * cursor does: the dark edge is an outline around the arrow, not part of it.
  */
 export function pointerCursor(badge: CursorBadge = 'none'): string {
   const hit = cache.get(badge)

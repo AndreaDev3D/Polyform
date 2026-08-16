@@ -23,8 +23,13 @@ import { CURSOR_BOX, readCursorSvg } from '../../../../../scripts/cursor-svg.mjs
 
 const noBytes = async () => null
 
-/** The authored outline, in the units it is drawn in. */
-const AUTHORED = [
+/**
+ * A four-point arrow in cursor units, used to build the scene the exporter is
+ * run over. Deliberately NOT the shipped shape: this fixture is about the trip,
+ * so it stays a plain polygon whose corners are easy to check by eye, while the
+ * real outline is free to grow curves.
+ */
+const POLYGON = [
   [3.6, 3.6],
   [21.4, 14.1],
   [13, 15.9],
@@ -62,7 +67,7 @@ function cursorFrame(opts: { guides: boolean } = { guides: true }): {
   // The importer normalises a shape to its own bounding box and carries the
   // offset on the node, so the path data is NOT in frame coordinates. That is
   // exactly the shift the reader has to undo.
-  const pts = AUTHORED.map(([x, y]) => ({ x: x * S, y: y * S }))
+  const pts = POLYGON.map(([x, y]) => ({ x: x * S, y: y * S }))
   const ox = Math.min(...pts.map((p) => p.x))
   const oy = Math.min(...pts.map((p) => p.y))
   const arrow = createNode('VECTOR', 'arrow') as VectorNode
@@ -103,15 +108,43 @@ describe('cursor SVG: the Polyform round trip', () => {
     const { paths, tip, notes } = readCursorSvg(svg.toString())
     expect(paths.length).toBe(1)
     expect(notes).toEqual([])
-    expect(tip.x).toBeCloseTo(AUTHORED[0][0], 3)
-    expect(tip.y).toBeCloseTo(AUTHORED[0][1], 3)
-    // The generated file is the drawing, point for point. `AUTHORED` is written
-    // out here rather than derived, so redrawing the arrow without re-running
-    // the generator fails HERE — where the reason is obvious — instead of
+    // The compiled data IS the drawing. Redrawing the arrow and forgetting to
+    // re-run the generator fails HERE, where the reason is one line, instead of
     // shipping a pointer that no longer matches its own source.
-    expect(numbersIn(paths[0])).toEqual(AUTHORED.flat())
     expect(paths[0]).toBe(CURSOR_ARROW)
     expect(tip).toEqual(CURSOR_TIP)
+    // And the tip is still somewhere a tip can be: clear of the edge, in the
+    // half of the box the arrow points from.
+    expect(CURSOR_TIP.x).toBeGreaterThan(3)
+    expect(CURSOR_TIP.y).toBeGreaterThan(3)
+    expect(CURSOR_TIP.x).toBeLessThan(CURSOR_BOX / 2)
+    expect(CURSOR_TIP.y).toBeLessThan(CURSOR_BOX / 2)
+  })
+
+  it('finds the corner under a rounded tip', () => {
+    // A fillet replaces the point of the arrow with an arc, so the path no
+    // longer starts AT the tip — it starts beside it. Taking the first point
+    // then aims about a pixel off the point, diagonally, and gets worse as the
+    // radius grows. The corner is recoverable exactly: it is where the fillet's
+    // two tangents meet.
+    //
+    // Right angle at (5, 5), rounded with radius 2 — the classic circular
+    // approximation, handles at r * 0.5523.
+    const k = 2 * 0.5523
+    const svg =
+      '<svg viewBox="0 0 30 30"><path d="' +
+      `M 5 7 C 5 ${7 - k} ${7 - k} 5 7 5 L 25 5 L 5 25 Z" /></svg>`
+    const { tip } = readCursorSvg(svg)
+    expect(tip.x).toBeCloseTo(5, 3)
+    expect(tip.y).toBeCloseTo(5, 3)
+  })
+
+  it('keeps the first point when the opening curve is not a corner', () => {
+    // Control points in line with the ends: the tangents are parallel, there is
+    // no corner to find, and inventing one from a near-zero determinant would
+    // put the hotspot anywhere at all.
+    const svg = '<svg viewBox="0 0 30 30"><path d="M 5 5 C 9 5 13 5 17 5 L 12 22 Z" /></svg>'
+    expect(readCursorSvg(svg).tip).toEqual({ x: 5, y: 5 })
   })
 
   it('recovers the same outline from what the exporter writes', async () => {
@@ -133,13 +166,13 @@ describe('cursor SVG: the Polyform round trip', () => {
     expect(notes.filter((n) => n.startsWith('an unfilled path')).length).toBe(3)
 
     const got = numbersIn(paths[0])
-    expect(got.length).toBe(AUTHORED.length * 2)
-    for (const [i, [x, y]] of AUTHORED.entries()) {
+    expect(got.length).toBe(POLYGON.length * 2)
+    for (const [i, [x, y]] of POLYGON.entries()) {
       expect(got[i * 2]).toBeCloseTo(x, 2)
       expect(got[i * 2 + 1]).toBeCloseTo(y, 2)
     }
-    expect(tip.x).toBeCloseTo(AUTHORED[0][0], 2)
-    expect(tip.y).toBeCloseTo(AUTHORED[0][1], 2)
+    expect(tip.x).toBeCloseTo(POLYGON[0][0], 2)
+    expect(tip.y).toBeCloseTo(POLYGON[0][1], 2)
   })
 
   it('keeps curves as curves', async () => {
@@ -174,7 +207,7 @@ describe('cursor SVG: the Polyform round trip', () => {
     // box cropped to artwork that happens to be square. Nothing about the file
     // is malformed — only the tip is, and only against the box. The guard has to
     // be able to fire on its own or it is decoration (F-36).
-    const d = AUTHORED.map(([x, y]) => `${(x - 3.6) * 1.4} ${(y - 3.6) * 1.4}`).join(' L ')
+    const d = POLYGON.map(([x, y]) => `${(x - 3.6) * 1.4} ${(y - 3.6) * 1.4}`).join(' L ')
     const svg = `<svg viewBox="0 0 28.7 28.7"><path d="M ${d} Z"/></svg>`
     expect(() => readCursorSvg(svg)).toThrow(/hard against the edge of the box/)
   })
@@ -189,7 +222,7 @@ describe('cursor SVG: the Polyform round trip', () => {
   it('rescales a source drawn at any size', () => {
     const at = (box: number) => {
       const k = box / CURSOR_BOX
-      const d = AUTHORED.map(([x, y]) => `${x * k} ${y * k}`).join(' L ')
+      const d = POLYGON.map(([x, y]) => `${x * k} ${y * k}`).join(' L ')
       const svg = `<svg viewBox="0 0 ${box} ${box}"><path d="M ${d} Z"/></svg>`
       return numbersIn(readCursorSvg(svg).paths[0])
     }
@@ -197,7 +230,7 @@ describe('cursor SVG: the Polyform round trip', () => {
     // 30-unit space, so whatever the file was drawn in has to end up there.
     for (const box of [30, 300, 1024]) {
       const got = at(box)
-      for (const [i, [x, y]] of AUTHORED.entries()) {
+      for (const [i, [x, y]] of POLYGON.entries()) {
         expect(got[i * 2]).toBeCloseTo(x, 2)
         expect(got[i * 2 + 1]).toBeCloseTo(y, 2)
       }

@@ -113,9 +113,15 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
   shape's first point, so the tip and the aim cannot disagree — and the file says
   what the renderer needs from it: geometry only, no colours, tip clear of the
   edge, bottom-right kept free for the badge.
-  - The arrow is rounder now, done with a round-joined stroke in its own fill
-    colour rather than authored curves, so the file stays a plain polygon that is
-    pleasant to edit.
+  - The arrow is rounder now — a round-joined stroke in its own fill colour,
+    which softens the corners of whatever is dropped in, plus fillets drawn into
+    the shape itself. The two compose; the stroke only ever adds.
+  - **The corner under a rounded tip is reconstructed.** The hotspot had always
+    been "the first point of the path", which is the tip only while the tip is
+    sharp. Round it and the path starts *beside* the point, so the aim drifts a
+    pixel diagonally and further as the radius grows. A fillet is a corner that
+    was cut off, though, and it comes back exactly: the two tangents are
+    extended and the hotspot is where they meet.
   - It keeps the white-over-black treatment even though most reference art for
     cursors is solid black: a black arrow is invisible on Polyform's own canvas.
   - **And "edit it in Polyform" now actually works.** That sentence had been in

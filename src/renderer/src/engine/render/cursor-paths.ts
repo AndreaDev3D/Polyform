@@ -2,7 +2,7 @@
 // Edit resources/cursor-arrow.svg and re-run `node scripts/make-cursor.mjs`.
 
 /** The pointer outline. Filled; the renderer supplies every colour. */
-export const CURSOR_ARROW = 'M 3.6 3.6 L 21.4 14.1 L 13 15.9 L 10.3 24.1 Z'
+export const CURSOR_ARROW = 'M 3.577 4.103 C 3.494 3.847 3.772 3.623 4.005 3.76 L 19.843 13.103 C 20.303 13.374 20.19 14.068 19.668 14.18 L 13.065 15.595 C 12.861 15.639 12.696 15.787 12.631 15.985 L 10.595 22.169 C 10.418 22.707 9.657 22.706 9.481 22.168 Z'
 
 /**
  * Side of the square the arrow is drawn in. Fixed: the badge disc, the rounding
@@ -15,4 +15,4 @@ export const CURSOR_BOX = 30
  * Where the arrow's point is, and therefore the cursor's hotspot — the pixel a
  * click actually lands on.
  */
-export const CURSOR_TIP = { x: 3.6, y: 3.6 }
+export const CURSOR_TIP = { x: 3.339, y: 3.368 }
