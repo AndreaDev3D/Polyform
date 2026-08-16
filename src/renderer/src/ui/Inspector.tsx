@@ -1388,22 +1388,31 @@ function SelectionColors({ ids }: { ids: NodeId[] }) {
 
   return (
     <Section title={`Selection colors`}>
-      <div className="flex flex-wrap gap-1.5">
+      {/* A vertical list, one row per colour, laid out like the Fill row below
+          it: swatch, hex, then the count where opacity sits. The first version
+          was a grid of swatches, which showed the colour and hid the one thing
+          people want off a palette — the value. A row you can read is a row you
+          can copy from. */}
+      <div className="flex flex-col gap-1">
         {groups.map((g) => (
-          <button
-            key={g.key}
-            className="flex items-center gap-1.5 pl-1 pr-1.5 h-6 rounded border border-[var(--pf-border)] bg-[var(--pf-bg-2)] hover:border-[var(--pf-accent)]"
-            title={`${rgbaToHex(g.color)} — used ${g.uses.length} time${g.uses.length > 1 ? 's' : ''}. Click to change every one.`}
-            onClick={(e) => setPicking({ key: g.key, anchor: popoverAnchor(e.currentTarget as HTMLElement) })}
-          >
-            <span
-              className="w-4 h-4 rounded-[3px] border border-[rgba(255,255,255,0.25)] shrink-0"
+          <div key={g.key} className="flex items-center gap-1.5">
+            <button
+              className="w-6 h-6 rounded border border-[var(--pf-border)] shrink-0"
               style={{ background: rgbaToCss(g.color, 1) }}
+              title="Pick a new colour for every layer using this one"
+              onClick={(e) => setPicking({ key: g.key, anchor: popoverAnchor(e.currentTarget as HTMLElement) })}
             />
-            <span className="text-[10px] font-mono tracking-wide text-[var(--pf-text-dim)] tabular-nums">
-              {g.uses.length}
+            <HexField
+              color={g.color}
+              onCommit={(c) => recolorSelectionUses(g.uses, c, false)}
+            />
+            <span
+              className="w-[3.9rem] shrink-0 text-right pr-1 text-[11px] text-[var(--pf-text-dim)] tabular-nums"
+              title={`Used ${g.uses.length} time${g.uses.length > 1 ? 's' : ''} in this selection`}
+            >
+              {g.uses.length}×
             </span>
-          </button>
+          </div>
         ))}
       </div>
       {picking && live && (

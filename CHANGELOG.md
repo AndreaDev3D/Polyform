@@ -66,8 +66,11 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 ### Added
 
 - **Selection colors.** Select a frame — or anything with layers inside it — and
-  the inspector lists every colour used in there, grouped, with a count, most-used
-  first. Click one and it changes everywhere at once, as a single undo step.
+  the inspector lists every colour used in there, grouped, most-used first. Each
+  is a row laid out like the Fill row below it: swatch, the hex as an editable
+  field, and how many places use it. Type a new hex, or click the swatch for the
+  picker; either way every one of those places changes at once, as a single undo
+  step.
   - Grouped by the COLOUR, not by the layer: a fill and a stroke of the same brown
     are one swatch, because "the brown in this drawing" is the thing being edited.
     Gradient stops count individually — a two-stop gradient is two colours, and
