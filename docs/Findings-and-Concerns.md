@@ -1,6 +1,6 @@
 # Findings and Concerns — Engineering Risk Register
 
-**Project:** Polyform — current through v0.8 (F-01…F-30)
+**Project:** Polyform — current through v0.8 (F-01…F-39)
 **Companion documents:** [Architecture-Decisions.md](./Architecture-Decisions.md), [Technical-Specification.md](./Technical-Specification.md)
 
 This is the honest ledger of where Polyform cuts corners, what those corners cost, and what we do about each one. Every entry has a **severity** (impact × likelihood for real users on the current feature set), a description of the actual failure mode, and a **mitigation** split into what ships now versus what the roadmap owes. Entries are amended in place as the picture changes — a finding whose fix shipped keeps its number and gains a status note, so the history of the risk stays readable.
@@ -39,6 +39,15 @@ Severity scale: **High** — can lose user data or block core workflows; **Med**
 | [F-28](#f-28-an-importer-can-only-be-checked-against-the-thing-it-imported) | An importer can only be checked against its source (fixed v0.7) | Fixed (High while live) |
 | [F-29](#f-29-the-update-feed-was-never-published-so-the-feature-could-only-ever-have-failed) | Update checking was never run in a packaged app — three defects (fixed v0.8) | Fixed (High while live) |
 | [F-30](#f-30-a-degenerate-box-is-normal-geometry-and-a-setting-nothing-reads-is-a-lie) | Zero-extent geometry ate gradients; the inspector offered a no-op (fixed v0.8) | Fixed |
+| [F-31](#f-31-the-only-door-into-a-feature-was-a-browser-api-this-platform-refuses) | Shared styles were unreachable: the only door threw on this platform (fixed v0.8) | Fixed (Med while live) |
+| [F-32](#f-32-four-ways-to-import-a-file-wrongly-and-all-four-passed-the-tests) | Four `.fig` import defects, all four with green tests (fixed v0.8) | Fixed (Med while live) |
+| [F-33](#f-33-an-instance-is-a-reference-so-importing-it-as-a-frame-imports-a-box) | Imported instances arrived empty — a reference is content (fixed v0.8) | Fixed (Med while live) |
+| [F-34](#f-34-a-masks-shape-is-not-the-mask-nodes-outline) | Masks clipped to bounding boxes, and SVG export ignored them (fixed v0.8) | Fixed (Med while live) |
+| [F-35](#f-35-a-rule-that-unifies-the-mitre-and-the-end-cap-is-right-only-when-every-side-is-stroked) | Per-side strokes ended in a 45° slice on any non-box (fixed v0.8) | Fixed |
+| [F-36](#f-36-a-trycatch-around-an-asynchronous-api-is-a-comment-not-a-guard) | The blank-canvas fallback could not fire (fixed v0.8) | Fixed (High while live) |
+| [F-37](#f-37-an-open-path-throws-its-fill-away-and-says-nothing) | An open path discarded its fill while the inspector showed one (fixed v0.8) | Fixed |
+| [F-38](#f-38-a-command-that-ignores-what-you-selected-is-answering-a-different-question) | Dissolve could not read the selection it was aimed with (fixed v0.8) | Fixed |
+| [F-39](#f-39-both-ends-of-a-round-trip-were-tested-and-the-trip-was-not) | The cursor's "edit it in Polyform" round trip had never been walked (fixed v0.8) | Fixed |
 
 ---
 
@@ -953,6 +962,29 @@ The weld afterwards is not a detail: a seam is usually TWO edges, one belonging 
 
 ---
 
+## F-39. Both ends of a round trip were tested, and the trip was not
+
+**Severity: Low** — nothing shipped broken; the trap was armed and never sprung. Found when the user set up a `cursor-arrow` frame in their own document to edit the pointer in, which is the workflow the source file has advertised since it was written.
+
+`resources/cursor-arrow.svg` says at the top: *edit it — in Polyform, or anywhere that exports SVG — and run `node scripts/make-cursor.mjs`*. Both halves of that sentence had tests. The SVG exporter has its own suite: transforms against the engine's own matrices, masks, per-side strokes. The generator was exercised every time the pointer changed. **Neither test crossed the gap between them**, because each was written against a fixture in its own dialect — the exporter against scenes, the generator against the hand-written file it had always been given.
+
+Handed a real Polyform export, the generator would have produced a cursor with four things wrong at once:
+
+* the frame's own white fill is the first `<path>` in the document, so it became the outline and its top-left corner became the **hotspot** — the pixel a click lands on;
+* the arrow was demoted to a second subpath, making the pointer a white square with an arrow-shaped hole in it;
+* node transforms live on wrapper `<g>` elements, which the reader never looked at, so every shape snapped back to its own local origin;
+* the 1024 viewBox was carried through as `CURSOR_BOX`, while the badge disc, the rim and the rounding are all hard-coded in 30ths — a 1028-pixel cursor image with a 13-pixel badge somewhere near the corner.
+
+And it would have said nothing. The generator's success line prints the path count and the tip, both of which would have looked like numbers.
+
+**What it does now.** The reading moved into `scripts/cursor-svg.mjs`, which flattens the transform stack, rescales any square box into the 30 units the renderer measures in, and ignores the two things an export adds that are not the cursor: the full-box background, and unfilled paths — the guide layers, and the arrow's own hairline stroke, which the renderer replaces with its rim. What it ignored is printed rather than assumed. What it cannot read it refuses, with the fix in the message: an export of the arrow *layer* crops the box to the shape, so the message names the frame to export instead.
+
+The gate is `engine/export/cursor-roundtrip.test.ts`, and the only thing that makes it worth having is that it calls the **real** `exportSvg` on a scene shaped like the real frame — background, guides and all — rather than a hand-written guess at what the exporter emits. Falsified both ways before it was believed (F-22): with transform flattening removed, two of its cases go red; with the background rule removed, the tip lands at 0,0 and the corner guard catches it with exactly the right diagnosis.
+
+**Standing obligation.** A workflow described in a comment is a feature, and it needs a test that walks it end to end — not one test per end. The tell is a file that says "and then run": the *and then* is the untested part, and both halves being green is what makes it invisible.
+
+---
+
 ## Reading this register
 
 Three themes run through every entry:
@@ -972,7 +1004,8 @@ Three themes run through every entry:
 13. **A feature is only as reachable as its entry point.** F-31's shared styles were implemented, journalled, propagating and documented ✅ — behind one button whose first line threw on this platform. Everything downstream was gated on a style existing, so nothing could report the emptiness as wrong. For any capability with a single door, the test is opening the door.
 14. **Framework abstractions stop at the framework's boundary.** F-24's `stopPropagation` was correct React and still let the key through, because the surface it was defending sat outside the React root. Where our own event plumbing meets the platform's — portals, native menus, OS popups — the platform's rules are the ones that decide, and the only way to know which applies is to instrument the boundary and read what actually arrives.
 15. **A fixture covers the case it contains, not the feature it is named after.** F-34's mask fixture used an ellipse inside a group — a plain shape, in the one position where masks worked, under the one fill rule both renderers agreed on. It passed for months while the two renderers disagreed about even-odd masks and the GPU ignored masks at the top level of a page. Name the *kinds* a feature has and give the gate one of each; a feature with one fixture is a feature with one case checked.
-19. **A selection is a question.** F-38's Dissolve took a network and no selection at all, so four deliberately chosen points could not reach it. A command beside others that read the selection has to read it too, or it is answering something nobody asked.
-18. **The smallest case is not the easiest case.** F-37's weld was tested on a path with a middle anchor in each half, which is what a real one usually looks like. The user's shape was two curves between two anchors and nothing else — the plainest closed path there is — and it broke two different assumptions the bigger fixture had quietly satisfied.
-17. **A guard has to be able to fire.** F-36's Canvas2D fallback sat behind a `try/catch` around an API that reports its errors asynchronously, so the catch had never run once and could not. The fallback was unreachable, and read as protection for as long as nobody checked.
 16. **A fixture has to be big enough to fail.** F-35's per-side stroke fixture was extended with two small shapes and measured 0.27%; with the code it guarded switched off entirely it still measured 2.18% against a 3% limit, because the shapes put too little ink on the canvas to breach it. Sizing is part of the assertion: after splitting it out with shapes that fill the frame, the same break measured 11.94% and caught a second bug on the way.
+17. **A guard has to be able to fire.** F-36's Canvas2D fallback sat behind a `try/catch` around an API that reports its errors asynchronously, so the catch had never run once and could not. The fallback was unreachable, and read as protection for as long as nobody checked.
+18. **The smallest case is not the easiest case.** F-37's weld was tested on a path with a middle anchor in each half, which is what a real one usually looks like. The user's shape was two curves between two anchors and nothing else — the plainest closed path there is — and it broke two different assumptions the bigger fixture had quietly satisfied.
+19. **A selection is a question.** F-38's Dissolve took a network and no selection at all, so four deliberately chosen points could not reach it. A command beside others that read the selection has to read it too, or it is answering something nobody asked.
+20. **A documented workflow is a feature.** F-39's pointer file said "edit it in Polyform and re-run the generator", and both halves of that were tested — against fixtures in their own dialects. What Polyform actually exports would have produced a cursor aimed at the frame's corner. Where a comment says *and then run*, the *and then* is the untested part, and both ends being green is what hides it.

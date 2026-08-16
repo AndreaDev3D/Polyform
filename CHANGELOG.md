@@ -118,6 +118,17 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
     pleasant to edit.
   - It keeps the white-over-black treatment even though most reference art for
     cursors is solid black: a black arrow is invisible on Polyform's own canvas.
+  - **And "edit it in Polyform" now actually works.** That sentence had been in
+    the file since it was written, with a test on each side of it and none across
+    it. A real export would have made the frame's white background the outline —
+    hotspot in the corner, arrow demoted to a hole in a white square — because
+    node transforms live on wrapper `<g>` elements the reader never looked at and
+    the 1024 viewBox came through as the box the badge is measured in.
+    `scripts/cursor-svg.mjs` now flattens the transforms, rescales any square box
+    into the renderer's 30 units, and ignores the background and the unfilled
+    guide layers — printing what it ignored, and refusing with the fix in the
+    message when it cannot. The gate runs the **real** exporter over a scene
+    shaped like the real frame (F-39).
 
 - **Drag a box over anchors to select them** in vector edit, including anchors
   sitting on top of each other. That pair is the whole reason it exists: clicking

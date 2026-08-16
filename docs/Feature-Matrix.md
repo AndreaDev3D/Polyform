@@ -68,7 +68,7 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Spacing / measurement guides | Red measurements show equal spacing between objects | 🟡 | Equal-spacing snap between two neighbours shipped; no measurement labels yet |
 | Viewport state persistence | Reopening a file restores camera position | ✅ | Zoom/pan saved in `manifest.json` viewport state |
 | Hand tool (H) | Dedicated pan tool | ✅ | |
-| Cursor says what the click does | Pointer changes with the active tool | ✅ | One arrow for the whole app, with a badge naming the action — plus to add, minus to remove, slash to cut, drop to paint, hook to bend. The arrow never changes so the badge is what you read. Defined once in `engine/render/cursors.ts`; drawing tools keep a crosshair, which is the right cursor for PLACING something |
+| Cursor says what the click does | Pointer changes with the active tool | ✅ | One arrow for the whole app, with a badge naming the action — plus to add, minus to remove, slash to cut, drop to paint, hook to bend. The arrow never changes so the badge is what you read. Defined once in `engine/render/cursors.ts`; drawing tools keep a crosshair, which is the right cursor for PLACING something. The arrow itself is authored geometry — `resources/cursor-arrow.svg` → `scripts/make-cursor.mjs` — and can be redrawn in Polyform: export the `cursor-arrow` frame over the file and re-run, with the round trip held by `engine/export/cursor-roundtrip.test.ts` against the real exporter (F-39) |
 
 ## Drawing & Shape Tools
 
@@ -383,4 +383,4 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 
 ---
 
-*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-15: 158 ✅ / 29 🟡 / 46 📋 / 23 ❌ = 256, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*
+*Counts in the summary table are exact row tallies from the sections above, mechanically recounted (last verified 2026-08-16: 158 ✅ / 29 🟡 / 46 📋 / 23 ❌ = 256, section by section). Statuses reflect the current build — **v0.4.1 released**, plus the unreleased v0.5 3D work (items 6.1–6.3) and the complete v0.6 agent surface (items 7.1–7.4). Remaining approximations (stroke-align clipping, hard-clip masks — no soft alpha or luminance, nearest-instance override capture, single-run text shaping, SPZ v3-only splats) are intentionally reported as 🟡 rather than ✅. See the [CHANGELOG](../CHANGELOG.md) for what landed in each release.*

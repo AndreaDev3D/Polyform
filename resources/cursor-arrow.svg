@@ -5,13 +5,23 @@
   — and run `node scripts/make-cursor.mjs` to regenerate the path data the
   renderer uses. Nothing reads this file at runtime.
 
+  To draw it in Polyform: the `cursor-arrow` frame in the PolyformLogo project
+  is this shape at 1024, with two locked guides showing where the badge disc
+  sits and how far the outline has to stay from the edge. Export THAT FRAME —
+  not the arrow layer, which crops the box to the shape and moves the hotspot
+  — over this file, and re-run the generator. The reader flattens transforms,
+  rescales any square box down to 30, and ignores the frame's background and
+  the unfilled guides; it refuses, loudly, when it cannot.
+
   Rules for whatever replaces it:
 
-  * One `<path>`, in a 30x30 viewBox, starting at the TIP. The first point is
-    read as the hotspot — the pixel the click actually lands on — so the shape
-    and the aim cannot disagree. Leave it about 3.5 units clear of the edges:
-    the renderer rounds the corners with a fat stroke, and a tip against the
-    boundary gets its rim shaved off.
+  * One filled `<path>`, starting at the TIP. The first point is read as the
+    hotspot — the pixel the click actually lands on — so the shape and the aim
+    cannot disagree. Leave it about 3.5 units clear of the edges: the renderer
+    rounds the corners with a fat stroke, and a tip against the boundary gets
+    its rim shaved off.
+  * A square box. 30x30 here, but any size is rescaled into it — the badge, the
+    rounding and the rim are all measured in 30ths.
   * Geometry only. Do not give it colours. The renderer paints it white over a
     black rim, and rounds its corners, because a cursor has to stay visible on
     a dark canvas, on white artwork and on everything in between — a solid
