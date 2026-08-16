@@ -1,14 +1,10 @@
 @import 'tailwindcss';
 
-/* Inter, self-hosted.
- *
- * Not loaded from a CDN: this is the website of a tool whose entire pitch is
- * that it does not phone anywhere, and a Google Fonts request on page load
- * would contradict that in the network panel of anyone who looked. Two
- * subsets rather than one file, so a visitor reading English never downloads
- * the 85 KB of accented forms — unicode-range decides. Referenced relatively
- * so Vite hashes them and rewrites the URL with the site's base path.
- * OFL 1.1; the licence ships at /fonts/Inter-LICENSE.txt. */
+/* Self-hosted type. Not loaded from a CDN: this is the website of a tool whose
+ * entire pitch is that it does not phone anywhere, and a Google Fonts request
+ * on page load would contradict that in the network panel of anyone who
+ * looked. Referenced relatively so Vite hashes them and rewrites the URL with
+ * the site's base path. Both OFL 1.1; licences ship under /fonts/. */
 @font-face {
   font-family: 'Inter';
   font-style: normal;
@@ -28,20 +24,38 @@
     U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
     U+2C60-2C7F, U+A720-A7FF;
 }
+/* One weight only. The mono carries section numbers, metadata and figures —
+ * a label system needs exactly one voice, and a second weight would be 21 KB
+ * spent on a distinction nobody would notice. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
-/* The palette is the app's own (src/renderer/src/styles.css), one shade
- * darker at the base so the editor screenshots sit ON the page rather than
- * dissolving into it. The gradient is the mark's, unchanged — it is the only
- * saturated thing here, which is what lets it carry the brand alone. */
+/* The palette is deliberately short. Editorial work reads as designed because
+ * of restraint, not because of range: two text tints, three surfaces, one
+ * hairline — and the brand gradient rationed to a single appearance per
+ * section, where it means something.
+ *
+ * Both text tints clear 4.5:1 on the page background (checked, not assumed):
+ * --color-dim is ~7.4:1 and --color-faint ~5.6:1. The faint one carries small
+ * monospace labels, which is exactly where editorial layouts usually fail
+ * contrast, so it is lighter than it looks like it wants to be. */
 @theme {
-  --color-ink-0: #0e0e10;
-  --color-ink-1: #141416;
-  --color-ink-2: #1b1b1e;
-  --color-ink-3: #26262a;
-  --color-line: #2c2c31;
-  --color-line-soft: rgba(255, 255, 255, 0.08);
-  --color-body: #e6e6e6;
-  --color-dim: #9a9aa2;
+  --color-ink-0: #0b0b0c;
+  --color-ink-1: #101012;
+  --color-ink-2: #16161a;
+  --color-ink-3: #1e1e23;
+  --color-rule: #232327;
+  --color-rule-soft: rgba(255, 255, 255, 0.07);
+  --color-body: #ececef;
+  --color-dim: #a0a0ab;
+  --color-faint: #8a8a96;
   --color-accent: #4f9eff;
 
   --color-brand-1: #15ead6;
@@ -50,28 +64,14 @@
   --color-brand-4: #a322e0;
 
   --font-sans: 'Inter', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
 }
 
 @layer base {
   html {
     scroll-behavior: smooth;
-    /* The sticky header would otherwise cover the heading of whatever
-     * section an anchor jumps to. */
-    scroll-padding-top: 5.5rem;
+    scroll-padding-top: 5rem;
     -webkit-text-size-adjust: 100%;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
-    }
   }
 
   body {
@@ -85,29 +85,51 @@
 
   :focus-visible {
     outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-    border-radius: 3px;
+    outline-offset: 3px;
+    border-radius: 2px;
   }
 
   ::selection {
     background: color-mix(in srgb, var(--color-brand-3) 45%, transparent);
+  }
+
+  /* Everything that animates is switched off together, in one place, so a new
+   * animation cannot be added without inheriting the opt-out. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
 @layer components {
   .wrap {
     width: 100%;
-    max-width: 72rem;
+    max-width: 78rem;
     margin-inline: auto;
-    padding-inline: 1.25rem;
+    padding-inline: 1.5rem;
+  }
+  @media (max-width: 640px) {
+    .wrap {
+      padding-inline: 1.25rem;
+    }
   }
 
-  .eyebrow {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.12em;
+  /* --- the label system -------------------------------------------------- */
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: var(--color-dim);
+    color: var(--color-faint);
   }
 
   .gradient-text {
@@ -123,15 +145,53 @@
     color: transparent;
   }
 
-  .link {
-    color: var(--color-body);
-    text-decoration: underline;
-    text-decoration-color: var(--color-line);
-    text-underline-offset: 3px;
-    transition: text-decoration-color 150ms;
+  /* --- structure --------------------------------------------------------- */
+
+  .section {
+    padding-block: 7rem;
+    border-top: 1px solid var(--color-rule);
   }
-  .link:hover {
-    text-decoration-color: var(--color-brand-2);
+  @media (max-width: 768px) {
+    .section {
+      padding-block: 4rem;
+    }
+  }
+
+  /* The numbered rule that opens every section. It is a real wayfinding
+   * device on a long page, not decoration — the number tells you where you
+   * are, the right-hand slot says what the section is about in four words. */
+  .sec-head {
+    display: grid;
+    grid-template-columns: 4.5rem 1fr auto;
+    align-items: baseline;
+    gap: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  @media (max-width: 640px) {
+    .sec-head {
+      grid-template-columns: 3rem 1fr;
+    }
+    .sec-head > :nth-child(3) {
+      display: none;
+    }
+  }
+
+  .sec-title {
+    margin-top: 2.75rem;
+    font-size: clamp(2rem, 5.2vw, 3.6rem);
+    font-weight: 700;
+    line-height: 1.03;
+    letter-spacing: -0.038em;
+    text-wrap: balance;
+  }
+
+  .sec-lede {
+    margin-top: 1.5rem;
+    max-width: 44rem;
+    color: var(--color-dim);
+    font-size: 1.0625rem;
+    line-height: 1.65;
   }
 
   /* --- buttons ----------------------------------------------------------- */
@@ -141,96 +201,257 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.75rem 1.35rem;
-    border-radius: 0.6rem;
-    border: 1px solid var(--color-line);
-    font-size: 0.95rem;
+    min-height: 2.75rem; /* 44px — the touch minimum, not a coincidence */
+    padding: 0.8rem 1.4rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.4rem;
+    font-size: 0.9375rem;
     font-weight: 600;
     line-height: 1.2;
     color: var(--color-body);
     text-decoration: none;
     white-space: nowrap;
+    cursor: pointer;
     transition:
-      background-color 150ms,
-      border-color 150ms,
-      transform 150ms;
+      background-color 180ms,
+      border-color 180ms,
+      color 180ms;
   }
   .btn:hover {
     background-color: var(--color-ink-2);
-    border-color: #3a3a41;
-  }
-  .btn:active {
-    transform: translateY(1px);
+    border-color: #33333a;
   }
 
   .btn--primary {
-    position: relative;
     border-color: transparent;
-    color: #08080a;
-    background: linear-gradient(100deg, var(--color-brand-1), var(--color-brand-2) 40%, var(--color-brand-3));
+    color: #07070a;
+    background: linear-gradient(100deg, var(--color-brand-1), var(--color-brand-2) 45%, var(--color-brand-3));
   }
   .btn--primary:hover {
-    background: linear-gradient(100deg, var(--color-brand-1), var(--color-brand-2) 55%, var(--color-brand-3));
     border-color: transparent;
+    filter: brightness(1.08);
   }
   .btn__sub {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
     font-weight: 500;
+    letter-spacing: 0.06em;
     opacity: 0.72;
   }
 
-  /* --- surfaces ---------------------------------------------------------- */
+  .link {
+    color: var(--color-body);
+    text-decoration: underline;
+    text-decoration-color: var(--color-rule);
+    text-underline-offset: 3px;
+    transition: text-decoration-color 180ms;
+  }
+  .link:hover {
+    text-decoration-color: var(--color-brand-2);
+  }
 
   .card {
+    min-width: 0; /* grid items refuse to shrink below content without this */
     background-color: var(--color-ink-1);
-    border: 1px solid var(--color-line);
-    border-radius: 0.85rem;
-    /* Grid and flex items default to `min-width: auto`, which means they
-     * refuse to shrink below their content's intrinsic width. The `.tree`
-     * block inside one of these is `white-space: pre`, so on a phone the card
-     * grew to the width of the longest line and dragged the whole document's
-     * scroll width with it — the tree's own `overflow-x: auto` never got a
-     * chance to scroll, because nothing was forcing it to be narrow. */
-    min-width: 0;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.5rem;
   }
 
-  .section {
-    padding-block: 5.5rem;
-    border-top: 1px solid var(--color-line);
-  }
-  @media (max-width: 640px) {
-    .section {
-      padding-block: 3.5rem;
-    }
-  }
-
-  .section__title {
-    font-size: clamp(1.75rem, 4vw, 2.5rem);
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    margin-top: 0.75rem;
-  }
-
-  .section__lede {
-    margin-top: 1rem;
-    max-width: 46rem;
-    color: var(--color-dim);
-    font-size: 1.0625rem;
-    line-height: 1.65;
-  }
-
-  /* A screenshot needs a frame, or it reads as a floating rectangle of noise.
-   * Light hairline on top, dark shadow under: the same "this is above the
-   * page" trick the app uses for its own floating surfaces. */
   .shot {
     display: block;
     width: 100%;
     height: auto;
-    border-radius: 0.75rem;
-    border: 1px solid var(--color-line-soft);
+    border: 1px solid var(--color-rule-soft);
+    border-radius: 0.4rem;
     background-color: var(--color-ink-2);
-    box-shadow:
-      0 24px 60px -20px rgba(0, 0, 0, 0.85),
-      0 2px 10px rgba(0, 0, 0, 0.4);
+  }
+
+  /* --- gallery ----------------------------------------------------------- */
+
+  /* DEFAULT = the static version. No JavaScript, a failed bundle, a crawler or
+   * prefers-reduced-motion all land here: five figures in a plain column, all
+   * visible, nothing pinned. The pinned behaviour is added on top by the `pin`
+   * class, which main.ts only sets when it is both able and allowed to. */
+  .gal__list {
+    display: grid;
+    gap: 3rem;
+    margin-top: 3.5rem;
+  }
+
+  .gal__figure {
+    min-width: 0;
+  }
+
+  .gal__img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.4rem;
+    background-color: var(--color-ink-1);
+  }
+
+  .gal__cap {
+    display: grid;
+    grid-template-columns: 3rem 1fr;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    align-items: baseline;
+  }
+  .gal__name {
+    font-size: 1.0625rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .gal__desc {
+    margin-top: 0.35rem;
+    color: var(--color-dim);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+  }
+
+  .gal__index {
+    display: none;
+  }
+
+  /* --- gallery, pinned --------------------------------------------------- */
+
+  .pin .gal__list {
+    display: block;
+    position: relative;
+    margin-top: 0;
+    /* Scroll distance. One viewport per piece plus one to read the last —
+     * set inline by main.ts from the real item count so the CSS and the JS
+     * cannot disagree about how many there are. */
+    height: var(--gal-track, 500vh);
+  }
+
+  .pin .gal__viewport {
+    position: sticky;
+    top: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 2rem;
+    height: 100vh;
+    padding-block: 4.5rem 2rem;
+  }
+  @media (min-width: 1024px) {
+    .pin .gal__viewport {
+      grid-template-columns: 13rem 1fr;
+      gap: 3.5rem;
+      align-items: center;
+    }
+  }
+
+  .pin .gal__stage {
+    position: relative;
+    /* Reserve the space the tallest piece needs so nothing reflows as the
+     * figures swap — a crossfade that also resizes reads as a jump. */
+    aspect-ratio: 16 / 10;
+    max-height: 74vh;
+  }
+
+  .pin .gal__figure {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    opacity: 0;
+    transform: scale(0.985);
+    transition:
+      opacity 520ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+  }
+  .pin .gal__figure[data-active] {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  .pin .gal__img {
+    max-height: 60vh;
+    width: auto;
+    max-width: 100%;
+    margin-inline: auto;
+    object-fit: contain;
+  }
+
+  .pin .gal__cap {
+    grid-template-columns: 1fr;
+    margin-top: 1.5rem;
+    text-align: center;
+  }
+  @media (min-width: 1024px) {
+    /* On a wide screen the index list carries the captions, so the per-figure
+     * one would just repeat them. */
+    .pin .gal__cap {
+      display: none;
+    }
+    .pin .gal__index {
+      display: block;
+      align-self: center;
+      border-left: 1px solid var(--color-rule);
+    }
+  }
+
+  .gal__step {
+    display: block;
+    width: 100%;
+    padding: 0.7rem 0 0.7rem 1.25rem;
+    margin-left: -1px;
+    border-left: 1px solid transparent;
+    text-align: left;
+    background: none;
+    cursor: pointer;
+    color: var(--color-faint);
+    transition:
+      color 200ms,
+      border-color 200ms;
+  }
+  .gal__step[aria-current='true'] {
+    color: var(--color-body);
+    border-left-color: var(--color-brand-2);
+  }
+  .gal__step:hover {
+    color: var(--color-body);
+  }
+  .gal__step-n {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.14em;
+  }
+  .gal__step-t {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.9375rem;
+    font-weight: 550;
+    letter-spacing: -0.01em;
+  }
+
+  /* --- reveal ------------------------------------------------------------ */
+
+  /* Same principle as the gallery: content is visible by default and JS opts
+   * INTO hiding it. `.js` is set by the first inline script, so the hidden
+   * state never exists for a reader whose bundle never arrives. */
+  .js .reveal {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 380ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .js .reveal.is-in {
+    opacity: 1;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .js .reveal {
+      opacity: 1;
+      transform: none;
+    }
   }
 
   /* --- downloads --------------------------------------------------------- */
@@ -243,27 +464,21 @@
   }
 
   .dl-card {
+    min-width: 0;
     background-color: var(--color-ink-1);
-    border: 1px solid var(--color-line);
-    border-radius: 0.85rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.5rem;
     padding: 1.35rem;
-    transition: border-color 150ms;
   }
-  /* main.ts sets this on the card matching the visitor's OS. It is a hint,
-   * not a filter: every platform stays visible and downloadable, because
-   * the guess is a User-Agent guess and people download for other machines. */
   .dl-card[data-current] {
-    border-color: color-mix(in srgb, var(--color-brand-2) 55%, var(--color-line));
+    border-color: color-mix(in srgb, var(--color-brand-2) 50%, var(--color-rule));
   }
-
   .dl-card__name {
-    font-size: 1.0625rem;
+    font-size: 1rem;
     font-weight: 650;
   }
   .dl-card__note {
     margin-top: 0.2rem;
-    font-size: 0.8125rem;
-    color: var(--color-dim);
   }
   .dl-card__assets {
     margin-top: 1.1rem;
@@ -277,31 +492,32 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 0.75rem;
+    min-height: 2.75rem;
     padding: 0.6rem 0.85rem;
-    border-radius: 0.5rem;
-    border: 1px solid var(--color-line);
+    border: 1px solid var(--color-rule);
+    border-radius: 0.35rem;
     background-color: var(--color-ink-2);
     text-decoration: none;
     color: var(--color-body);
     font-size: 0.9rem;
     transition:
-      background-color 150ms,
-      border-color 150ms;
+      background-color 180ms,
+      border-color 180ms;
   }
   .dl-asset:hover {
     background-color: var(--color-ink-3);
-    border-color: #3d3d44;
+    border-color: #33333a;
   }
   .dl-asset--primary {
-    border-color: color-mix(in srgb, var(--color-brand-2) 40%, var(--color-line));
+    border-color: color-mix(in srgb, var(--color-brand-2) 38%, var(--color-rule));
   }
   .dl-asset__label {
     font-weight: 600;
   }
   .dl-asset__meta {
-    font-size: 0.75rem;
-    color: var(--color-dim);
-    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--color-faint);
   }
 
   /* --- misc -------------------------------------------------------------- */
@@ -309,36 +525,75 @@
   .pill {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.28rem 0.7rem;
+    gap: 0.5rem;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--color-rule);
     border-radius: 999px;
-    border: 1px solid var(--color-line);
     background-color: var(--color-ink-1);
-    font-size: 0.75rem;
-    font-weight: 550;
-    color: var(--color-dim);
     text-decoration: none;
-    white-space: nowrap;
   }
   a.pill:hover {
-    color: var(--color-body);
-    border-color: #3a3a41;
+    border-color: #33333a;
   }
 
   .tree {
+    min-width: 0;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    line-height: 1.9;
+    font-size: 0.75rem;
+    line-height: 2;
     white-space: pre;
     overflow-x: auto;
     color: var(--color-dim);
   }
   .tree b {
     color: var(--color-body);
-    font-weight: 600;
+    font-weight: 500;
   }
   .tree i {
-    color: color-mix(in srgb, var(--color-brand-2) 70%, var(--color-body));
+    color: color-mix(in srgb, var(--color-brand-2) 72%, var(--color-body));
     font-style: normal;
+  }
+
+  /* Capability chips in the agent section. */
+  .cap {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.35rem;
+    background-color: var(--color-ink-1);
+  }
+  .cap__dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: var(--color-brand-1);
+    flex: none;
+  }
+  .cap--off .cap__dot {
+    background: #3c3c44;
+  }
+  .cap__name {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    color: var(--color-body);
+  }
+  .cap__state {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+
+  .tool {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-dim);
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--color-rule);
   }
 }

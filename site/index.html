@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0e0e10" />
+    <meta name="theme-color" content="#0b0b0c" />
 
     <title>%TITLE%</title>
     <meta name="description" content="%DESCRIPTION%" />
     <link rel="canonical" href="%CANONICAL%" />
 
-    <!-- What the link looks like when it is pasted into Slack, WhatsApp or a
-         tweet. Absolute URLs, because relative ones do not unfurl. -->
+    <!-- What the link looks like pasted into Slack, WhatsApp or a tweet.
+         Absolute URLs, because relative ones do not unfurl. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Polyform" />
     <meta property="og:title" content="%TITLE%" />
@@ -33,6 +33,13 @@
       %JSONLD%
     </script>
 
+    <!-- Sets the flag the reveal styles key off, before first paint. Inline and
+         first so the hidden state is only ever reachable when the script that
+         un-hides things has definitely run. -->
+    <script>
+      document.documentElement.classList.add('js')
+    </script>
+
     <link rel="stylesheet" href="./src/styles.css" />
     <script type="module" src="./src/main.ts"></script>
   </head>
@@ -45,13 +52,10 @@
     >
 
     <!-- ===================== header ===================== -->
-    <header
-      id="site-header"
-      class="fixed inset-x-0 top-0 z-40 border-b border-transparent transition-colors duration-200"
-    >
-      <div class="wrap flex h-16 items-center justify-between gap-4">
+    <header id="site-header" class="fixed inset-x-0 top-0 z-40 border-b border-transparent transition-colors duration-200">
+      <div class="wrap flex h-14 items-center justify-between gap-4">
         <a href="#top" class="flex items-center gap-2.5 no-underline" aria-label="Polyform, home">
-          <svg viewBox="407.69 315 1416.09 1416.09" width="26" height="26" aria-hidden="true">
+          <svg viewBox="407.69 315 1416.09 1416.09" width="22" height="22" aria-hidden="true">
             <defs>
               <linearGradient id="pf-nav" gradientUnits="userSpaceOnUse" x1="864.17" y1="315" x2="1230.09" y2="1731.09">
                 <stop offset="0" stop-color="#15EAD6" />
@@ -62,140 +66,245 @@
             </defs>
             <path
               fill="url(#pf-nav)"
-              d="M 624 315.41 L 824.59 315.41 A 80 80 0 0 1 904.59 395.41 L 904.59 1651.09 A 80 80 0 0 1 824.59 1731.09 L 624 1731.09 A 80 80 0 0 1 544 1651.09 L 544 395.41 A 80 80 0 0 1 624 315.41 Z M 1007.32 315 L 1193.89 315 L 1193.89 315 L 1193.89 656.95 L 1193.89 656.95 L 1007.32 656.95 A 80 80 0 0 1 927.32 576.95 L 927.32 395 A 80 80 0 0 1 1007.32 315 Z M 1002.32 956.05 L 1193.32 956.05 L 1193.32 956.05 L 1193.32 1297.94 L 1193.32 1297.94 L 1002.32 1297.94 A 80 80 0 0 1 922.32 1217.94 L 922.32 1036.05 A 80 80 0 0 1 1002.32 956.05 Z M 1190.9 315.11 A 496.58 491.41 0 0 1 1190.9 1297.92 L 1190.9 954.92 A 149.97 148.4 0 0 0 1190.9 658.11 Z"
+              d="M 624 315.41 L 824.59 315.41 A 80 80 0 0 1 904.59 395.41 L 904.59 1651.09 A 80 80 0 0 1 824.59 1731.09 L 624 1731.09 A 80 80 0 0 1 544 1651.09 L 544 395.41 A 80 80 0 0 1 624 315.41 Z M 1007.32 315 L 1193.89 315 L 1193.89 656.95 L 1007.32 656.95 A 80 80 0 0 1 927.32 576.95 L 927.32 395 A 80 80 0 0 1 1007.32 315 Z M 1002.32 956.05 L 1193.32 956.05 L 1193.32 1297.94 L 1002.32 1297.94 A 80 80 0 0 1 922.32 1217.94 L 922.32 1036.05 A 80 80 0 0 1 1002.32 956.05 Z M 1190.9 315.11 A 496.58 491.41 0 0 1 1190.9 1297.92 L 1190.9 954.92 A 149.97 148.4 0 0 0 1190.9 658.11 Z"
             />
           </svg>
-          <span class="text-[0.95rem] font-semibold tracking-tight">Polyform</span>
+          <span class="text-[0.9rem] font-semibold tracking-tight">Polyform</span>
         </a>
 
-        <nav class="flex items-center gap-1 text-sm" aria-label="Main">
-          <a href="#features" class="hidden rounded-md px-3 py-2 text-dim no-underline hover:text-body sm:block"
-            >Features</a
-          >
-          <a href="#local" class="hidden rounded-md px-3 py-2 text-dim no-underline hover:text-body md:block">Local-first</a>
-          <a href="#docs" class="hidden rounded-md px-3 py-2 text-dim no-underline hover:text-body sm:block">Docs</a>
-          <a
-            href="https://github.com/AndreaDev3D/Polyform"
-            class="rounded-md px-3 py-2 text-dim no-underline hover:text-body"
-            >GitHub</a
-          >
-          <a href="#download" class="btn ml-1 !px-4 !py-2 !text-sm">Download</a>
+        <nav class="flex items-center gap-0.5 text-sm" aria-label="Main">
+          <a href="#gallery" class="hidden rounded px-2.5 py-2 text-dim no-underline hover:text-body sm:block">Work</a>
+          <a href="#agents" class="hidden rounded px-2.5 py-2 text-dim no-underline hover:text-body sm:block">Agents</a>
+          <a href="#engine" class="hidden rounded px-2.5 py-2 text-dim no-underline hover:text-body md:block">Engine</a>
+          <a href="https://github.com/AndreaDev3D/Polyform" class="rounded px-2.5 py-2 text-dim no-underline hover:text-body">GitHub</a>
+          <a href="#download" class="btn ml-2 !min-h-0 !px-3.5 !py-1.5 !text-[0.8125rem]">Download</a>
         </nav>
       </div>
     </header>
 
     <main id="main">
       <!-- ===================== hero ===================== -->
-      <section id="top" class="relative overflow-hidden pt-32 pb-16 sm:pt-40">
-        <!-- The brand gradient, once, as light rather than as a shape. -->
+      <section id="top" class="relative overflow-hidden pt-28 pb-20 sm:pt-36">
         <div
           aria-hidden="true"
-          class="pointer-events-none absolute -top-64 left-1/2 h-[38rem] w-[80rem] max-w-none -translate-x-1/2 opacity-[0.22] blur-[110px]"
-          style="
-            background: radial-gradient(closest-side, #15ead6, transparent 70%),
-              radial-gradient(closest-side at 65% 40%, #a322e0, transparent 70%);
-          "
+          class="pointer-events-none absolute -top-72 left-1/2 h-[34rem] w-[70rem] max-w-none -translate-x-1/2 opacity-[0.18] blur-[130px]"
+          style="background: radial-gradient(closest-side, #15ead6, transparent 70%), radial-gradient(closest-side at 70% 45%, #a322e0, transparent 70%)"
         ></div>
 
         <div class="wrap relative">
-          <div class="mx-auto max-w-3xl text-center">
-            <a class="pill" href="%RELEASE_URL%">
-              <span class="inline-block h-1.5 w-1.5 rounded-full bg-brand-1"></span>
-              %VERSION% is out — free and open source
-            </a>
+          <div class="flex flex-wrap items-baseline justify-between gap-4 border-b border-rule pb-4">
+            <span class="mono">Polyform %VERSION%</span>
+            <span class="mono">%VERSION_KIND%</span>
+            <span class="mono hidden sm:inline">Windows · macOS · Linux</span>
+            <span class="mono">MIT</span>
+          </div>
 
-            <h1 class="mt-6 text-[clamp(2.25rem,6.5vw,4rem)] leading-[1.05] font-bold tracking-[-0.035em]">
-              Vector design that never<br class="hidden sm:block" />
-              leaves <span class="gradient-text">your machine</span>.
-            </h1>
+          <h1 class="mt-12 max-w-5xl text-[clamp(2.5rem,7.6vw,5.5rem)] leading-[0.98] font-bold tracking-[-0.042em]">
+            Your files never leave.<br />
+            Your agent <span class="gradient-text">still gets in</span>.
+          </h1>
 
-            <p class="mx-auto mt-6 max-w-2xl text-[1.0625rem] leading-relaxed text-dim sm:text-lg">
-              Polyform is an open-source design editor for interfaces and graphics. No cloud, no account, no
-              server — every project is a plain folder on your disk you can copy, zip, sync or commit to git.
+          <div class="mt-10 grid gap-10 lg:grid-cols-[1.15fr_1fr] lg:items-end">
+            <p class="max-w-2xl text-lg leading-relaxed text-dim">
+              Polyform is an open-source vector design editor that runs entirely on your machine — no cloud, no
+              account, every project a plain folder on disk. It also ships an MCP server inside the app, so an AI
+              agent can read your document, see your canvas and make real edits, through capabilities you grant one
+              at a time and revoke while it is still connected.
             </p>
 
-            <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
-              <!-- Points at the download section, so it is correct before any
-                   script runs. main.ts upgrades it to a direct link once it
-                   knows the visitor's OS. -->
-              <a id="cta" href="#download" class="btn btn--primary !px-6 !py-3.5 !text-base">
-                <span id="cta-label">Download Polyform</span>
-              </a>
-              <a href="https://github.com/AndreaDev3D/Polyform" class="btn !px-6 !py-3.5 !text-base">View source</a>
+            <div class="flex flex-col gap-3">
+              <div class="flex flex-wrap items-center gap-3">
+                <a id="cta" href="#download" class="btn btn--primary !px-6 !py-3.5 !text-base">
+                  <span id="cta-label">Download Polyform</span>
+                </a>
+                <a href="https://github.com/AndreaDev3D/Polyform" class="btn !px-6 !py-3.5 !text-base">View source</a>
+              </div>
+              %NIGHTLY_NOTE%
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 001 · gallery ===================== -->
+      <section id="gallery" class="section">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="mono">001</span>
+            <span class="mono">What comes out of it</span>
+            <span class="mono">Made in Polyform</span>
+          </div>
+          <h2 class="sec-title">From grey boxes<br />to the printed thing.</h2>
+          <p class="sec-lede">
+            Every piece below was built in Polyform and exported from its own canvas. Not stock, not mocked up
+            somewhere else — that would make this section a lie.
+          </p>
+
+          <!-- Static column by default; main.ts turns this into the pinned,
+               scroll-driven stage only when it can and may. -->
+          <div class="gal">
+            <div class="gal__list" data-gallery>
+              <div class="gal__viewport">
+                <ol class="gal__index" data-gallery-index></ol>
+                <div class="gal__stage">
+                  <figure class="gal__figure" data-active>
+                    <img class="gal__img" src="./src/gallery/01-wireframe.png" width="1600" height="1000" alt="A greyscale desktop app wireframe: navigation, sidebar, a crossed image placeholder and three content cards." loading="lazy" decoding="async" />
+                    <figcaption class="gal__cap">
+                      <span class="mono">01</span>
+                      <span>
+                        <span class="gal__name">Wireframe</span>
+                        <span class="gal__desc">Grey boxes and nothing else. Structure before anyone argues about colour.</span>
+                      </span>
+                    </figcaption>
+                  </figure>
+
+                  <figure class="gal__figure">
+                    <img class="gal__img" src="./src/gallery/02-ui-design.png" width="1400" height="980" alt="Three finished mobile screens: a gradient onboarding screen, a project list and a statistics screen with a ring chart." loading="lazy" decoding="async" />
+                    <figcaption class="gal__cap">
+                      <span class="mono">02</span>
+                      <span>
+                        <span class="gal__name">Product UI</span>
+                        <span class="gal__desc">The same screens again, finished — type, colour, depth, states.</span>
+                      </span>
+                    </figcaption>
+                  </figure>
+
+                  <figure class="gal__figure">
+                    <img class="gal__img" src="./src/gallery/03-social-post.png" width="1080" height="1080" alt="A square social post reading 100,000 shapes, panning at 60fps, over blurred gradient blooms." loading="lazy" decoding="async" />
+                    <figcaption class="gal__cap">
+                      <span class="mono">03</span>
+                      <span>
+                        <span class="gal__name">Social post</span>
+                        <span class="gal__desc">Square, legible at thumbnail size, exported straight to PNG.</span>
+                      </span>
+                    </figcaption>
+                  </figure>
+
+                  <figure class="gal__figure">
+                    <img class="gal__img" src="./src/gallery/04-banner.png" width="1600" height="600" alt="A wide banner reading Design tools that answer to nobody, with a download button." loading="lazy" decoding="async" />
+                    <figcaption class="gal__cap">
+                      <span class="mono">04</span>
+                      <span>
+                        <span class="gal__name">Banner</span>
+                        <span class="gal__desc">Wide crop of the same system — ad slots, README headers, OG cards.</span>
+                      </span>
+                    </figcaption>
+                  </figure>
+
+                  <figure class="gal__figure">
+                    <img class="gal__img" src="./src/gallery/05-poster.png" width="1000" height="1400" alt="A portrait poster: overlapping gradient circles above the words VECTOR ON YOUR OWN DISK." loading="lazy" decoding="async" />
+                    <figcaption class="gal__cap">
+                      <span class="mono">05</span>
+                      <span>
+                        <span class="gal__name">Poster</span>
+                        <span class="gal__desc">Print-shaped and type-led, because vectors were never only for screens.</span>
+                      </span>
+                    </figcaption>
+                  </figure>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 002 · agents ===================== -->
+      <section id="agents" class="section">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="mono">002</span>
+            <span class="mono">Agent-native</span>
+            <span class="mono">MCP · loopback only</span>
+          </div>
+          <h2 class="sec-title">An editor your agent<br />can actually drive.</h2>
+          <p class="sec-lede">
+            Not a chat box bolted to a sidebar. Polyform runs a Model Context Protocol server inside the running
+            app, so an agent attaches to the document you have open — reads it, looks at it, and edits it as one
+            undoable step attributed to the agent that made it.
+          </p>
+
+          <div class="mt-14 grid gap-12 lg:grid-cols-[1fr_1.1fr]">
+            <div class="reveal">
+              <p class="mono">Five capabilities, granted one at a time</p>
+              <div class="mt-5 grid gap-2">
+                <div class="cap"><span class="cap__dot"></span><span class="cap__name">document</span><span class="cap__state">read</span></div>
+                <div class="cap"><span class="cap__dot"></span><span class="cap__name">render</span><span class="cap__state">read</span></div>
+                <div class="cap"><span class="cap__dot"></span><span class="cap__name">selection</span><span class="cap__state">read</span></div>
+                <div class="cap"><span class="cap__dot"></span><span class="cap__name">changes</span><span class="cap__state">read</span></div>
+                <div class="cap cap--off"><span class="cap__dot"></span><span class="cap__name">edit</span><span class="cap__state">off by default</span></div>
+              </div>
+              <p class="mt-5 text-sm leading-relaxed text-dim">
+                The whole server is off until you turn it on, bound to loopback, and protected by a bearer token.
+                Each capability is granted and revoked individually — including while the agent is mid-session —
+                and a light on the bottom bar is lit the entire time something is attached.
+              </p>
             </div>
 
-            <p class="mt-4 text-[0.8125rem] text-dim">Windows, macOS and Linux &middot; MIT licensed &middot; no sign-up</p>
+            <div class="reveal">
+              <p class="mono">Ten tools</p>
+              <div class="mt-5 grid gap-x-8 sm:grid-cols-2">
+                <div>
+                  <div class="tool">get_document</div>
+                  <div class="tool">get_node</div>
+                  <div class="tool">get_node_image</div>
+                  <div class="tool">get_view_image</div>
+                  <div class="tool">get_selection</div>
+                </div>
+                <div>
+                  <div class="tool">poll_changes</div>
+                  <div class="tool">edit_document</div>
+                  <div class="tool">import_svg</div>
+                  <div class="tool">import_image</div>
+                  <div class="tool">remove_background</div>
+                </div>
+              </div>
+              <p class="mt-6 text-sm leading-relaxed text-dim">
+                The same tools are available with no window at all: the headless
+                <code class="font-mono text-body">polyform</code> CLI runs
+                <code class="font-mono text-body">mcp serve</code> over stdio against a
+                <code class="font-mono text-body">.poly</code> file, with exports pixel-identical to the app. Which
+                makes an agent in CI as first-class as an agent at your desk.
+              </p>
+            </div>
           </div>
-
-          <figure class="mt-16 sm:mt-20">
-            <img
-              class="shot"
-              src="./src/shots/hero.png"
-              width="2880"
-              height="1800"
-              alt="The Polyform editor: a vector illustration on the canvas, with the layer tree on the left and the inspector on the right."
-              fetchpriority="high"
-              decoding="async"
-            />
-          </figure>
         </div>
       </section>
 
-      <!-- ===================== trust strip ===================== -->
-      <section class="border-y border-line bg-ink-1/40 py-5">
-        <div class="wrap flex flex-wrap items-center justify-center gap-x-7 gap-y-2 text-[0.8125rem] text-dim">
-          <span>MIT licensed</span>
-          <span aria-hidden="true" class="hidden text-line sm:inline">&bull;</span>
-          <span>Works fully offline</span>
-          <span aria-hidden="true" class="hidden text-line sm:inline">&bull;</span>
-          <span>No account, ever</span>
-          <span aria-hidden="true" class="hidden text-line sm:inline">&bull;</span>
-          <span>SHA-256 + build provenance</span>
-          <span aria-hidden="true" class="hidden text-line sm:inline">&bull;</span>
-          <span>Open, documented file format</span>
-        </div>
-      </section>
-
-      <!-- ===================== local-first ===================== -->
+      <!-- ===================== 003 · local-first ===================== -->
       <section id="local" class="section">
-        <div class="wrap grid items-center gap-12 lg:grid-cols-2">
-          <div>
-            <p class="eyebrow">Local-first</p>
-            <h2 class="section__title">Your work is a folder.<br />That is the whole idea.</h2>
-            <p class="section__lede">
-              Open a project and there is nothing to log into and nothing syncing in the background. A Polyform
-              project is a directory of ordinary files: a binary scene, a real SQLite undo journal, and your images
-              stored by content hash. Back it up with <code class="text-body">cp</code>. Diff it in git. Open it in
-              ten years.
-            </p>
-            <ul class="mt-7 space-y-3.5 text-[0.95rem] text-dim">
-              <li class="flex gap-3">
-                <span aria-hidden="true" class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"></span>
-                <span
-                  ><b class="font-semibold text-body">Undo that survives closing the app.</b> Every edit is
-                  journaled to disk. Reopen a project a week later and keep pressing Ctrl+Z, or scrub the timeline
-                  and jump anywhere in its history.</span
-                >
-              </li>
-              <li class="flex gap-3">
-                <span aria-hidden="true" class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"></span>
-                <span
-                  ><b class="font-semibold text-body">No save button.</b> Edits are written about a second after
-                  you stop making them, and the title bar tells you when they land.</span
-                >
-              </li>
-              <li class="flex gap-3">
-                <span aria-hidden="true" class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-2"></span>
-                <span
-                  ><b class="font-semibold text-body">A format you can read without us.</b> The scene schema is
-                  published, and the bundle opens with standard tools.</span
-                >
-              </li>
-            </ul>
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="mono">003</span>
+            <span class="mono">Local-first</span>
+            <span class="mono">No account, ever</span>
           </div>
+          <h2 class="sec-title">Your work is a folder.<br />That is the whole idea.</h2>
 
-          <div class="card p-6 sm:p-8">
-            <div class="tree" role="img" aria-label="A Polyform project folder containing MyPoster.poly, scene.bin, history.sqlite, thumbnail.png and an assets directory.">
+          <div class="mt-14 grid items-start gap-12 lg:grid-cols-2">
+            <div class="reveal">
+              <p class="text-[1.0625rem] leading-relaxed text-dim">
+                Open a project and there is nothing to log into and nothing syncing in the background. A Polyform
+                project is a directory of ordinary files: a binary scene, a real SQLite undo journal, and your
+                images stored by content hash. Back it up with <code class="font-mono text-body">cp</code>. Diff it
+                in git. Open it in ten years.
+              </p>
+              <dl class="mt-8 grid gap-6">
+                <div class="border-t border-rule pt-4">
+                  <dt class="font-semibold">Undo that survives closing the app</dt>
+                  <dd class="mt-1.5 text-sm leading-relaxed text-dim">Every edit is journaled to disk. Reopen a project a week later and keep pressing Ctrl+Z, or scrub the timeline and jump anywhere in its history.</dd>
+                </div>
+                <div class="border-t border-rule pt-4">
+                  <dt class="font-semibold">No save button</dt>
+                  <dd class="mt-1.5 text-sm leading-relaxed text-dim">Edits are written about a second after you stop making them, and the title bar tells you when they land.</dd>
+                </div>
+                <div class="border-t border-rule pt-4">
+                  <dt class="font-semibold">A format you can read without us</dt>
+                  <dd class="mt-1.5 text-sm leading-relaxed text-dim">The scene schema is published, and the bundle opens with standard tools.</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div class="card reveal p-6 sm:p-8">
+              <div class="tree" role="img" aria-label="A Polyform project folder containing MyPoster.poly, scene.bin, history.sqlite, thumbnail.png and an assets directory.">
 <b>MyPoster/</b>
 ├── <i>MyPoster.poly</i>       the file you double-click
 ├── scene.bin           the scene graph
@@ -203,255 +312,146 @@
 ├── thumbnail.png       preview
 └── assets/             deduplicated by hash
     └── e3b0c44298fc…855.png</div>
-            <p class="mt-6 border-t border-line pt-5 text-[0.8125rem] leading-relaxed text-dim">
-              Copying the folder copies the entire project — shapes, history and assets included. Design-system
-              libraries are just other projects you attach.
-            </p>
+              <p class="mt-6 border-t border-rule pt-5 text-[0.8125rem] leading-relaxed text-dim">
+                Copying the folder copies the entire project — shapes, history and assets included. Design-system
+                libraries are just other projects you attach.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- ===================== features ===================== -->
-      <section id="features" class="section">
+      <!-- ===================== 004 · engine ===================== -->
+      <section id="engine" class="section">
         <div class="wrap">
-          <p class="eyebrow">The tools</p>
-          <h2 class="section__title">A real editor, not a demo</h2>
-          <p class="section__lede">
+          <div class="sec-head">
+            <span class="mono">004</span>
+            <span class="mono">Under the hood</span>
+            <span class="mono">Rust · WebGPU</span>
+          </div>
+          <h2 class="sec-title">Built like an engine,<br />not a page.</h2>
+          <p class="sec-lede">
+            Shapes are never DOM or SVG nodes. Everything paints through a GPU-composited canvas pipeline, behind a
+            renderer interface with two peer backends.
+          </p>
+
+          <div class="mt-14 grid gap-px overflow-hidden rounded border border-rule bg-rule sm:grid-cols-2">
+            <div class="reveal bg-ink-1 p-8">
+              <p class="text-4xl font-bold tracking-tight"><span class="gradient-text">100,000</span></p>
+              <p class="mono mt-3">shapes panning at 60fps</p>
+              <p class="mt-4 text-sm leading-relaxed text-dim">A lyon-tessellated, batched WebGPU pipeline: 0.18&nbsp;ms of CPU per frame, in one draw call, measured by the harness inside the app. Where there is no WebGPU device it falls back to Canvas2D on its own.</p>
+            </div>
+            <div class="reveal bg-ink-1 p-8">
+              <p class="text-4xl font-bold tracking-tight"><span class="gradient-text">21 / 21</span></p>
+              <p class="mono mt-3">pixel-identical fixtures</p>
+              <p class="mt-4 text-sm leading-relaxed text-dim">Shadows, blurs, every blend mode, shaped text from a GPU glyph atlas and all three mask kinds are held to the Canvas2D reference, so turning the GPU on cannot change how your file looks.</p>
+            </div>
+            <div class="reveal bg-ink-1 p-8">
+              <p class="text-4xl font-bold tracking-tight"><span class="gradient-text">Rust</span> twins</p>
+              <p class="mono mt-3">proven by differential fuzzing</p>
+              <p class="mt-4 text-sm leading-relaxed text-dim">Geometry, spatial index, exact-CSG booleans, the scene graph, constraints, layout, serialization and text shaping all have Rust counterparts compiled to WebAssembly. Each ships only after a fuzz suite proves it matches the TypeScript reference.</p>
+            </div>
+            <div class="reveal bg-ink-1 p-8">
+              <p class="text-4xl font-bold tracking-tight"><span class="gradient-text">rustybuzz</span></p>
+              <p class="mono mt-3">real shaping, not the browser's</p>
+              <p class="mt-4 text-sm leading-relaxed text-dim">Kerning and ligatures come from the font's own tables, with layout pinned to the shipped engine rather than to whatever Chromium version you happen to have. Fonts are read straight off your OS.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== 005 · the editor ===================== -->
+      <section id="editor" class="section">
+        <div class="wrap">
+          <div class="sec-head">
+            <span class="mono">005</span>
+            <span class="mono">The editor</span>
+            <span class="mono">Real screenshots</span>
+          </div>
+          <h2 class="sec-title">A real editor,<br />not a demo.</h2>
+          <p class="sec-lede">
             Multi-page documents, frames with auto layout and constraints, components and instances, pen paths with
             a full vector-edit mode, text shaped from your system fonts, gradients, effects, masks, booleans,
             snapping and smart guides, SVG import, PNG and SVG export.
           </p>
 
-          <div class="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <article class="card overflow-hidden">
-              <img
-                class="aspect-[16/10] w-full border-b border-line object-cover"
-                src="./src/shots/shot-layers.png"
-                width="920"
-                height="576"
-                alt="Polyform's pages and layer tree, listing the frames and shapes of a dashboard design."
-                loading="lazy"
-                decoding="async"
-              />
-              <div class="p-6">
-                <h3 class="font-semibold">Pages, layers, components</h3>
-                <p class="mt-2 text-sm leading-relaxed text-dim">
-                  Multi-page documents, nested frames with auto layout and constraints, and components whose
-                  instances carry journaled overrides you can swap or detach.
-                </p>
-              </div>
-            </article>
-
-            <article class="card overflow-hidden">
-              <img
-                class="aspect-[16/10] w-full border-b border-line object-cover"
-                src="./src/shots/shot-canvas.png"
-                width="1326"
-                height="828"
-                alt="A dashboard design on the canvas: gradient-filled bars and an arc ring."
-                loading="lazy"
-                decoding="async"
-              />
-              <div class="p-6">
-                <h3 class="font-semibold">Gradients, effects &amp; masks</h3>
-                <p class="mt-2 text-sm leading-relaxed text-dim">
-                  Multi-stop gradients, drop and inner shadows, layer and background blur, all sixteen blend modes,
-                  arcs and rings, and group, even-odd and text masks.
-                </p>
-              </div>
-            </article>
-
-            <article class="card overflow-hidden">
-              <img
-                class="aspect-[16/10] w-full border-b border-line object-cover"
-                src="./src/shots/shot-inspector.png"
-                width="784"
-                height="490"
-                alt="Polyform's inspector showing alignment, position, dimensions, rotation and corner radius."
-                loading="lazy"
-                decoding="async"
-              />
-              <div class="p-6">
-                <h3 class="font-semibold">The inspector you expect</h3>
-                <p class="mt-2 text-sm leading-relaxed text-dim">
-                  Align and distribute, scrubbable numeric fields, per-corner radius, per-side strokes, shared
-                  styles, and the colours in your selection listed and editable in one place.
-                </p>
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <!-- ===================== under the hood ===================== -->
-      <section class="section">
-        <div class="wrap">
-          <p class="eyebrow">Under the hood</p>
-          <h2 class="section__title">Built like an engine, not a page</h2>
-          <p class="section__lede">
-            Shapes are never DOM or SVG nodes. Everything paints through a GPU-composited canvas pipeline, behind a
-            renderer interface with two peer backends.
-          </p>
-
-          <div class="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2">
-            <div class="bg-ink-1 p-7">
-              <p class="text-3xl font-bold tracking-tight"><span class="gradient-text">100,000</span> shapes</p>
-              <p class="mt-1 text-sm font-medium">panning at 60fps</p>
-              <p class="mt-3 text-sm leading-relaxed text-dim">
-                A lyon-tessellated, batched WebGPU pipeline: 0.18&nbsp;ms of CPU per frame, in one draw call,
-                measured by the harness inside the app. Where there is no WebGPU device it falls back to Canvas2D
-                on its own.
-              </p>
-            </div>
-
-            <div class="bg-ink-1 p-7">
-              <p class="text-3xl font-bold tracking-tight"><span class="gradient-text">21 / 21</span> fixtures</p>
-              <p class="mt-1 text-sm font-medium">pixel-identical across both renderers</p>
-              <p class="mt-3 text-sm leading-relaxed text-dim">
-                Shadows, blurs, every blend mode, shaped text from a GPU glyph atlas and all three mask kinds are
-                held to the Canvas2D reference, so turning the GPU on cannot change how your file looks.
-              </p>
-            </div>
-
-            <div class="bg-ink-1 p-7">
-              <p class="text-3xl font-bold tracking-tight"><span class="gradient-text">Rust</span> engine core</p>
-              <p class="mt-1 text-sm font-medium">proven equivalent by differential fuzzing</p>
-              <p class="mt-3 text-sm leading-relaxed text-dim">
-                Geometry, spatial index, exact-CSG booleans, the scene graph, constraints, layout, serialization
-                and text shaping all have Rust twins compiled to WebAssembly. Each one ships only after a fuzz
-                suite proves it matches the TypeScript reference.
-              </p>
-            </div>
-
-            <div class="bg-ink-1 p-7">
-              <p class="text-3xl font-bold tracking-tight"><span class="gradient-text">Real</span> text shaping</p>
-              <p class="mt-1 text-sm font-medium">rustybuzz, not the browser</p>
-              <p class="mt-3 text-sm leading-relaxed text-dim">
-                Kerning and ligatures come from the font's own tables, with layout pinned to the shipped engine
-                rather than to whatever Chromium version you happen to have. Fonts are read straight off your OS.
-              </p>
-            </div>
-          </div>
+          <figure class="reveal mt-14">
+            <img class="shot" src="./src/shots/hero.png" width="2880" height="1800" alt="The Polyform editor with a dashboard design on the canvas, the layer tree on the left and the inspector on the right." loading="lazy" decoding="async" />
+          </figure>
 
           <div class="mt-6 grid gap-6 md:grid-cols-3">
-            <div class="card p-6">
-              <h3 class="font-semibold">Agents, on your terms</h3>
-              <p class="mt-2 text-sm leading-relaxed text-dim">
-                An MCP server inside the app lets an AI agent read the document you have open, see your canvas and
-                make attributed, single-undo edits. Off by default, loopback-only, token-protected, and split into
-                four capabilities you grant and revoke while it is connected.
-              </p>
-            </div>
-            <div class="card p-6">
-              <h3 class="font-semibold">A headless CLI</h3>
-              <p class="mt-2 text-sm leading-relaxed text-dim">
-                <code class="text-body">polyform new</code>, <code class="text-body">query</code>,
-                <code class="text-body">export</code> and <code class="text-body">mcp serve</code> work on
-                <code class="text-body">.poly</code> files with no window at all — exports pixel-identical to the
-                app, for CI and scripting.
-              </p>
-            </div>
-            <div class="card p-6">
-              <h3 class="font-semibold">
-                Import from Figma <span class="ml-1 align-middle text-[0.7rem] font-medium text-dim">experimental</span>
-              </h3>
-              <p class="mt-2 text-sm leading-relaxed text-dim">
-                Reads a <code class="text-body">.fig</code> export offline into editable layers, and reports
-                everything it approximated or dropped rather than losing it quietly.
-              </p>
-            </div>
+            <figure class="reveal">
+              <img class="shot" src="./src/shots/shot-layers.png" width="920" height="576" alt="Polyform's pages and layer tree." loading="lazy" decoding="async" />
+              <figcaption class="mt-3 text-sm text-dim"><b class="font-semibold text-body">Pages, layers, components.</b> Nested frames, auto layout, journaled overrides.</figcaption>
+            </figure>
+            <figure class="reveal">
+              <img class="shot" src="./src/shots/shot-canvas.png" width="1326" height="828" alt="Gradient bars and an arc ring on the Polyform canvas." loading="lazy" decoding="async" />
+              <figcaption class="mt-3 text-sm text-dim"><b class="font-semibold text-body">Gradients, effects, arcs.</b> Sixteen blend modes, shadows, blur, masks.</figcaption>
+            </figure>
+            <figure class="reveal">
+              <img class="shot" src="./src/shots/shot-inspector.png" width="784" height="490" alt="Polyform's inspector panel." loading="lazy" decoding="async" />
+              <figcaption class="mt-3 text-sm text-dim"><b class="font-semibold text-body">The inspector you expect.</b> Scrubbable fields, per-corner radius, shared styles.</figcaption>
+            </figure>
           </div>
         </div>
       </section>
 
-      <!-- ===================== download ===================== -->
+      <!-- ===================== 006 · download ===================== -->
       <section id="download" class="section">
         <div class="wrap">
-          <p class="eyebrow">Download</p>
-          <h2 class="section__title">Get Polyform <span class="gradient-text">%VERSION%</span></h2>
-          <p class="section__lede">
-            Free, and free software. Nothing to register, nothing that expires.
-          </p>
-
-          %DOWNLOADS%
-
-          <!-- The README is careful about this and the website must not be less
-               so. Someone about to run an unsigned installer deserves to read
-               it here, not discover it from a SmartScreen warning. -->
-          <div class="card mt-8 p-6">
-            <h3 class="text-sm font-semibold">Before you install — the honest part</h3>
-            <ul class="mt-3 list-outside list-disc space-y-2 pl-5 text-sm leading-relaxed text-dim marker:text-line">
-              <li>
-                <b class="font-semibold text-body">This is a beta.</b> Polyform is under active development and the
-                feature matrix marks exactly what is finished, partial and planned.
-              </li>
-              <li>
-                <b class="font-semibold text-body">The installers are not code signed yet.</b> Windows SmartScreen
-                and macOS Gatekeeper will warn you. Verify what you downloaded against the published
-                <a class="link" href="%CHECKSUMS_URL%">SHA-256 checksums</a>, or against the Sigstore build
-                provenance attestation with
-                <code class="text-body">gh attestation verify &lt;file&gt; --repo AndreaDev3D/Polyform</code>.
-              </li>
-              <li>
-                <b class="font-semibold text-body">It will not update itself.</b> Polyform tells you when a new
-                version exists and leaves the decision, and the download, to you.
-              </li>
-            </ul>
+          <div class="sec-head">
+            <span class="mono">006</span>
+            <span class="mono">Download</span>
+            <span class="mono">Free · MIT</span>
           </div>
-
-          <p class="mt-6 text-sm text-dim">
-            Prefer to build it yourself? <code class="text-body">git clone</code>,
-            <code class="text-body">npm install</code>, <code class="text-body">npm run dev</code> — the
-            <a class="link" href="https://github.com/AndreaDev3D/Polyform#getting-started">README</a> has the
-            details.
-          </p>
+          %DOWNLOADS%
         </div>
       </section>
 
-      <!-- ===================== docs ===================== -->
+      <!-- ===================== 007 · docs ===================== -->
       <section id="docs" class="section">
         <div class="wrap">
-          <p class="eyebrow">Documentation</p>
-          <h2 class="section__title">Read before you commit to it</h2>
-          <p class="section__lede">
-            Everything about this project is written down, including the parts that are unfinished and the
-            decisions that might be wrong.
-          </p>
+          <div class="sec-head">
+            <span class="mono">007</span>
+            <span class="mono">Documentation</span>
+            <span class="mono">Including the unfinished parts</span>
+          </div>
+          <h2 class="sec-title">Read before you<br />commit to it.</h2>
 
-          <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <a class="card block p-5 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Feature-Matrix.md">
-              <h3 class="font-semibold">Feature matrix &rarr;</h3>
+          <div class="mt-12 grid gap-px overflow-hidden rounded border border-rule bg-rule sm:grid-cols-2 lg:grid-cols-3">
+            <a class="bg-ink-1 p-6 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Feature-Matrix.md">
+              <h3 class="font-semibold">Feature matrix →</h3>
               <p class="mt-1.5 text-sm text-dim">244 rows with honest statuses, recounted every release.</p>
             </a>
-            <a class="card block p-5 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Roadmap.md">
-              <h3 class="font-semibold">Roadmap &rarr;</h3>
+            <a class="bg-ink-1 p-6 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Roadmap.md">
+              <h3 class="font-semibold">Roadmap →</h3>
               <p class="mt-1.5 text-sm text-dim">What shipped, what is next, and in what order.</p>
             </a>
-            <a class="card block p-5 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Architecture-Decisions.md">
-              <h3 class="font-semibold">Architecture decisions &rarr;</h3>
+            <a class="bg-ink-1 p-6 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Architecture-Decisions.md">
+              <h3 class="font-semibold">Architecture decisions →</h3>
               <p class="mt-1.5 text-sm text-dim">Every load-bearing choice, and what would make us replace it.</p>
             </a>
-            <a class="card block p-5 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/CHANGELOG.md">
-              <h3 class="font-semibold">Changelog &rarr;</h3>
-              <p class="mt-1.5 text-sm text-dim">What landed in each release.</p>
+            <a class="bg-ink-1 p-6 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/Plugin-API.md">
+              <h3 class="font-semibold">Plugin &amp; agent API →</h3>
+              <p class="mt-1.5 text-sm text-dim">The MCP surface and the plugin dev preview.</p>
             </a>
-            <a class="card block p-5 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/schema.fbs">
-              <h3 class="font-semibold">File format &rarr;</h3>
+            <a class="bg-ink-1 p-6 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/blob/production/docs/schema.fbs">
+              <h3 class="font-semibold">File format →</h3>
               <p class="mt-1.5 text-sm text-dim">The scene object model, documented so the format outlives us.</p>
             </a>
-            <a class="card block p-5 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/issues">
-              <h3 class="font-semibold">Issues &amp; contributing &rarr;</h3>
+            <a class="bg-ink-1 p-6 no-underline transition-colors hover:bg-ink-2" href="https://github.com/AndreaDev3D/Polyform/issues">
+              <h3 class="font-semibold">Issues &amp; contributing →</h3>
               <p class="mt-1.5 text-sm text-dim">Plenty of well-scoped work is marked up for the taking.</p>
             </a>
           </div>
         </div>
       </section>
 
-      <!-- ===================== closing CTA ===================== -->
-      <section class="section text-center">
-        <div class="wrap">
-          <h2 class="section__title">Design something that stays yours.</h2>
-          <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+      <!-- ===================== closing ===================== -->
+      <section class="section">
+        <div class="wrap text-center">
+          <h2 class="sec-title !mt-0">Design something that stays yours.</h2>
+          <div class="mt-10 flex flex-wrap items-center justify-center gap-3">
             <a href="#download" class="btn btn--primary !px-6 !py-3.5 !text-base">Download Polyform</a>
             <a href="https://github.com/AndreaDev3D/Polyform" class="btn !px-6 !py-3.5 !text-base">Star it on GitHub</a>
           </div>
@@ -460,11 +460,11 @@
     </main>
 
     <!-- ===================== footer ===================== -->
-    <footer class="border-t border-line py-12">
+    <footer class="border-t border-rule py-12">
       <div class="wrap flex flex-col gap-8 sm:flex-row sm:items-start sm:justify-between">
         <div class="max-w-md">
-          <p class="text-sm font-semibold">Polyform</p>
-          <p class="mt-2 text-[0.8125rem] leading-relaxed text-dim">
+          <p class="mono">Polyform</p>
+          <p class="mt-3 text-[0.8125rem] leading-relaxed text-dim">
             An independent open-source project, not affiliated with or endorsed by any other design-tool vendor.
             Product names used in the documentation belong to their owners and appear for identification and
             comparison only.

@@ -26,6 +26,7 @@ import { killElectronMatching } from './proc-cleanup.mjs'
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SHOTS = path.join(ROOT, 'site', 'src', 'shots')
 const ICONS = path.join(ROOT, 'site', 'src', 'icons')
+const GALLERY_DIR = path.join(ROOT, 'site', 'src', 'gallery')
 // og.png is the ONE asset that must keep a stable, predictable URL: it is
 // baked into the page's og:image as an absolute link, and crawlers cache it.
 // Everything else goes through src/ so Vite can hash it.
@@ -40,24 +41,33 @@ if (!fs.existsSync(path.join(ROOT, 'out', 'main', 'index.js'))) {
   console.error('site-shots: no build in out/ — run `npm run build` first')
   process.exit(1)
 }
-for (const dir of [SHOTS, ICONS, PUBLIC]) fs.mkdirSync(dir, { recursive: true })
+for (const dir of [SHOTS, ICONS, GALLERY_DIR, PUBLIC]) fs.mkdirSync(dir, { recursive: true })
 
 // ---------------------------------------------------------------------------
-// The document in the screenshots.
+// A tiny node-building vocabulary, shared by every composition below.
 //
-// Built out of nodes rather than imported from a file, so the picture on the
-// website is reproducible from this repo alone and cannot rot into "some .poly
-// someone had lying around". It is a UI design because that is what Polyform
-// is for; the gradients, the arc and the drop shadows are there because they
-// are the features the surrounding page claims.
-//
-// Runs as a string inside the renderer, where `globalThis.__polyform` is.
+// Everything here runs as a STRING inside the renderer, where
+// `globalThis.__polyform` lives — so it is prepended to each composition
+// rather than imported. Written once because there are now six documents to
+// build (the editor screenshot plus five gallery pieces) and six copies of
+// `rgb`/`solid`/`grad` would drift within a week.
 // ---------------------------------------------------------------------------
-const BUILD_DOC = String.raw`(() => {
+const HELPERS = String.raw`
   const P = globalThis.__polyform
   const s = P.documentStore.scene
+  // Two counters on purpose. One counts how many nodes THIS composition made,
+  // which is worth reporting; the id comes off a counter that outlives the
+  // composition, because clearing the page removes the root frames without
+  // purging their descendants from the scene's node map — so a second
+  // composition starting again at 1 collides with shapes that are gone from
+  // the canvas but still known to the graph.
+  // (No backticks in here: this whole block is inside a template literal.)
   let seq = 0
-  const id = () => 'shot' + (++seq).toString(36).padStart(4, '0')
+  globalThis.__shotSeq = globalThis.__shotSeq || 0
+  const id = () => {
+    seq++
+    return 'shot' + (++globalThis.__shotSeq).toString(36).padStart(4, '0')
+  }
 
   const rgb = (hex, a = 1) => ({
     r: parseInt(hex.slice(1, 3), 16) / 255,
@@ -99,6 +109,19 @@ const BUILD_DOC = String.raw`(() => {
       textAlignH: 'LEFT', textAlignV: 'TOP', autoResize: 'NONE',
       fills: solid('#e6e6e6'),
     }, props)), parent)
+`
+
+/**
+ * The document behind the editor screenshots.
+ *
+ * Built out of nodes rather than imported from a file, so the picture on the
+ * website is reproducible from this repo alone and cannot rot into "some .poly
+ * someone had lying around". It is a UI design because that is what Polyform
+ * is for; the gradients, the arc and the drop shadows are there because they
+ * are the features the surrounding page claims.
+ */
+const BUILD_DOC = String.raw`(() => {
+  ${HELPERS}
 
   // --- artboard ------------------------------------------------------------
   const board = frame('Dashboard — Overview', 0, 0, 1280, 800, {
@@ -250,6 +273,335 @@ const FRAME_ALL = String.raw`(() => {
   const cy = content.y + content.h / 2
   P.editor.set({ camera: { x: cx - viewportSize.w / (2 * zoom), y: cy - viewportSize.h / (2 * zoom), zoom } })
   return JSON.stringify({ zoom, viewportSize })
+})()`
+
+// ---------------------------------------------------------------------------
+// The gallery: five pieces answering "what comes out of this thing?"
+//
+// Every one is BUILT IN POLYFORM and photographed off its own canvas. That is
+// the argument the section makes, so buying stock art or mocking these up
+// elsewhere would quietly make the page a lie. They are also the reason the
+// range reads: a greyscale wireframe next to a finished UI next to a poster
+// says "the whole way from sketch to print" faster than any list of features.
+//
+// Each builds one artboard at (0,0) so the capture below can compute its
+// screen rect without knowing anything about the composition.
+// ---------------------------------------------------------------------------
+const GALLERY = [
+  {
+    key: '01-wireframe',
+    w: 1600,
+    h: 1000,
+    label: 'Wireframe',
+    caption: 'Grey boxes and nothing else. Structure before anyone argues about colour.',
+    build: String.raw`
+    const art = frame('Wireframe — Console', 0, 0, 1600, 1000, { fills: solid('#EFEFF1'), cornerRadius: radius(0) })
+    const bar = (x, y, w, h, hex) => rect('bar', x, y, w, h, { cornerRadius: radius(h / 2), fills: solid(hex) }, art)
+    const box = (x, y, w, h, fill, stroke) => rect('box', x, y, w, h, {
+      cornerRadius: radius(8), fills: solid(fill), strokes: solid(stroke ?? '#D7D7DB'), strokeWeight: 2,
+    }, art)
+    const label = (t, x, y, w, size, hex) => text(t, x, y, w, size * 1.6, {
+      fontSize: size, fontWeight: 600, fills: solid(hex ?? '#8A8A93'), letterSpacing: 0.4,
+    }, art)
+
+    // chrome
+    rect('Top bar', 0, 0, 1600, 72, { fills: solid('#FFFFFF') }, art)
+    rect('Hairline', 0, 70, 1600, 2, { fills: solid('#DEDEE3') }, art)
+    rect('Logo', 32, 20, 32, 32, { cornerRadius: radius(8), fills: solid('#C2C2CA') }, art)
+    ;['Overview', 'Library', 'Reports'].forEach((t, i) => label(t, 96 + i * 116, 28, 110, 15))
+    add(base('ELLIPSE', 'Avatar', 1524, 20, 32, 32, { fills: solid('#CDCDD4') }), art)
+    bar(1400, 30, 96, 14, '#DCDCE2')
+
+    // sidebar
+    rect('Sidebar', 0, 72, 264, 928, { fills: solid('#F6F6F8') }, art)
+    rect('Sidebar rule', 262, 72, 2, 928, { fills: solid('#E4E4E9') }, art)
+    for (let i = 0; i < 7; i++) {
+      const y = 112 + i * 52
+      if (i === 0) rect('Active', 16, y - 10, 232, 40, { cornerRadius: radius(8), fills: solid('#E6E6EB') }, art)
+      rect('Icon', 32, y, 18, 18, { cornerRadius: radius(5), fills: solid('#C6C6CE') }, art)
+      bar(62, y + 4, 118 + (i % 3) * 26, 10, i === 0 ? '#A9A9B3' : '#D3D3DA')
+    }
+
+    // header
+    bar(304, 116, 300, 22, '#BFBFC8')
+    bar(304, 152, 208, 12, '#D6D6DD')
+    box(1352, 112, 216, 44, '#FFFFFF')
+    bar(1392, 128, 136, 12, '#CFCFD7')
+
+    // hero placeholder, with the diagonal cross that means "image goes here"
+    const hx = 304, hy = 200, hw = 1264, hh = 296
+    box(hx, hy, hw, hh, '#E7E7EB', '#D3D3D9')
+    const diag = Math.round(Math.sqrt(hw * hw + hh * hh))
+    const ang = (Math.atan2(hh, hw) * 180) / Math.PI
+    ;[ang, -ang].forEach((r) => rect('Cross', hx + hw / 2 - diag / 2, hy + hh / 2 - 1, diag, 2, {
+      fills: solid('#D3D3D9'), rotation: r,
+    }, art))
+    label('1264 × 296', hx + 24, hy + 24, 200, 13, '#A2A2AB')
+
+    // three cards
+    for (let i = 0; i < 3; i++) {
+      const x = 304 + i * 432
+      box(x, 536, 400, 232, '#FFFFFF')
+      rect('Thumb', x + 24, 560, 352, 96, { cornerRadius: radius(6), fills: solid('#E7E7EB') }, art)
+      bar(x + 24, 676, 196, 14, '#C6C6CE')
+      bar(x + 24, 704, 352, 9, '#DCDCE2')
+      bar(x + 24, 722, 300, 9, '#DCDCE2')
+      bar(x + 24, 740, 148, 9, '#E3E3E8')
+    }
+
+    // footer note, so the piece reads as a real screen and not a swatch sheet
+    bar(304, 812, 1264, 2, '#E1E1E6')
+    label('WIREFRAME · v3 · not final', 304, 836, 420, 13, '#A2A2AB')
+    return art`,
+  },
+
+  {
+    key: '02-ui-design',
+    w: 1400,
+    h: 980,
+    label: 'Product UI',
+    caption: 'The same screens again, finished — type, colour, depth, states.',
+    build: String.raw`
+    // The wash spans the whole artboard. Starting it halfway down drew a hard
+    // horizontal seam straight across the piece, which read as a rendering
+    // bug rather than as a background.
+    const art = frame('Mobile — Finished', 0, 0, 1400, 980, {
+      fills: grad('#F5F5F8', '#E7E8FA', { x: 0, y: 0 }, { x: 0.2, y: 1 }),
+    })
+
+    const phone = (ox, oy) => {
+      const p = frame('Screen', ox, oy, 340, 700, {
+        fills: solid('#FFFFFF'), cornerRadius: radius(40),
+        effects: [{ type: 'DROP_SHADOW', visible: true, color: rgb('#1B1B2A', 0.16), offset: { x: 0, y: 22 }, blur: 48 }],
+      }, art)
+      rect('Notch', 130, 16, 80, 8, { cornerRadius: radius(4), fills: solid('#E6E6EC') }, p)
+      return p
+    }
+
+    // 1 — onboarding
+    const a = phone(80, 130)
+    rect('Hero', 0, 0, 340, 300, { fills: grad('#15EAD6', '#6C74E8', { x: 0, y: 0 }, { x: 1, y: 1 }) }, a)
+    add(base('ELLIPSE', 'Orb', 196, 44, 168, 168, { fills: solid('#FFFFFF', 0.18) }), a)
+    add(base('ELLIPSE', 'Orb', -46, 150, 130, 130, { fills: solid('#FFFFFF', 0.14) }), a)
+    text('Everything, on your own disk.', 32, 344, 276, 100, {
+      fontSize: 27, fontWeight: 700, lineHeight: 1.22, letterSpacing: -0.6, fills: solid('#15151C'),
+    }, a)
+    text('No account. No sync. No server deciding what you may open.', 32, 458, 268, 66, {
+      fontSize: 14, lineHeight: 1.5, fills: solid('#6E6E7C'),
+    }, a)
+    rect('CTA', 32, 566, 276, 52, {
+      cornerRadius: radius(14), fills: grad('#15EAD6', '#6C74E8', { x: 0, y: 0 }, { x: 1, y: 0 }),
+    }, a)
+    text('Get started', 130, 583, 140, 24, { fontSize: 15, fontWeight: 600, fills: solid('#07070B') }, a)
+    rect('Dots', 148, 646, 44, 6, { cornerRadius: radius(3), fills: solid('#D8D8E0') }, a)
+
+    // 2 — list
+    const b = phone(530, 90)
+    rect('Header', 0, 0, 340, 132, { fills: solid('#FAFAFC') }, b)
+    text('Projects', 28, 52, 200, 40, { fontSize: 25, fontWeight: 700, letterSpacing: -0.5, fills: solid('#15151C') }, b)
+    rect('Search', 28, 100, 284, 40, { cornerRadius: radius(11), fills: solid('#EFEFF4') }, b)
+    text('Search everything', 48, 112, 200, 20, { fontSize: 13, fills: solid('#9A9AA8') }, b)
+    const TINTS = ['#15EAD6', '#35C8E4', '#6C74E8', '#A322E0', '#35C8E4']
+    for (let i = 0; i < 5; i++) {
+      const y = 168 + i * 92
+      rect('Row', 20, y, 300, 76, { cornerRadius: radius(16), fills: solid(i === 0 ? '#F4F4F8' : '#FFFFFF') }, b)
+      rect('Thumb', 34, y + 14, 48, 48, { cornerRadius: radius(13), fills: grad(TINTS[i], '#6C74E8') }, b)
+      rect('Title', 96, y + 22, 128 + (i % 3) * 22, 11, { cornerRadius: radius(6), fills: solid('#2A2A36') }, b)
+      rect('Meta', 96, y + 44, 96, 9, { cornerRadius: radius(5), fills: solid('#C4C4D0') }, b)
+    }
+
+    // 3 — stats
+    const c = phone(980, 150)
+    text('This week', 28, 44, 220, 34, { fontSize: 22, fontWeight: 700, letterSpacing: -0.4, fills: solid('#15151C') }, c)
+    add(base('ELLIPSE', 'Ring', 90, 100, 160, 160, {
+      fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 1 }),
+      arcStart: 0, arcSweep: 0.78, arcRatio: 0.7,
+    }), c)
+    text('78%', 132, 158, 80, 42, { fontSize: 27, fontWeight: 700, textAlignH: 'CENTER', fills: solid('#15151C') }, c)
+    for (let i = 0; i < 3; i++) {
+      const y = 300 + i * 68
+      rect('Stat', 28, y, 284, 56, { cornerRadius: radius(14), fills: solid('#F6F6FA') }, c)
+      rect('Dot', 44, y + 22, 12, 12, { cornerRadius: radius(6), fills: solid(TINTS[i]) }, c)
+      rect('Label', 68, y + 20, 120, 10, { cornerRadius: radius(5), fills: solid('#B6B6C4') }, c)
+      text(['128', '1,904', '46'][i], 232, y + 16, 64, 26, {
+        fontSize: 16, fontWeight: 700, textAlignH: 'RIGHT', fills: solid('#15151C'),
+      }, c)
+    }
+    const BARS = [0.4, 0.62, 0.5, 0.86, 0.7, 0.95, 0.58]
+    BARS.forEach((h, i) => rect('Bar', 30 + i * 42, 620 - Math.round(90 * h), 26, Math.round(90 * h), {
+      cornerRadius: radius(7), fills: grad('#6C74E8', '#15EAD6', { x: 0, y: 1 }, { x: 0, y: 0 }), opacity: 0.45 + 0.55 * h,
+    }, c))
+    return art`,
+  },
+
+  {
+    key: '03-social-post',
+    w: 1080,
+    h: 1080,
+    label: 'Social post',
+    caption: 'Square, legible at thumbnail size, exported straight to PNG.',
+    build: String.raw`
+    const art = frame('Post — 1080', 0, 0, 1080, 1080, { fills: solid('#0C0C0E') })
+    add(base('ELLIPSE', 'Bloom', -180, -220, 780, 780, {
+      fills: grad('#15EAD6', '#6C74E8'), opacity: 0.5,
+      effects: [{ type: 'LAYER_BLUR', visible: true, radius: 130 }],
+    }), art)
+    add(base('ELLIPSE', 'Bloom', 560, 520, 700, 700, {
+      fills: grad('#A322E0', '#6C74E8'), opacity: 0.45,
+      effects: [{ type: 'LAYER_BLUR', visible: true, radius: 140 }],
+    }), art)
+    // A faint rule grid, so the flat areas are not dead space.
+    for (let i = 1; i < 6; i++) rect('Rule', 0, i * 180, 1080, 1, { fills: solid('#FFFFFF', 0.05) }, art)
+    for (let i = 1; i < 6; i++) rect('Rule', i * 180, 0, 1, 1080, { fills: solid('#FFFFFF', 0.05) }, art)
+
+    rect('Chip', 88, 92, 250, 46, {
+      cornerRadius: radius(23), fills: solid('#FFFFFF', 0.08), strokes: solid('#FFFFFF', 0.18), strokeWeight: 1,
+    }, art)
+    add(base('ELLIPSE', 'Dot', 110, 111, 10, 10, { fills: solid('#15EAD6') }), art)
+    text('POLYFORM v0.8', 130, 105, 200, 24, {
+      fontSize: 14, fontWeight: 600, letterSpacing: 1.6, fills: solid('#D8D8E2'),
+    }, art)
+
+    text('100,000', 84, 300, 920, 190, {
+      fontSize: 168, fontWeight: 700, letterSpacing: -7, lineHeight: 1,
+      fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 1 }),
+    }, art)
+    text('shapes, panning', 88, 486, 920, 110, {
+      fontSize: 88, fontWeight: 700, letterSpacing: -3.4, lineHeight: 1, fills: solid('#F2F2F5'),
+    }, art)
+    text('at 60fps.', 88, 588, 920, 110, {
+      fontSize: 88, fontWeight: 700, letterSpacing: -3.4, lineHeight: 1, fills: solid('#F2F2F5'),
+    }, art)
+
+    text('One draw call. 0.18 ms of CPU per frame. Measured by the harness inside the app, not by us.',
+      88, 748, 700, 96, { fontSize: 25, lineHeight: 1.5, fills: solid('#9C9CAA') }, art)
+
+    rect('Footer rule', 88, 906, 904, 1, { fills: solid('#FFFFFF', 0.13) }, art)
+    text('Free and open source · MIT', 88, 942, 560, 34, { fontSize: 22, fontWeight: 500, fills: solid('#C9C9D6') }, art)
+    text('polyform', 800, 942, 200, 34, {
+      fontSize: 22, fontWeight: 700, textAlignH: 'RIGHT', letterSpacing: -0.4, fills: solid('#F2F2F5'),
+    }, art)
+    return art`,
+  },
+
+  {
+    key: '04-banner',
+    w: 1600,
+    h: 600,
+    label: 'Banner',
+    caption: 'Wide crop of the same system — ad slots, README headers, OG cards.',
+    build: String.raw`
+    const art = frame('Banner — 1600×600', 0, 0, 1600, 600, { fills: solid('#0C0C0E') })
+    add(base('ELLIPSE', 'Sweep', 900, -300, 900, 900, {
+      fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 1 }), opacity: 0.42,
+      effects: [{ type: 'LAYER_BLUR', visible: true, radius: 150 }],
+    }), art)
+    rect('Edge', 0, 0, 6, 600, { fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 0, y: 1 }) }, art)
+
+    rect('Mark', 92, 88, 46, 46, { cornerRadius: radius(12), fills: grad('#15EAD6', '#6C74E8') }, art)
+    text('Polyform', 154, 96, 260, 34, { fontSize: 24, fontWeight: 700, letterSpacing: -0.5, fills: solid('#F2F2F5') }, art)
+
+    text('Design tools that', 92, 216, 1000, 92, {
+      fontSize: 76, fontWeight: 700, letterSpacing: -3, lineHeight: 1.04, fills: solid('#F2F2F5'),
+    }, art)
+    text('answer to nobody.', 92, 300, 1000, 92, {
+      fontSize: 76, fontWeight: 700, letterSpacing: -3, lineHeight: 1.04,
+      fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 0 }),
+    }, art)
+    text('Local-first vector design for Windows, macOS and Linux.', 92, 420, 760, 36, {
+      fontSize: 22, lineHeight: 1.45, fills: solid('#9C9CAA'),
+    }, art)
+
+    rect('CTA', 1180, 396, 328, 62, { cornerRadius: radius(16), fills: solid('#F2F2F5') }, art)
+    text('Download free', 1252, 414, 200, 28, { fontSize: 19, fontWeight: 600, fills: solid('#0C0C0E') }, art)
+    text('MIT · no account · works offline', 1180, 486, 340, 26, {
+      fontSize: 14, letterSpacing: 0.3, fills: solid('#8A8A98'),
+    }, art)
+    return art`,
+  },
+
+  {
+    key: '05-poster',
+    w: 1000,
+    h: 1400,
+    label: 'Poster',
+    caption: 'Print-shaped and type-led, because vectors were never only for screens.',
+    build: String.raw`
+    const art = frame('Poster — A-series', 0, 0, 1000, 1400, { fills: solid('#0C0C0E') })
+    // Structural grid, left visible on purpose — the poster is about the grid.
+    for (let i = 1; i < 6; i++) rect('Column', i * 166, 0, 1, 1400, { fills: solid('#FFFFFF', 0.07) }, art)
+    rect('Rule', 80, 150, 840, 1, { fills: solid('#FFFFFF', 0.22) }, art)
+    rect('Rule', 80, 1268, 840, 1, { fills: solid('#FFFFFF', 0.22) }, art)
+
+    text('POLYFORM', 80, 104, 400, 34, { fontSize: 17, fontWeight: 600, letterSpacing: 5.5, fills: solid('#C9C9D6') }, art)
+    text('MMXXVI', 700, 104, 220, 34, {
+      fontSize: 17, fontWeight: 600, letterSpacing: 5.5, textAlignH: 'RIGHT', fills: solid('#7C7C8A'),
+    }, art)
+
+    // The shape cluster is bounded ABOVE the type block on purpose: at 126px
+    // with a 1.0 line height, three lines occupy 378px, and the first pass put
+    // the last line through both the footer rule and the footer text.
+    add(base('ELLIPSE', 'Ring', 300, 270, 520, 520, {
+      fills: [], strokes: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 1 }), strokeWeight: 2, strokeAlign: 'CENTER',
+    }), art)
+    add(base('ELLIPSE', 'Disc', 150, 430, 430, 430, {
+      fills: grad('#15EAD6', '#6C74E8', { x: 0, y: 0 }, { x: 1, y: 1 }), opacity: 0.92,
+    }), art)
+    add(base('ELLIPSE', 'Arc', 470, 220, 380, 380, {
+      fills: grad('#A322E0', '#6C74E8'), arcStart: 0.12, arcSweep: 0.46, arcRatio: 0.55, opacity: 0.95,
+    }), art)
+
+    text('VECTOR', 80, 894, 840, 140, { fontSize: 126, fontWeight: 700, letterSpacing: -4, lineHeight: 1, fills: solid('#F2F2F5') }, art)
+    text('ON YOUR', 80, 1004, 840, 140, { fontSize: 126, fontWeight: 700, letterSpacing: -4, lineHeight: 1, fills: solid('#F2F2F5') }, art)
+    text('OWN DISK', 80, 1114, 840, 140, {
+      fontSize: 126, fontWeight: 700, letterSpacing: -4, lineHeight: 1,
+      fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 0 }),
+    }, art)
+
+    text('AN OPEN-SOURCE DESIGN TOOL', 80, 1300, 520, 30, { fontSize: 15, fontWeight: 600, letterSpacing: 3, fills: solid('#8A8A98') }, art)
+    text('MIT', 700, 1300, 220, 30, {
+      fontSize: 15, fontWeight: 600, letterSpacing: 3, textAlignH: 'RIGHT', fills: solid('#8A8A98'),
+    }, art)
+    return art`,
+  },
+]
+
+/** Empty the page, so one piece cannot inherit the last one's shapes. */
+const CLEAR = String.raw`(() => {
+  const P = globalThis.__polyform
+  const s = P.documentStore.scene
+  for (const id of [...s.rootIds()]) s.removeNode(id)
+  P.editor.set({ selection: [], vectorSelection: [] })
+  P.documentStore.emit()
+  return s.rootIds().length
+})()`
+
+/**
+ * Fit one artboard on screen and report where it landed, in window
+ * coordinates, so the capture can clip to the artwork alone.
+ *
+ * Clipping to the artboard rather than hiding the UI is what makes these read
+ * as artwork instead of screenshots: the frame's name label, the rulers and
+ * the panels all live outside this rectangle by construction.
+ */
+const framePiece = (w, h) => String.raw`(() => {
+  const P = globalThis.__polyform
+  const { viewportSize } = P.editor.get()
+  const zoom = Math.min((viewportSize.w - 48) / ${w}, (viewportSize.h - 48) / ${h})
+  P.editor.set({
+    selection: [],
+    camera: { x: ${w} / 2 - viewportSize.w / (2 * zoom), y: ${h} / 2 - viewportSize.h / (2 * zoom), zoom },
+  })
+  const cam = P.editor.get().camera
+  const a = P.overlays.worldToScreen(cam, { x: 0, y: 0 })
+  const b = P.overlays.worldToScreen(cam, { x: ${w}, y: ${h} })
+  const r = document.querySelector('canvas').getBoundingClientRect()
+  return JSON.stringify({
+    zoom,
+    x: a.x + r.left, y: a.y + r.top,
+    width: b.x - a.x, height: b.y - a.y,
+    fits: a.x >= -0.5 && a.y >= -0.5 && b.x <= r.width + 0.5 && b.y <= r.height + 0.5,
+  })
 })()`
 
 // ---------------------------------------------------------------------------
@@ -405,7 +757,8 @@ try {
     })
     const data = r.result?.data
     if (!data) return fail(`${name}: the debugger returned no image`)
-    const dir = name === 'og' ? PUBLIC : name === 'apple-touch-icon' ? ICONS : SHOTS
+    const dir =
+      name === 'og' ? PUBLIC : name === 'apple-touch-icon' ? ICONS : /^\d\d-/.test(name) ? GALLERY_DIR : SHOTS
     const file = path.join(dir, `${name}.png`)
     fs.writeFileSync(file, Buffer.from(data, 'base64'))
     console.log(`site-shots: ${path.relative(ROOT, file)} (${Math.round(data.length * 0.75 / 1024)} KB)`)
@@ -478,6 +831,31 @@ try {
   // a sidebar, and says nothing about what it is attached to.
   await shoot('shot-inspector', crop16x10(CSS_W - 392, 48, 392))
   await shoot('shot-layers', crop16x10(0, 48, 460))
+
+  // --- the gallery ---------------------------------------------------------
+  for (const piece of GALLERY) {
+    await evaluate(CLEAR)
+    await sleep(150)
+    const made = await evaluate(`(() => {\n${HELPERS}\n${piece.build}\n})()`)
+    if (!made) {
+      fail(`${piece.key}: the composition built nothing`)
+      continue
+    }
+    await evaluate('globalThis.__polyform.documentStore.emit()')
+    await sleep(250)
+    const box = JSON.parse(await evaluate(framePiece(piece.w, piece.h)))
+    // The artboard has to be wholly on the canvas or the capture clips the
+    // artwork itself — the same class of mistake that made an E2E gate aim
+    // one pixel off the canvas and fail only in CI.
+    if (!box.fits) fail(`${piece.key}: artboard does not fit the canvas at ${box.zoom.toFixed(3)}x`)
+    await sleep(500)
+    await shoot(piece.key, {
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+    })
+  }
 
   // --- the social card and the icon ----------------------------------------
   const { result: tree } = await send('Page.getFrameTree')

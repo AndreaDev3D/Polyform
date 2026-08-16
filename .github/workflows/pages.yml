@@ -69,14 +69,22 @@ jobs:
       # Fails the build rather than shipping a page whose download buttons all
       # point at a generic listing. Silent degradation is exactly the failure
       # nobody notices until someone asks why the site never updated.
+      #
+      # Checks the channel the page actually offers — stable when there is one,
+      # the newest pre-release until then — because that is the button a
+      # visitor presses. Not having a stable release is a fact about the
+      # project, not a broken build.
       - name: Check the release data was baked in
         run: |
           node -e "
             const r = require('./site/src/release.generated.json')
             if (!r.ok) { console.error('release data unavailable — buttons would be generic'); process.exit(1) }
-            const n = Object.values(r.downloads).reduce((a, l) => a + l.length, 0)
-            if (n < 6) { console.error('only ' + n + ' download links for ' + r.tag); process.exit(1) }
-            console.log('release ' + r.tag + ' with ' + n + ' downloads')
+            const primary = r.stable ?? r.nightly
+            if (!primary) { console.error('neither a stable nor a pre-release channel resolved'); process.exit(1) }
+            const n = Object.values(primary.downloads).reduce((a, l) => a + l.length, 0)
+            if (n < 6) { console.error('only ' + n + ' download links for ' + primary.tag); process.exit(1) }
+            console.log('offering ' + primary.tag + ' (' + (r.stable ? 'stable' : 'pre-release') + ') with ' + n + ' downloads')
+            if (r.stable && r.nightly) console.log('nightly channel: ' + r.nightly.tag)
           "
 
       # Publish only from production, from a release, or when a human asks.
