@@ -4,6 +4,8 @@
 
 **A local-first, open-source vector design tool for the desktop.**
 
+[**polyform website**](https://andreadev3d.github.io/Polyform/) · [Download](https://github.com/AndreaDev3D/Polyform/releases) · [Feature matrix](docs/Feature-Matrix.md) · [Roadmap](docs/Roadmap.md)
+
 Polyform is a vector design editor for interfaces and graphics that runs entirely on your machine. No cloud, no account, no server — every project is a plain folder on disk that you can copy, zip, sync, or version-control like any other file.
 
 > Status: **v0.7.0 — "Distribution & .fig Import"**. Releases are cut by bumping the version: CI builds and **smoke-tests the packaged app** on Windows, macOS and Linux, publishes SHA-256 checksums and a Sigstore build-provenance attestation, and opens a draft release ([docs/Releasing.md](docs/Releasing.md)) — the installers are **not code signed yet** (Roadmap 5.2), and the app tells you about a new version rather than installing it (ADR-028). New in 0.7: **`.fig` import** (experimental — reads a Figma export offline and reports what it could not carry, ADR-029), a project you can **double-click** (`MyPoster/MyPoster.poly`, ADR-027), **flip/rotate 90°**, dropdowns that are **our own DOM** with a caret and a checkmark (ADR-026), and resizable side panels. Built on v0.6 (agents over MCP + a headless CLI), v0.5 (3D models and gaussian splats), and v0.4 (fuzz-proven Rust/WASM engine twins; a WebGPU renderer that pans **100,000 shapes at 60fps**). Full plan in [docs/Roadmap.md](docs/Roadmap.md); exactly what is implemented, partial and planned is in [docs/Feature-Matrix.md](docs/Feature-Matrix.md).

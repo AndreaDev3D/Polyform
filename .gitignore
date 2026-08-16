@@ -12,6 +12,11 @@ coverage/
 *.poly/
 !fixtures/**/*.poly/
 
+# Derived from the GitHub releases API by scripts/site-release.mjs, which the
+# Pages workflow runs before every build. Committing it would mean the website
+# advertises whatever version was current the day someone last ran a build.
+site/src/release.generated.json
+
 # ui-ux-pro-max design skill (8MB of vendored CSV tooling, reinstallable
 # from github.com/nextlevelbuilder/ui-ux-pro-max-skill). The design system
 # it GENERATES is committed; the tool itself is not.

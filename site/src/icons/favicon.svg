@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="407.69 315 1416.09 1416.09" width="32" height="32">
+  <!-- The app's mark (resources/polyform-mark.svg), unchanged, on the tile
+       colour the desktop icon uses — a browser tab is small and dark-on-dark
+       loses the letter entirely against a dark theme. -->
+  <defs>
+    <linearGradient id="pf" gradientUnits="userSpaceOnUse" x1="864.17" y1="315" x2="1230.09" y2="1731.09">
+      <stop offset="0" stop-color="#15EAD6" />
+      <stop offset=".34" stop-color="#35C8E4" />
+      <stop offset=".68" stop-color="#6C74E8" />
+      <stop offset="1" stop-color="#A322E0" />
+    </linearGradient>
+  </defs>
+  <rect x="407.69" y="315" width="1416.09" height="1416.09" rx="300" fill="#26292d" />
+  <path
+    fill="url(#pf)"
+    transform="translate(1115.735 1023.045) scale(0.78) translate(-1115.735 -1023.045)"
+    d="M 624 315.41 L 824.59 315.41 A 80 80 0 0 1 904.59 395.41 L 904.59 1651.09 A 80 80 0 0 1 824.59 1731.09 L 624 1731.09 A 80 80 0 0 1 544 1651.09 L 544 395.41 A 80 80 0 0 1 624 315.41 Z M 1007.32 315 L 1193.89 315 L 1193.89 656.95 L 1007.32 656.95 A 80 80 0 0 1 927.32 576.95 L 927.32 395 A 80 80 0 0 1 1007.32 315 Z M 1002.32 956.05 L 1193.32 956.05 L 1193.32 1297.94 L 1002.32 1297.94 A 80 80 0 0 1 922.32 1217.94 L 922.32 1036.05 A 80 80 0 0 1 1002.32 956.05 Z M 1190.9 315.11 A 496.58 491.41 0 0 1 1190.9 1297.92 L 1190.9 954.92 A 149.97 148.4 0 0 0 1190.9 658.11 Z"
+  />
+</svg>

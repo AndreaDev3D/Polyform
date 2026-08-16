@@ -1,0 +1,510 @@
+// The website's screenshots, taken from the real app.
+//
+// A design tool's landing page is judged on one thing: the picture of itself.
+// Mocking that picture up in Figma would be both dishonest and, for this
+// project specifically, absurd. So this boots the BUILT app under CDP — the
+// same harness scripts/e2e-text.mjs uses to drive real input — synthesizes a
+// document, frames it, and captures what is actually on screen.
+//
+// It also renders the social card and the touch icon, by replacing the
+// document with a small HTML page and screenshotting that. Same debugger, no
+// image library: the repo has no sharp/resvg/puppeteer and a website is not
+// a good enough reason to add a native dependency to a desktop app's build.
+//
+// The output is COMMITTED to site/src/shots/. Building the website must never
+// require booting Electron; this script is run by hand when the UI changes.
+//
+// Usage: npm run build && npm run site:shots
+
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+import { killElectronMatching } from './proc-cleanup.mjs'
+
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const SHOTS = path.join(ROOT, 'site', 'src', 'shots')
+const ICONS = path.join(ROOT, 'site', 'src', 'icons')
+// og.png is the ONE asset that must keep a stable, predictable URL: it is
+// baked into the page's og:image as an absolute link, and crawlers cache it.
+// Everything else goes through src/ so Vite can hash it.
+const PUBLIC = path.join(ROOT, 'site', 'public')
+// Not 9333: that is the e2e gate's port, and a screenshot run that silently
+// attached to a leftover e2e window would photograph its scratch document.
+const PORT = 9334
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+if (!fs.existsSync(path.join(ROOT, 'out', 'main', 'index.js'))) {
+  console.error('site-shots: no build in out/ — run `npm run build` first')
+  process.exit(1)
+}
+for (const dir of [SHOTS, ICONS, PUBLIC]) fs.mkdirSync(dir, { recursive: true })
+
+// ---------------------------------------------------------------------------
+// The document in the screenshots.
+//
+// Built out of nodes rather than imported from a file, so the picture on the
+// website is reproducible from this repo alone and cannot rot into "some .poly
+// someone had lying around". It is a UI design because that is what Polyform
+// is for; the gradients, the arc and the drop shadows are there because they
+// are the features the surrounding page claims.
+//
+// Runs as a string inside the renderer, where `globalThis.__polyform` is.
+// ---------------------------------------------------------------------------
+const BUILD_DOC = String.raw`(() => {
+  const P = globalThis.__polyform
+  const s = P.documentStore.scene
+  let seq = 0
+  const id = () => 'shot' + (++seq).toString(36).padStart(4, '0')
+
+  const rgb = (hex, a = 1) => ({
+    r: parseInt(hex.slice(1, 3), 16) / 255,
+    g: parseInt(hex.slice(3, 5), 16) / 255,
+    b: parseInt(hex.slice(5, 7), 16) / 255,
+    a,
+  })
+  const solid = (hex, a = 1) => [{ type: 'SOLID', visible: true, opacity: 1, color: rgb(hex, a) }]
+  const grad = (from, to, start = { x: 0, y: 0 }, end = { x: 1, y: 1 }) => [{
+    type: 'GRADIENT_LINEAR', visible: true, opacity: 1, start, end,
+    stops: [{ position: 0, color: rgb(from) }, { position: 1, color: rgb(to) }],
+  }]
+  const radius = (n) => ({ tl: n, tr: n, br: n, bl: n })
+  const NO_LAYOUT = {
+    mode: 'NONE', gap: 0, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
+    counterAlign: 'MIN', primarySizing: 'FIXED', counterSizing: 'FIXED',
+  }
+
+  const base = (type, name, x, y, width, height, props) => Object.assign({
+    id: id(), type, name, visible: true, locked: false, opacity: 1, blendMode: 'NORMAL',
+    x, y, width, height, rotation: 0,
+    fills: solid('#26262c'), strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE',
+    strokeDash: [], effects: [],
+  }, props)
+
+  const add = (node, parent) => {
+    s.addNode(node, parent ?? null, s.childListOf(parent ?? null).length)
+    return node.id
+  }
+  const rect = (name, x, y, w, h, props, parent) =>
+    add(base('RECTANGLE', name, x, y, w, h, Object.assign({ cornerRadius: radius(0) }, props)), parent)
+  const frame = (name, x, y, w, h, props, parent) =>
+    add(base('FRAME', name, x, y, w, h, Object.assign(
+      { children: [], clipsContent: true, cornerRadius: radius(0), layout: NO_LAYOUT }, props)), parent)
+  const text = (chars, x, y, w, h, props, parent) =>
+    add(base('TEXT', chars.length > 22 ? chars.slice(0, 22) : chars, x, y, w, h, Object.assign({
+      characters: chars, fontFamily: 'Segoe UI', fontWeight: 400, italic: false,
+      fontSize: 14, lineHeight: 1.35, letterSpacing: 0,
+      textAlignH: 'LEFT', textAlignV: 'TOP', autoResize: 'NONE',
+      fills: solid('#e6e6e6'),
+    }, props)), parent)
+
+  // --- artboard ------------------------------------------------------------
+  const board = frame('Dashboard — Overview', 0, 0, 1280, 800, {
+    fills: solid('#141418'), cornerRadius: radius(18),
+  })
+
+  // sidebar
+  rect('Sidebar', 0, 0, 232, 800, { fills: solid('#1a1a20') }, board)
+  rect('Brand dot', 28, 30, 24, 24, { cornerRadius: radius(7), fills: grad('#15EAD6', '#6C74E8') }, board)
+  text('Northwind', 62, 33, 140, 20, { fontSize: 15, fontWeight: 600 }, board)
+
+  const NAV = ['Overview', 'Projects', 'Library', 'Members', 'Settings']
+  NAV.forEach((label, i) => {
+    const y = 92 + i * 44
+    const on = i === 0
+    rect('Nav item', 20, y, 192, 36, {
+      cornerRadius: radius(9),
+      fills: on ? grad('#15EAD6', '#6C74E8', { x: 0, y: 0 }, { x: 1, y: 0 }) : solid('#1a1a20'),
+      opacity: on ? 0.18 : 1,
+    }, board)
+    rect('Icon', 34, y + 11, 14, 14, {
+      cornerRadius: radius(4), fills: solid(on ? '#35C8E4' : '#5a5a64'),
+    }, board)
+    text(label, 60, y + 9, 130, 20, {
+      fontSize: 13, fontWeight: on ? 600 : 400, fills: solid(on ? '#e6e6e6' : '#8b8b95'),
+    }, board)
+  })
+
+  // header
+  text('Overview', 272, 40, 300, 40, { fontSize: 28, fontWeight: 700, letterSpacing: -0.5 }, board)
+  text('Last 30 days across every workspace', 272, 76, 420, 22, {
+    fontSize: 13, fills: solid('#8b8b95'),
+  }, board)
+  rect('Primary action', 1096, 44, 144, 40, {
+    cornerRadius: radius(10),
+    fills: grad('#15EAD6', '#6C74E8', { x: 0, y: 0 }, { x: 1, y: 1 }),
+    effects: [{ type: 'DROP_SHADOW', visible: true, color: rgb('#000000', 0.45), offset: { x: 0, y: 6 }, blur: 18 }],
+  }, board)
+  text('New project', 1120, 56, 110, 20, { fontSize: 13, fontWeight: 600, fills: solid('#08080a') }, board)
+
+  // stat cards
+  const STATS = [
+    ['Active projects', '128', '#15EAD6'],
+    ['Components', '1,904', '#35C8E4'],
+    ['Contributors', '46', '#6C74E8'],
+  ]
+  STATS.forEach(([label, value, accent], i) => {
+    const x = 272 + i * 328
+    rect('Stat card', x, 128, 304, 132, {
+      cornerRadius: radius(14), fills: solid('#1a1a20'), strokes: solid('#2a2a31'), strokeWeight: 1,
+    }, board)
+    rect('Accent', x + 24, 152, 34, 4, { cornerRadius: radius(2), fills: solid(accent) }, board)
+    text(label, x + 24, 170, 200, 20, { fontSize: 12, fills: solid('#8b8b95') }, board)
+    text(value, x + 24, 194, 200, 46, { fontSize: 34, fontWeight: 700, letterSpacing: -1 }, board)
+  })
+
+  // chart card
+  rect('Chart card', 272, 288, 632, 464, {
+    cornerRadius: radius(14), fills: solid('#1a1a20'), strokes: solid('#2a2a31'), strokeWeight: 1,
+  }, board)
+  text('Edits per day', 300, 316, 240, 24, { fontSize: 15, fontWeight: 600 }, board)
+  text('journaled to disk, every one of them', 300, 340, 320, 20, { fontSize: 12, fills: solid('#8b8b95') }, board)
+
+  // The bars live in their own frame. Twelve sibling rectangles directly under
+  // the artboard turn the layer tree in the screenshot into a wall of the word
+  // "Bar", which reads as generated filler — which it is, but it should not
+  // look it.
+  const bars = frame('Bars', 302, 384, 576, 300, { fills: [], clipsContent: false }, board)
+  const BARS = [0.32, 0.51, 0.44, 0.68, 0.58, 0.79, 0.62, 0.9, 0.71, 0.84, 0.66, 0.97]
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  BARS.forEach((h, i) => {
+    const full = 300
+    const height = Math.round(full * h)
+    rect(DAYS[i] + ' ' + (i < 7 ? 1 : 2), i * 48, full - height, 30, height, {
+      cornerRadius: radius(7),
+      fills: grad('#6C74E8', '#15EAD6', { x: 0, y: 1 }, { x: 0, y: 0 }),
+      opacity: 0.35 + 0.65 * h,
+    }, bars)
+  })
+
+  // donut card — an arc ellipse, which is a real v5 feature and looks like one
+  rect('Split card', 928, 288, 312, 464, {
+    cornerRadius: radius(14), fills: solid('#1a1a20'), strokes: solid('#2a2a31'), strokeWeight: 1,
+  }, board)
+  text('Storage', 956, 316, 200, 24, { fontSize: 15, fontWeight: 600 }, board)
+  add(base('ELLIPSE', 'Ring', 984, 372, 200, 200, {
+    fills: grad('#15EAD6', '#A322E0', { x: 0, y: 0 }, { x: 1, y: 1 }),
+    arcStart: 0, arcSweep: 0.72, arcRatio: 0.66,
+  }), board)
+  text('72%', 1032, 448, 110, 44, { fontSize: 32, fontWeight: 700, textAlignH: 'CENTER' }, board)
+  const LEGEND = [['Assets', '#15EAD6'], ['History', '#6C74E8'], ['Free', '#2f2f37']]
+  LEGEND.forEach(([label, hex], i) => {
+    const y = 612 + i * 34
+    rect('Swatch', 956, y, 12, 12, { cornerRadius: radius(4), fills: solid(hex) }, board)
+    text(label, 978, y - 2, 160, 20, { fontSize: 13, fills: solid('#c8c8d0') }, board)
+  })
+
+  // --- a second artboard, so the canvas looks like work rather than a demo ---
+  const swatches = frame('Palette', 1420, 0, 360, 372, {
+    fills: solid('#141418'), cornerRadius: radius(18),
+  })
+  text('Brand ramp', 32, 32, 240, 26, { fontSize: 16, fontWeight: 600 }, swatches)
+  const RAMP = ['#15EAD6', '#35C8E4', '#6C74E8', '#A322E0']
+  RAMP.forEach((hex, i) => {
+    rect('Swatch ' + hex, 32, 76 + i * 68, 296, 56, {
+      cornerRadius: radius(12), fills: solid(hex),
+      effects: [{ type: 'DROP_SHADOW', visible: true, color: rgb('#000000', 0.4), offset: { x: 0, y: 4 }, blur: 14 }],
+    }, swatches)
+  })
+
+  const buttons = frame('Buttons', 1420, 428, 360, 324, {
+    fills: solid('#141418'), cornerRadius: radius(18),
+  })
+  text('Button / Primary', 32, 32, 260, 26, { fontSize: 16, fontWeight: 600 }, buttons)
+  rect('Primary', 32, 76, 296, 48, {
+    cornerRadius: radius(12), fills: grad('#15EAD6', '#6C74E8', { x: 0, y: 0 }, { x: 1, y: 0 }),
+  }, buttons)
+  text('Continue', 140, 91, 120, 22, { fontSize: 14, fontWeight: 600, fills: solid('#08080a') }, buttons)
+  rect('Secondary', 32, 140, 296, 48, {
+    cornerRadius: radius(12), fills: solid('#1f1f26'), strokes: solid('#33333c'), strokeWeight: 1,
+  }, buttons)
+  text('Learn more', 136, 155, 130, 22, { fontSize: 14, fontWeight: 600, fills: solid('#e6e6e6') }, buttons)
+  rect('Ghost', 32, 204, 296, 48, { cornerRadius: radius(12), fills: solid('#16161b') }, buttons)
+  text('Cancel', 150, 219, 100, 22, { fontSize: 14, fontWeight: 600, fills: solid('#8b8b95') }, buttons)
+
+  s.activePage.name = 'Product'
+  P.documentStore.emit()
+  return JSON.stringify({ board, swatches, buttons, bars, nodes: seq })
+})()`
+
+/**
+ * Frame the main artboard, not everything.
+ *
+ * Fitting all three artboards put the canvas at 41%, which photographs as a
+ * postage stamp adrift in grey. Fitting the dashboard alone roughly doubles
+ * it, and the nudge to the right lets the Palette artboard sit half-off the
+ * edge — which is what a session someone is actually working in looks like.
+ */
+const FRAME_ALL = String.raw`(() => {
+  const P = globalThis.__polyform
+  const { viewportSize } = P.editor.get()
+  const pad = 40
+  const content = { x: 0, y: 0, w: 1280, h: 800 }
+  const zoom = Math.min(
+    (viewportSize.w - pad * 2) / content.w,
+    (viewportSize.h - pad * 2) / content.h,
+  )
+  const cx = content.x + content.w / 2
+  const cy = content.y + content.h / 2
+  P.editor.set({ camera: { x: cx - viewportSize.w / (2 * zoom), y: cy - viewportSize.h / (2 * zoom), zoom } })
+  return JSON.stringify({ zoom, viewportSize })
+})()`
+
+// ---------------------------------------------------------------------------
+// The social card and the touch icon.
+//
+// Rendered by handing the debugger a document rather than navigating to one:
+// Page.setDocumentContent replaces the page in place, which keeps this working
+// regardless of what the app's own navigation policy allows. The font is
+// inlined as base64 for the same reason a data: URI is used for the mark —
+// the page has no origin to resolve anything relative against.
+// ---------------------------------------------------------------------------
+function brandPage({ width, height, body, css }) {
+  const font = fs.readFileSync(path.join(ROOT, 'site', 'src', 'fonts', 'inter-latin-var.woff2')).toString('base64')
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @font-face{font-family:Inter;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:400 800}
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:${width}px;height:${height}px;overflow:hidden}
+    body{background:#0e0e10;color:#e6e6e6;font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased}
+    ${css}
+  </style></head><body>${body}</body></html>`
+}
+
+const MARK_PATH =
+  'M 624 315.41 L 824.59 315.41 A 80 80 0 0 1 904.59 395.41 L 904.59 1651.09 A 80 80 0 0 1 824.59 1731.09 ' +
+  'L 624 1731.09 A 80 80 0 0 1 544 1651.09 L 544 395.41 A 80 80 0 0 1 624 315.41 Z M 1007.32 315 L 1193.89 315 ' +
+  'L 1193.89 656.95 L 1007.32 656.95 A 80 80 0 0 1 927.32 576.95 L 927.32 395 A 80 80 0 0 1 1007.32 315 Z ' +
+  'M 1002.32 956.05 L 1193.32 956.05 L 1193.32 1297.94 L 1002.32 1297.94 A 80 80 0 0 1 922.32 1217.94 ' +
+  'L 922.32 1036.05 A 80 80 0 0 1 1002.32 956.05 Z M 1190.9 315.11 A 496.58 491.41 0 0 1 1190.9 1297.92 ' +
+  'L 1190.9 954.92 A 149.97 148.4 0 0 0 1190.9 658.11 Z'
+
+const markSvg = (size) => `<svg viewBox="407.69 315 1416.09 1416.09" width="${size}" height="${size}">
+  <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="864.17" y1="315" x2="1230.09" y2="1731.09">
+    <stop offset="0" stop-color="#15EAD6"/><stop offset=".34" stop-color="#35C8E4"/>
+    <stop offset=".68" stop-color="#6C74E8"/><stop offset="1" stop-color="#A322E0"/>
+  </linearGradient></defs><path fill="url(#g)" d="${MARK_PATH}"/></svg>`
+
+const OG_PAGE = brandPage({
+  width: 1200,
+  height: 630,
+  css: `
+    body{display:flex;flex-direction:column;justify-content:center;padding:0 82px;position:relative}
+    .glow{position:absolute;inset:-40% -10% auto -10%;height:150%;filter:blur(120px);opacity:.34;
+      background:radial-gradient(closest-side at 22% 45%,#15EAD6,transparent 70%),
+                 radial-gradient(closest-side at 72% 30%,#A322E0,transparent 70%)}
+    .row{display:flex;align-items:center;gap:18px;position:relative}
+    .row span{font-size:31px;font-weight:600;letter-spacing:-.01em}
+    h1{position:relative;margin-top:38px;font-size:74px;line-height:1.06;font-weight:700;letter-spacing:-.035em}
+    .grad{background:linear-gradient(100deg,#15EAD6,#35C8E4 34%,#6C74E8 68%,#A322E0);
+      -webkit-background-clip:text;background-clip:text;color:transparent}
+    p{position:relative;margin-top:26px;font-size:26px;line-height:1.5;color:#9a9aa2;max-width:830px}
+    .feet{position:absolute;left:82px;bottom:54px;display:flex;gap:26px;font-size:20px;color:#6f6f79}
+    .feet b{color:#9a9aa2;font-weight:500}`,
+  body: `<div class="glow"></div>
+    <div class="row">${markSvg(46)}<span>Polyform</span></div>
+    <h1>Vector design that never<br>leaves <span class="grad">your machine</span>.</h1>
+    <p>A free, open-source design editor for Windows, macOS and Linux. No cloud, no account — every project is a plain folder on your disk.</p>
+    <div class="feet"><b>MIT licensed</b><b>Works offline</b><b>Open file format</b></div>`,
+})
+
+const ICON_PAGE = brandPage({
+  width: 180,
+  height: 180,
+  css: `body{display:grid;place-items:center;background:#26292d;border-radius:40px}`,
+  body: markSvg(118),
+})
+
+// ---------------------------------------------------------------------------
+
+const electron = spawn(
+  process.platform === 'win32' ? 'npx.cmd' : 'npx',
+  ['electron', 'out/main/index.js', `--remote-debugging-port=${PORT}`],
+  {
+    cwd: ROOT,
+    stdio: 'ignore',
+    shell: true,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
+  },
+)
+
+let ws
+let failed = false
+const fail = (msg) => {
+  console.error(`site-shots: ${msg}`)
+  failed = true
+}
+
+try {
+  let target = null
+  for (let i = 0; i < 60 && !target; i++) {
+    await sleep(500)
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json()
+      target = list.find((t) => t.type === 'page')
+    } catch {
+      /* not up yet */
+    }
+  }
+  if (!target) throw new Error('app did not expose a debug target')
+
+  ws = new WebSocket(target.webSocketDebuggerUrl)
+  let id = 0
+  const pending = new Map()
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data)
+    if (msg.id && pending.has(msg.id)) {
+      pending.get(msg.id)(msg)
+      pending.delete(msg.id)
+    }
+  }
+  const send = (method, params = {}) =>
+    new Promise((resolve) => {
+      const mid = ++id
+      pending.set(mid, resolve)
+      ws.send(JSON.stringify({ id: mid, method, params }))
+    })
+  const evaluate = async (expression) => {
+    const r = await send('Runtime.evaluate', { expression, returnByValue: true })
+    if (r.result?.exceptionDetails) {
+      throw new Error(r.result.exceptionDetails.exception?.description ?? 'evaluate threw')
+    }
+    return r.result?.result?.value
+  }
+
+  await new Promise((r) => (ws.onopen = r))
+  await send('Runtime.enable')
+  await send('Page.enable')
+  await send('Page.bringToFront')
+
+  /**
+   * 1440x900 at 2x. The window itself is 1520x960, but pinning the metrics
+   * means the screenshots do not change size with whatever the machine taking
+   * them happens to have, and 2x is what makes the app's 12px UI text legible
+   * on the website at any width.
+   */
+  const CSS_W = 1440
+  const CSS_H = 900
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: CSS_W,
+    height: CSS_H,
+    deviceScaleFactor: 2,
+    mobile: false,
+  })
+
+  // clip.scale multiplies the device scale factor rather than replacing it, so
+  // a clip at scale 2 under a 2x override comes out at 4x — a 520px crop
+  // arriving as a 2080px file. The override is already doing the retina work;
+  // the clip must stay at 1.
+  const shoot = async (name, clip) => {
+    const r = await send('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: false,
+      ...(clip ? { clip: { ...clip, scale: 1 } } : {}),
+    })
+    const data = r.result?.data
+    if (!data) return fail(`${name}: the debugger returned no image`)
+    const dir = name === 'og' ? PUBLIC : name === 'apple-touch-icon' ? ICONS : SHOTS
+    const file = path.join(dir, `${name}.png`)
+    fs.writeFileSync(file, Buffer.from(data, 'base64'))
+    console.log(`site-shots: ${path.relative(ROOT, file)} (${Math.round(data.length * 0.75 / 1024)} KB)`)
+  }
+
+  // --- the app -------------------------------------------------------------
+  for (let i = 0; i < 40 && !(await evaluate('!!globalThis.__polyform')); i++) await sleep(250)
+  if (!(await evaluate('!!globalThis.__polyform'))) throw new Error('__polyform handle missing')
+
+  await evaluate(`globalThis.__polyform.documentStore.loadFromResult({
+    info: { path: 'Northwind.poly', manifest: { title: 'Northwind', name: 'Northwind', schemaVersion: 5 } },
+    sceneBytes: null,
+    journal: { entries: [], cursor: 0 },
+  })`)
+  await evaluate(`globalThis.__polyform.editor.set({ hasProject: true })`)
+  await sleep(700)
+
+  const built = JSON.parse(await evaluate(BUILD_DOC))
+  console.log(`site-shots: built ${built.nodes} nodes`)
+  await sleep(400)
+  const framed = JSON.parse(await evaluate(FRAME_ALL))
+  console.log(`site-shots: canvas ${framed.viewportSize.w}x${framed.viewportSize.h} @ ${framed.zoom.toFixed(3)}x`)
+
+  // Select something so the inspector has content in it — an editor screenshot
+  // with an empty right-hand panel looks like an editor nobody is using. It
+  // has to be something ON SCREEN: selecting the off-canvas Palette filled the
+  // inspector while the canvas showed no selection at all, which reads as a
+  // bug. The bar group also gives the Selection colors list its gradients.
+  await evaluate(`globalThis.__polyform.editor.set({ selection: ['${built.bars}'] })`)
+  await sleep(1200)
+
+  await shoot('hero')
+
+  // Where the panels are, so the crops below follow the app instead of
+  // guessing at pixel offsets that change the next time a panel is resized.
+  const panels = JSON.parse(
+    await evaluate(`(() => {
+      const box = (sel) => {
+        const el = document.querySelector(sel)
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }
+      }
+      return JSON.stringify({
+        canvas: box('canvas'),
+        left: box('[data-panel="left"]') ?? box('aside'),
+        right: box('[data-panel="right"]'),
+        w: innerWidth, h: innerHeight,
+      })
+    })()`),
+  )
+  console.log('site-shots: panels', JSON.stringify(panels))
+
+  // 16:10 crops for the feature cards. The canvas ones are fractions of the
+  // measured canvas box rather than absolute pixels, so resizing a side panel
+  // moves the crop with the artwork instead of sliding it off.
+  const crop16x10 = (x, y, width) => ({
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round((width * 10) / 16),
+  })
+  if (panels.canvas) {
+    const c = panels.canvas
+    // The chart and the donut: gradients, a drop shadow and an arc ellipse,
+    // which is exactly what the card beside it on the website claims.
+    await shoot('shot-canvas', crop16x10(c.x + c.width * 0.17, c.y + c.height * 0.34, c.width * 0.74))
+  }
+  // Panel plus the artwork it is describing — a panel alone is a screenshot of
+  // a sidebar, and says nothing about what it is attached to.
+  await shoot('shot-inspector', crop16x10(CSS_W - 392, 48, 392))
+  await shoot('shot-layers', crop16x10(0, 48, 460))
+
+  // --- the social card and the icon ----------------------------------------
+  const { result: tree } = await send('Page.getFrameTree')
+  const frameId = tree?.frameTree?.frame?.id
+  if (!frameId) {
+    fail('no frame id — skipped og.png and apple-touch-icon.png')
+  } else {
+    await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 630, deviceScaleFactor: 1, mobile: false })
+    await send('Page.setDocumentContent', { frameId, html: OG_PAGE })
+    await sleep(600)
+    await shoot('og')
+
+    await send('Emulation.setDeviceMetricsOverride', { width: 180, height: 180, deviceScaleFactor: 1, mobile: false })
+    await send('Page.setDocumentContent', { frameId, html: ICON_PAGE })
+    await sleep(400)
+    await shoot('apple-touch-icon')
+  }
+} catch (err) {
+  fail(err instanceof Error ? err.message : String(err))
+} finally {
+  try {
+    ws?.close()
+  } catch {
+    /* already gone */
+  }
+  electron.kill()
+  await killElectronMatching('out/main/index.js')
+}
+
+process.exitCode = failed ? 1 : 0

@@ -1,0 +1,111 @@
+# The website (site/), built and published to GitHub Pages.
+#
+# Deliberately NOT part of build.yml. The website has no bearing on whether the
+# app is releasable, and folding it in would put a marketing page on the
+# critical path of cutting a release. It stays a separate workflow that can
+# fail on its own.
+#
+# Actions are pinned to commit SHAs rather than tags, for the reason build.yml
+# gives: a moving tag lets a third party change what runs here after it was
+# reviewed. That matters slightly less for a static site than for something
+# users install, but the deploy job holds an id-token and can publish to a URL
+# with this project's name on it.
+
+name: Pages
+
+on:
+  push:
+    branches: [staging, production]
+    paths:
+      - 'site/**'
+      - 'scripts/site-release.mjs'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    branches: [production]
+    paths:
+      - 'site/**'
+      - 'scripts/site-release.mjs'
+      - '.github/workflows/pages.yml'
+  # A new release changes what the download buttons point at. Nothing in the
+  # repository changed, so nothing else would rebuild — this is what keeps the
+  # site's version pill and its six installer links current.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time, and never cancel one in flight: a half-replaced
+# site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # Runs on every trigger, including staging pushes and pull requests, so a
+  # site that does not compile is caught before it can reach production.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # site:build runs scripts/site-release.mjs, which reads the releases API.
+      # The token is here so the build shares the runner's authenticated rate
+      # limit rather than the anonymous 60/hour every other job on that IP is
+      # also spending. It degrades to a link to the releases page if the call
+      # fails, so this is a quality measure, not a dependency.
+      - name: Build the site
+        run: npm run site:build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # Fails the build rather than shipping a page whose download buttons all
+      # point at a generic listing. Silent degradation is exactly the failure
+      # nobody notices until someone asks why the site never updated.
+      - name: Check the release data was baked in
+        run: |
+          node -e "
+            const r = require('./site/src/release.generated.json')
+            if (!r.ok) { console.error('release data unavailable — buttons would be generic'); process.exit(1) }
+            const n = Object.values(r.downloads).reduce((a, l) => a + l.length, 0)
+            if (n < 6) { console.error('only ' + n + ' download links for ' + r.tag); process.exit(1) }
+            console.log('release ' + r.tag + ' with ' + n + ' downloads')
+          "
+
+      # Publish only from production, from a release, or when a human asks.
+      #
+      # The condition cannot be `github.ref == 'refs/heads/production'` alone:
+      # on a `release` event the ref is the TAG (refs/tags/v0.8.0-beta.25), so
+      # that test is false and the one trigger whose whole purpose is to
+      # refresh the download links would build and then quietly throw the
+      # result away.
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/production')
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/production')
+        with:
+          path: site/dist
+
+  # Pushing staging cuts a beta of the app; it must not also replace the public
+  # website. Same condition as the upload step above — keep them in step.
+  deploy:
+    needs: build
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
