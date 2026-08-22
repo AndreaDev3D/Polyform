@@ -4,6 +4,26 @@ All notable changes to Polyform. Versions follow the [Roadmap](docs/Roadmap.md) 
 
 ## Unreleased — 0.8.0
 
+### Added
+
+- **Materials & shaders (ADR-030).** Every shape can wear a material — a shader plus uniform
+  values, Unity's vocabulary — journaled, instance-inheritable, and shareable as a fourth style
+  kind. Twelve built-ins ship: stripes, grain, dot grid, holographic, metallic foil (procedural);
+  pixelate, halftone, retro dither (transforming the shape's own fills); 3D bevel, neon glow,
+  neumorphism (driven by an exact signed distance field, computed twice — TypeScript and Rust —
+  and held bit-identical by a differential fuzz); and glassmorphism, riding the same render-pass
+  split as background blur on the GPU with a faithful Canvas2D twin. Shader output rasterizes on a
+  dedicated GPU island into a content-addressed cache both renderers composite, so materials look
+  the same on WebGPU and Canvas2D — exports, thumbnails and agent snapshots included — and the
+  built-ins' per-pixel TypeScript twins (machine-gated against the WGSL at 0.00% divergence) keep
+  them rendering on machines with no GPU at all. Projects can carry their own WGSL shaders in the
+  bundle's `shaders/` directory (validated with refusals that name the shader, loaded at open and
+  on explicit reload, fallback colour + labelled state where they cannot run — docs/Shaders.md).
+  The Inspector grows a Material section with manifest-generated controls; agents set materials
+  through `edit_document` with manifest-validated uniforms and read back `materialStatus`, so a
+  broken shader never reads as applied. Six new parity fixtures, an eleven-shader producer gate,
+  and e2e gate 17 hold the whole chain; the 100k-shapes batching gate is untouched.
+
 ### Fixed
 
 - **Dissolve now reads the points you selected.** It shipped able to do exactly

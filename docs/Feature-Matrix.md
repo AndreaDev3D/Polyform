@@ -40,8 +40,9 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | [Collaboration](#collaboration) | 0 | 0 | 0 | 11 | 11 |
 | [Performance & Rendering](#performance--rendering) | 5 | 4 | 1 | 0 | 10 |
 | [Desktop / Platform](#desktop--platform) | 8 | 3 | 1 | 1 | 13 |
+| [Materials & Shaders](#materials--shaders) | 6 | 3 | 2 | 1 | 12 |
 | [Extensibility](#extensibility) | 4 | 1 | 1 | 4 | 10 |
-| **Total** | **158** | **30** | **45** | **23** | **256** |
+| **Total** | **164** | **33** | **47** | **24** | **268** |
 
 ---
 
@@ -365,6 +366,23 @@ It is deliberately honest: approximations are marked partial, and deliberate non
 | Double-click a project to open it | Double-click a `.fig` | ✅ | The bundle's manifest is `<Name>.poly` inside the project folder, registered as a file association; also handles "Open with", a second launch (single-instance, focuses the running window) and macOS `open-file` |
 | Installers | Signed installers per platform | 🟡 | NSIS `.exe`, `.dmg`, `.AppImage`/`.deb` all build and are smoke-tested as packages in CI; a tag opens a draft release with SHA-256 checksums and a **Sigstore build-provenance attestation** (`gh attestation verify`), which proves where the bytes came from ([Releasing.md](Releasing.md)). **No code signing certificate yet** (Roadmap 5.2, F-10), so SmartScreen and Gatekeeper still object |
 | Multiple windows / tabs | Many files open in tabs | 📋 | One document window for now |
+
+## Materials & Shaders
+
+| Feature | Figma behavior | Polyform status | Notes |
+| :--- | :--- | :---: | :--- |
+| Material slot per shape | — (no equivalent; closest is plugins drawing rasters) | ✅ | v0.8 (ADR-030): a shape wears a shader + uniform values; journaled, instance-inheritable, shareable as a style |
+| Built-in shaders (12) | — | ✅ | stripes, noise, dot grid, holographic, foil (procedural) · pixelate, halftone, dither (base) · 3D bevel, neon, neumorphism (SDF) · glassmorphism (backdrop) |
+| Pixel parity for built-ins | — | ✅ | One island-rasterized bitmap composited by BOTH renderers; per-pixel TS twins held to the WGSL by a producer gate (0.00% divergence at landing); 6 scene fixtures |
+| Project shaders (WGSL in the bundle) | — | ✅ | `shaders/<name>/shader.json + shader.wgsl`, validated with named refusals, loaded at open + explicit reload (no watching); ids `project:<name>`; docs/Shaders.md |
+| Project shaders with no GPU | — | 🟡 | WGSL-only by design: the manifest's fallback colour draws, labelled in the Inspector — built-ins always render via their TS twins |
+| Glass noise on Canvas2D | — | 🟡 | GPU-only grain, amplitude capped at 0.08 so the divergence stays under the parity threshold; the 2D twin renders blur/tint/saturation/edge without it |
+| Materials in SVG export | — | 🟡 | Non-backdrop materials embed their exact raster (clipped image); glass exports tint + edge with the blur approximated away — never silently dropped |
+| Shared material styles | Styles for paints/text/effects | ✅ | Fourth style kind: apply-by-reference, edit fans out, detach keeps values; +Style chip and a Material styles panel |
+| Agent access to materials | — | ✅ | `edit_document` material prop validated against the manifest; reads carry `materialStatus` so a broken shader never reads as applied |
+| Backdrop/SDF classes for project shaders | — | 📋 | Reserved to built-ins until the island has soaked (ADR-030 revisit-when) |
+| Animated (time-uniform) shaders | — | 📋 | Needs a render-loop design of its own; deliberately out of v1 |
+| Shader marketplace | Community plugins | ❌ | Distribution is a folder you copy — like everything else in Polyform |
 
 ## Extensibility
 

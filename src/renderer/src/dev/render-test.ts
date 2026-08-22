@@ -31,6 +31,7 @@ import {
   type MaterialRasterSpec,
 } from '../engine/materials/raster-cache'
 import { signedDistanceField } from '../engine/materials/edt'
+import { exportSvg } from '../engine/export/svg'
 
 const W = 640
 const H = 480
@@ -994,6 +995,67 @@ const FIXTURES: Fixture[] = [
     },
   },
   {
+    // The four remaining procedural looks, one shape each. Same-bitmap
+    // architecture, so the budget matches material-stripes.
+    name: 'material-looks-procedural',
+    badLimit: 0.025,
+    build: (s) => {
+      const fill = (r: number, g: number, b: number) =>
+        [{ type: 'SOLID' as const, visible: true, opacity: 1, color: { r, g, b, a: 1 } }]
+      make(s, 'RECTANGLE', null, {
+        x: 30, y: 40, width: 260, height: 170, fills: fill(0.2, 0.25, 0.3),
+        material: { shaderId: 'noise', uniforms: { amount: 0.5, scale: 2 } },
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 330, y: 40, width: 260, height: 170, fills: fill(0.1, 0.1, 0.12),
+        material: { shaderId: 'dotgrid', uniforms: { cell: 16, stagger: true } },
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 30, y: 260, width: 260, height: 170, fills: fill(1, 1, 1),
+        material: { shaderId: 'iridescent', uniforms: { banding: 2.4, sweepAngle: 15 } },
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 330, y: 260, width: 260, height: 170, rotation: 8, fills: fill(1, 1, 1),
+        cornerRadius: { tl: 18, tr: 18, br: 18, bl: 18 },
+        material: { shaderId: 'foil', uniforms: { preset: 0, bands: 7, roughness: 0.2 } },
+      })
+    },
+  },
+  {
+    // Halftone + dither transform their own fills; neon + neumorph read the
+    // distance field. Bevel-class budget.
+    name: 'material-looks-base-sdf',
+    badLimit: 0.03,
+    build: (s) => {
+      const grad = {
+        type: 'GRADIENT_LINEAR' as const, visible: true, opacity: 1,
+        start: { x: 0, y: 0 }, end: { x: 1, y: 1 },
+        stops: [
+          { position: 0, color: { r: 0.95, g: 0.9, b: 0.85, a: 1 } },
+          { position: 1, color: { r: 0.15, g: 0.1, b: 0.2, a: 1 } },
+        ],
+      }
+      make(s, 'RECTANGLE', null, {
+        x: 30, y: 40, width: 260, height: 170, fills: [grad],
+        material: { shaderId: 'halftone', uniforms: { cell: 7, angle: 30 } },
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 330, y: 40, width: 260, height: 170, fills: [structuredClone(grad)],
+        material: { shaderId: 'dither', uniforms: { levels: 3, pixelSize: 3 } },
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 60, y: 270, width: 200, height: 150, fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.08, g: 0.09, b: 0.12, a: 1 } }],
+        material: { shaderId: 'neon', uniforms: { radius: 22, glowColor: { r: 1, g: 0.3, b: 0.7, a: 1 } } },
+      })
+      make(s, 'RECTANGLE', null, {
+        x: 350, y: 265, width: 220, height: 160,
+        cornerRadius: { tl: 26, tr: 26, br: 26, bl: 26 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.88, g: 0.89, b: 0.93, a: 1 } }],
+        material: { shaderId: 'neumorph', uniforms: { elevation: 16 } },
+      })
+    },
+  },
+  {
     name: 'material-glass',
     // The blur-approximation class (Chromium's triple-box-blur vs the GPU's
     // direct gaussian), deliberately stressed with hard-edged backdrop
@@ -1191,7 +1253,7 @@ async function runProducerDiff(): Promise<boolean> {
     }
   }
 
-  for (const shaderId of ['stripes', 'bevel3d', 'pixelate']) {
+  for (const shaderId of ['stripes', 'bevel3d', 'pixelate', 'noise', 'dotgrid', 'iridescent', 'foil', 'halftone', 'dither', 'neon', 'neumorph']) {
     const shader = getShader(shaderId)
     if (!shader?.twin) continue
     const manifest = shader.manifest
@@ -1238,6 +1300,33 @@ async function runProducerDiff(): Promise<boolean> {
   return allPass
 }
 
+
+/**
+ * Materials in SVG export: the raster embed and the glass approximation are
+ * environment-dependent (OffscreenCanvas), so they are proven HERE, in the
+ * real renderer environment, not in node unit tests.
+ */
+async function runSvgMaterialCheck(): Promise<boolean> {
+  const scene = new SceneGraph()
+  make(scene, 'RECTANGLE', null, {
+    x: 10, y: 10, width: 120, height: 80,
+    fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.3, g: 0.4, b: 0.9, a: 1 } }],
+    material: { shaderId: 'stripes', uniforms: {} },
+  })
+  make(scene, 'RECTANGLE', null, {
+    x: 160, y: 10, width: 120, height: 80,
+    fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 0.1 } }],
+    material: { shaderId: 'glass', uniforms: {} },
+  })
+  const ids = scene.rootIds()
+  const svg = await exportSvg(scene, ids, async () => null)
+  const hasEmbed = svg.includes('data:image/png;base64')
+  const hasGlassTint = svg.includes('stroke-width') // the edge highlight path
+  const ok = hasEmbed && hasGlassTint
+  log(`svg-export materials: rasterEmbed=${hasEmbed} glassEdge=${hasGlassTint} ${ok ? 'PASS' : 'FAIL'}`)
+  return ok
+}
+
 export async function runRenderTest(): Promise<void> {
   try {
     log('starting')
@@ -1265,9 +1354,10 @@ export async function runRenderTest(): Promise<void> {
     }
     log(`adapter: ${gpu.adapterInfo || 'unknown'}`)
     const producerOk = await runProducerDiff()
+    const svgOk = await runSvgMaterialCheck()
     const parityOk = await runParity(gpu)
     await runPerf(gpu)
-    log(`RENDER_TEST_DONE result=${producerOk && parityOk ? 'PASS' : 'FAIL'}`)
+    log(`RENDER_TEST_DONE result=${producerOk && svgOk && parityOk ? 'PASS' : 'FAIL'}`)
   } catch (err) {
     log(`FATAL ${String(err)} ${(err as Error).stack?.split('\n')[1] ?? ''}`)
     log('RENDER_TEST_DONE result=FAIL')

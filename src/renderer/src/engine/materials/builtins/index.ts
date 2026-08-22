@@ -8,6 +8,9 @@ import { stripes } from './stripes'
 import { bevel3d } from './bevel3d'
 import { pixelate } from './pixelate'
 import { glass } from './glass'
+import { dotgrid, foil, iridescent, noise } from './procedural'
+import { dither, halftone } from './base-fx'
+import { neon, neumorph } from './sdf-fx'
 
 let registered = false
 
@@ -18,4 +21,12 @@ export function registerBuiltins(): void {
   registerBuiltin(bevel3d)
   registerBuiltin(pixelate)
   registerBuiltin(glass)
+  registerBuiltin(noise)
+  registerBuiltin(dotgrid)
+  registerBuiltin(iridescent)
+  registerBuiltin(foil)
+  registerBuiltin(halftone)
+  registerBuiltin(dither)
+  registerBuiltin(neon)
+  registerBuiltin(neumorph)
 }

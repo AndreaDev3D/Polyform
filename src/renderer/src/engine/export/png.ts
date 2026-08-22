@@ -6,6 +6,7 @@ import type { SpatialIndex } from '../spatial-index'
 import type { AssetCache } from '../assets'
 import { renderNodesToCanvas } from '../render/canvas2d'
 import { hasPendingSnapshots, settleSnapshots } from '../../render3d/snapshots'
+import { settleMaterials } from '../materials/raster-cache'
 
 export async function exportPng(
   scene: SceneGraph,
@@ -23,6 +24,11 @@ export async function exportPng(
     await settleSnapshots()
     canvas = renderNodesToCanvas(scene, index, ids, scale, assets, background) ?? canvas
   }
+  // Materials produce asynchronously too (ADR-030): the render above fired
+  // the requests; settle and re-render so an export never ships a shape whose
+  // material was still on its way. Free when nothing is pending.
+  await settleMaterials()
+  canvas = renderNodesToCanvas(scene, index, ids, scale, assets, background) ?? canvas
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) return null
   return new Uint8Array(await blob.arrayBuffer())

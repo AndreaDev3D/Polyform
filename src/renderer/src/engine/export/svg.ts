@@ -15,6 +15,10 @@ import { strokeCapShapes } from '../strokecaps'
 import { layoutText } from '../text'
 import { rgbaToCss } from '../color'
 import { snapshotPng, snapshotSpec } from '../../render3d/snapshots'
+import { glassParamsFor, planMaterial } from '../materials/plan'
+import { settleMaterials, type MaterialRaster } from '../materials/raster-cache'
+import { rasterizeNodeFills, rasterizeNodeMask } from '../render/canvas2d'
+import { assetCache } from '../assets'
 
 type BytesFetcher = (hash: string) => Promise<{ bytes: Uint8Array; mime: string } | null>
 
@@ -176,7 +180,7 @@ function effectsFilter(ctx: SvgCtx, node: SceneNode): string {
   return ` filter="url(#${id})"`
 }
 
-async function fillElements(
+async function fillElementsRaw(
   ctx: SvgCtx,
   node: SceneNode,
   d: string,
@@ -200,6 +204,92 @@ async function fillElements(
     }
   }
   return out
+}
+
+
+/** A cached material raster as a PNG data URI. */
+async function rasterHref(raster: MaterialRaster): Promise<string | null> {
+  if (typeof OffscreenCanvas !== 'function' || typeof ImageData !== 'function') return null
+  const canvas = new OffscreenCanvas(raster.width, raster.height)
+  const c2d = canvas.getContext('2d')
+  if (!c2d) return null
+  c2d.putImageData(new ImageData(raster.pixels as Uint8ClampedArray<ArrayBuffer>, raster.width, raster.height), 0, 0)
+  const blob = await canvas.convertToBlob({ type: 'image/png' })
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 8192, bytes.length)))
+  }
+  return `data:image/png;base64,${btoa(binary)}`
+}
+
+/**
+ * Materials in the exporter (ADR-030): NEVER the silent BACKGROUND_BLUR drop.
+ * Non-backdrop classes embed the same cached raster the renderers composite,
+ * clipped to the node's outline — pixel-honest, at the cost of that one shape
+ * being an image inside the SVG. Glass has no raster (it samples the live
+ * backdrop, which an SVG does not have), so it exports its tint and edge
+ * highlight over the fills — the blur is APPROXIMATED AWAY, and that is a
+ * documented 🟡 in the Feature Matrix, not a quiet omission.
+ */
+async function materialElements(
+  ctx: SvgCtx,
+  node: SceneNode,
+  d: string,
+  fillRule: string,
+): Promise<{ replace: boolean; el: string } | null> {
+  if (!node.material) return null
+  const glass = glassParamsFor(node)
+  if (glass) {
+    let el = ''
+    if (glass.tint.a > 0) el += `<path d="${d}" fill="${rgbaToCss(glass.tint, 1)}" fill-rule="${fillRule}"/>`
+    if (glass.edgeWidth > 0 && glass.edgeIntensity > 0) {
+      const clipId = `matclip${++defsCounter}`
+      ctx.defs.push(`<clipPath id="${clipId}"><path d="${d}"/></clipPath>`)
+      el += `<path d="${d}" fill="none" stroke="${rgbaToCss(glass.edgeColor, glass.edgeIntensity)}" stroke-width="${num(glass.edgeWidth * 2)}" clip-path="url(#${clipId})"/>`
+    }
+    return el ? { replace: false, el } : null
+  }
+  // Export scale 2: crisp enough to print, bounded by the raster cache's cap.
+  const helpers = {
+    rasterizeMask: (n: SceneNode, w: number, h: number) => rasterizeNodeMask(n, w, h),
+    rasterizeFills: (n: SceneNode, w: number, h: number) => rasterizeNodeFills(n, w, h, assetCache),
+  }
+  let plan = planMaterial(node, 2, helpers)
+  if (plan.kind === 'pending') {
+    await settleMaterials()
+    plan = planMaterial(node, 2, helpers)
+  }
+  if (plan.kind !== 'raster') return null
+  const href = await rasterHref(plan.raster)
+  if (!href) return null
+  const clipId = `matclip${++defsCounter}`
+  ctx.defs.push(`<clipPath id="${clipId}"><path d="${d}" clip-rule="${fillRule}"/></clipPath>`)
+  const el = `<image href="${href}" x="0" y="0" width="${num(Math.max(1, node.width))}" height="${num(Math.max(1, node.height))}" preserveAspectRatio="none" clip-path="url(#${clipId})"/>`
+  return { replace: plan.mode === 'replace', el }
+}
+
+/**
+ * The fill stack plus the node's material, in renderer order. Per-part fills
+ * (an explicit `paints` argument) bypass the material — it belongs to the
+ * whole node, exactly as both renderers composite it.
+ */
+async function fillElements(
+  ctx: SvgCtx,
+  node: SceneNode,
+  d: string,
+  fillRule: string,
+  paints: Paint[] = node.fills,
+): Promise<string> {
+  const ownFills = paints === node.fills
+  if (ownFills && node.material) {
+    const mat = await materialElements(ctx, node, d, fillRule)
+    if (mat) {
+      if (mat.replace) return mat.el
+      return (await fillElementsRaw(ctx, node, d, fillRule, paints)) + mat.el
+    }
+  }
+  return fillElementsRaw(ctx, node, d, fillRule, paints)
 }
 
 /**
