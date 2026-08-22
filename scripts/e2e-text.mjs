@@ -46,6 +46,9 @@
 //  16. Add grows a path from the selected end and starts a second run in the
 //      same shape; Bend steps a point's mirroring when you CLICK it, which is
 //      only distinguishable from dragging it on release.
+//  17. the Material section: picking a shader from its dropdown applies ONCE,
+//      scrubbing a uniform lands as ONE undo entry, and picking None clears
+//      the material rather than leaving a dead reference (F-30).
 //  11. the layer tree's ⋯ menu: Collapse All folds it, and Expand Selected -
 //      taken from the OBJECT CONTEXT MENU, on a layer whose row does not
 //      exist - opens the path back down to it. Neither command touches the
@@ -1760,6 +1763,134 @@ try {
     }
     await evaluate(`globalThis.__polyform.interactionController.exitVectorEdit(true)`)
     await sleep(200)
+  }
+
+  // ---------------------------------------------------------------------
+  // 17. Materials in the inspector: pick applies once, scrub is one undo,
+  //     None clears. Driven through the REAL dropdown and the REAL scrub
+  //     handle — the material Select is our own menu like every other.
+  // ---------------------------------------------------------------------
+  {
+    const mid17 = await evaluate(`(() => {
+      const P = globalThis.__polyform, s = P.documentStore.scene
+      for (const id of [...s.rootIds()]) s.removeNode(id)
+      const n = { id: 'e2e-mat', type: 'RECTANGLE', name: 'M', visible: true, locked: false, opacity: 1,
+        blendMode: 'NORMAL', x: 420, y: 320, width: 200, height: 140, rotation: 0,
+        cornerRadius: { tl: 0, tr: 0, br: 0, bl: 0 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.3, g: 0.5, b: 0.9, a: 1 } }],
+        strokes: [], strokeWeight: 1, strokeAlign: 'INSIDE', strokeDash: [], effects: [] }
+      s.addNode(n, null, 0)
+      P.documentStore.transient()
+      P.editor.set({ selection: [n.id], camera: { x: 0, y: 0, zoom: 1 } })
+      return n.id
+    })()`)
+    await sleep(450)
+
+    // The Material shader Select is the combobox currently reading "None".
+    const matBox = JSON.parse(await evaluate(`(() => {
+      const boxes = [...document.querySelectorAll('button[role="combobox"]')].filter(b => b.textContent.trim() === 'None')
+      if (boxes.length !== 1) return JSON.stringify({ err: 'expected one None combobox, found ' + boxes.length })
+      const r = boxes[0].getBoundingClientRect()
+      return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+    })()`))
+    if (matBox.err) {
+      fail(`gate 17: ${matBox.err}`)
+    } else {
+      const histBase = await evaluate(`globalThis.__polyform.documentStore.history.undoStack.length`)
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: matBox.x, y: matBox.y, button: 'left', clickCount: 1 })
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: matBox.x, y: matBox.y, button: 'left', clickCount: 1 })
+      await sleep(250)
+      const stripesRow = JSON.parse(await evaluate(`(() => {
+        const m = document.querySelector('[role="listbox"]')
+        if (!m) return JSON.stringify({ err: 'menu did not open' })
+        const row = [...m.querySelectorAll('[role="option"]')].find(o => o.textContent.includes('Stripes'))
+        if (!row) return JSON.stringify({ err: 'no Stripes row' })
+        const r = row.getBoundingClientRect()
+        return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+      })()`))
+      if (stripesRow.err) {
+        fail(`gate 17: ${stripesRow.err}`)
+      } else {
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: stripesRow.x, y: stripesRow.y, button: 'left', clickCount: 1 })
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: stripesRow.x, y: stripesRow.y, button: 'left', clickCount: 1 })
+        await sleep(400)
+        const afterPick = JSON.parse(await evaluate(`JSON.stringify({
+          shader: globalThis.__polyform.documentStore.scene.getNode('${mid17}').material?.shaderId ?? null,
+          hist: globalThis.__polyform.documentStore.history.undoStack.length,
+        })`))
+        if (afterPick.shader !== 'stripes') fail(`gate 17: picking Stripes set material=${afterPick.shader}`)
+        if (afterPick.hist - histBase !== 1) fail(`gate 17: picking a shader made ${afterPick.hist - histBase} entries, expected 1`)
+
+        // Scrub the Angle uniform — located by its titled scrub handle.
+        const angle = JSON.parse(await evaluate(`(() => {
+          const sp = [...document.querySelectorAll('[data-scrub]')].find(e => (e.getAttribute('title') || '').startsWith('Angle'))
+          if (!sp) return JSON.stringify({ err: 'no Angle scrub handle' })
+          const r = sp.getBoundingClientRect()
+          return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+        })()`))
+        if (angle.err) {
+          fail(`gate 17: ${angle.err}`)
+        } else {
+          await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: angle.x, y: angle.y, button: 'left', clickCount: 1 })
+          for (let i = 1; i <= 3; i++) {
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: angle.x + i * 14, y: angle.y, button: 'left', buttons: 1 })
+            await sleep(110)
+          }
+          await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: angle.x + 42, y: angle.y, button: 'left', clickCount: 1 })
+          await sleep(400)
+          const afterScrub = JSON.parse(await evaluate(`JSON.stringify({
+            angle: globalThis.__polyform.documentStore.scene.getNode('${mid17}').material?.uniforms?.angle ?? null,
+            hist: globalThis.__polyform.documentStore.history.undoStack.length,
+          })`))
+          if (afterScrub.angle === null || afterScrub.angle === 45) {
+            fail(`gate 17: scrubbing Angle left it at ${afterScrub.angle}`)
+          }
+          if (afterScrub.hist - afterPick.hist !== 1) {
+            fail(`gate 17: the scrub made ${afterScrub.hist - afterPick.hist} entries, expected 1`)
+          }
+          await evaluate(`globalThis.__polyform.documentStore.undo()`)
+          await sleep(250)
+          const undone = await evaluate(`globalThis.__polyform.documentStore.scene.getNode('${mid17}').material?.uniforms?.angle ?? null`)
+          if (undone !== null) fail(`gate 17: one undo should clear the scrubbed angle, got ${undone}`)
+
+          // None clears the material.
+          const box2 = JSON.parse(await evaluate(`(() => {
+            // Exact name: the shader's own Pattern enum also reads "Stripes".
+            const boxes = [...document.querySelectorAll('button[role="combobox"]')].filter(b => b.textContent.trim() === 'Stripes & Checker')
+            if (boxes.length !== 1) return JSON.stringify({ err: 'expected the shader combobox, found ' + boxes.length })
+            const r = boxes[0].getBoundingClientRect()
+            return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+          })()`))
+          if (box2.err) {
+            fail(`gate 17: ${box2.err}`)
+          } else {
+            await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box2.x, y: box2.y, button: 'left', clickCount: 1 })
+            await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box2.x, y: box2.y, button: 'left', clickCount: 1 })
+            await sleep(250)
+            const noneRow = JSON.parse(await evaluate(`(() => {
+              const m = document.querySelector('[role="listbox"]')
+              if (!m) return JSON.stringify({ err: 'menu did not reopen' })
+              const row = [...m.querySelectorAll('[role="option"]')].find(o => o.textContent.trim() === 'None')
+              if (!row) return JSON.stringify({ err: 'no None row' })
+              const r = row.getBoundingClientRect()
+              return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
+            })()`))
+            if (noneRow.err) {
+              fail(`gate 17: ${noneRow.err}`)
+            } else {
+              await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: noneRow.x, y: noneRow.y, button: 'left', clickCount: 1 })
+              await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: noneRow.x, y: noneRow.y, button: 'left', clickCount: 1 })
+              await sleep(400)
+              const cleared = await evaluate(`globalThis.__polyform.documentStore.scene.getNode('${mid17}').material?.shaderId ?? null`)
+              if (cleared !== null) fail(`gate 17: picking None left material=${cleared}`)
+              if (process.exitCode !== 1) {
+                console.log('E2E PASS: material picks apply once, uniform scrubs are one undo, None clears')
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
 } catch (err) {

@@ -16,6 +16,7 @@ import { nodeSnapshot, viewportSnapshot } from './snapshot'
 import { documentStore } from '../state/document'
 import { editor } from '../state/editor'
 import { rgbaToHex } from '../engine/color'
+import { shaderStatus } from '../engine/materials/registry'
 import type {
   AutoLayout,
   Effect,
@@ -191,6 +192,13 @@ function detail(id: NodeId, depth: number, budget: { left: number }): unknown {
     if (arcStart !== 0 || arcSweep !== 1 || arcRatio !== 0) {
       out.arc = { start: round(arcStart), sweep: round(arcSweep), ratio: round(arcRatio) }
     }
+  }
+  // Materials: what is worn AND whether it is honoured (F-30 — an agent must
+  // not read a broken shader as applied).
+  if (node.material) {
+    out.material = { shader: node.material.shaderId, uniforms: node.material.uniforms }
+    const status = shaderStatus(node.material.shaderId)
+    out.materialStatus = status.kind === 'failed' ? `failed: ${status.message}` : status.kind
   }
   if (node.type === 'POLYGON' || node.type === 'STAR') out.pointCount = node.pointCount
   if (node.type === 'STAR') out.innerRatio = round(node.innerRatio)

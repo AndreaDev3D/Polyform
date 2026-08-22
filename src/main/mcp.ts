@@ -306,7 +306,10 @@ function buildServer(query: SceneQuery): Omit<Session, 'transport'> {
           'strokeDash, characters, ' +
           'fontFamily, fontWeight, fontSize, lineHeight, letterSpacing, italic, textAlignH, ' +
           'textAlignV, autoResize (set NONE to keep your box — otherwise TEXT shrinks to its ' +
-          'content and centring is lost), pointCount, innerRatio, clipsContent. `update`/`move`/`delete` take ' +
+          'content and centring is lost), pointCount, innerRatio, clipsContent, material ' +
+          '({shader, uniforms?} — shader ids like "stripes", "bevel3d", "pixelate", "glass" or ' +
+          '"project:<name>"; uniforms are validated against the shader manifest and unknown keys ' +
+          'are errors; null clears; read a node back for materialStatus). `update`/`move`/`delete` take ' +
           'an id. Instance internals are off-limits. Use get_node_image afterwards to see ' +
           'what you made.',
         inputSchema: {

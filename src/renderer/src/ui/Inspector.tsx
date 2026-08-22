@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { bgRemoveState, onBgRemoveState, removeBackground, restoreOriginal } from './bgremove'
 import type {
   AutoLayout,
+  MaterialRef,
+  MaterialUniformValue,
   BlendMode,
   BooleanOp,
   Constraint,
@@ -45,12 +47,15 @@ import { applyMirrorChoice, type MirrorChoice } from '../engine/vector-edit'
 import { commonMirrorChoice } from '../state/actions'
 import { isSplatFormat } from '../render3d/island'
 import { documentStore, useDocVersion } from '../state/document'
+import { getShader, listShaders, resolveUniforms, shaderStatus, type UniformSpec } from '../engine/materials/registry'
 import { useEditor } from '../state/editor'
 import {
   alignSelection,
   applyColorStyle,
+  applyMaterialStyle,
   applyTextStyle,
   createColorStyle,
+  createMaterialStyle,
   createTextStyle,
   deleteSharedStyle,
   detachSelectedInstances,
@@ -63,6 +68,8 @@ import {
   rotateSelection,
   runExports,
   selectedIds,
+  setMaterial,
+  setMaterialUniform,
   setSelectionSize,
   swapInstanceComponent,
   toggleMaskSelection,
@@ -1064,6 +1071,9 @@ export function Inspector() {
         ))}
       </Section>
 
+      {/* Material (ADR-030): a shader + its uniforms, drawn per the shader's class. */}
+      <MaterialSection node={first} />
+
       {/* Export */}
       <ExportSection targetName={nodes.length === 1 ? first.name : `${nodes.length} layers`} />
 
@@ -1977,6 +1987,189 @@ function FillStyleChip({ node }: { node: SceneNode }) {
   )
 }
 
+
+/**
+ * The Material section: shader picker, status banner, and uniform rows
+ * generated from the manifest. Rows reuse the panel's primitives — scrubbable
+ * NumberInput (one undo per drag via the commit sink), Select for enums, a
+ * hex+alpha pair for colors — so a material edits like any other property.
+ * F-30 rule: a shader that is missing, failed, or running on its fallback is
+ * SAID here, in words, not left reading as applied.
+ */
+function MaterialSection({ node }: { node: SceneNode }) {
+  const material = node.material ?? null
+  const shader = material ? getShader(material.shaderId) : null
+  const status = material ? shaderStatus(material.shaderId) : null
+  const shaders = listShaders()
+  const builtins = shaders.filter((s) => s.builtin)
+  const project = shaders.filter((s) => !s.builtin)
+  const resolved = shader && material ? resolveUniforms(shader.manifest, material) : null
+
+  const pick = (id: string) => {
+    if (!id) {
+      setMaterial(null)
+      return
+    }
+    // Picking a shader starts from its manifest defaults — an empty uniforms
+    // map, so later manifest edits to defaults reach old documents.
+    setMaterial({ shaderId: id, uniforms: {} })
+  }
+
+  return (
+    <Section title="Material">
+      <MaterialStyleChip node={node} />
+      <Select
+        value={material?.shaderId ?? ''}
+        placeholder="None"
+        options={[
+          { value: '', label: 'None' },
+          ...builtins.map((s) => ({ value: s.manifest.id, label: s.manifest.name })),
+          ...project.map((s) => ({ value: s.manifest.id, label: `${s.manifest.name} (project)` })),
+          // A referenced shader nobody can resolve still has to be pickable
+          // text, or the dropdown would silently rewrite the document.
+          ...(material && !shader ? [{ value: material.shaderId, label: material.shaderId }] : []),
+        ]}
+        onChange={pick}
+      />
+      {material && status && status.kind === 'missing' && (
+        <div className="mt-1.5 text-[11px] text-[var(--pf-danger)]">
+          "{material.shaderId}" was not found — add it to the project's shaders/ folder and use
+          Plugins &gt; Reload Project Shaders.
+        </div>
+      )}
+      {material && status && status.kind === 'failed' && (
+        <div className="mt-1.5 text-[11px] text-[var(--pf-danger)]" title={status.message}>
+          Shader failed: {status.message}
+        </div>
+      )}
+      {shader && resolved && material && (
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          {shader.manifest.uniforms.map((spec) => (
+            <MaterialUniformRow key={spec.key} spec={spec} value={resolved[spec.key]} />
+          ))}
+        </div>
+      )}
+    </Section>
+  )
+}
+
+function MaterialUniformRow({ spec, value }: { spec: UniformSpec; value: MaterialUniformValue }) {
+  if (spec.type === 'float') {
+    return (
+      <Field label={spec.label}>
+        <NumberInput
+          label={spec.label.slice(0, 1)}
+          title={spec.label}
+          value={round(value as number, 2)}
+          min={spec.min}
+          max={spec.max}
+          step={spec.step}
+          onCommit={(v) => setMaterialUniform(spec.key, v)}
+        />
+      </Field>
+    )
+  }
+  if (spec.type === 'enum') {
+    return (
+      <Field label={spec.label}>
+        <Select
+          value={String(value as number)}
+          options={(spec.options ?? []).map((label, i) => ({ value: String(i), label }))}
+          onChange={(v) => setMaterialUniform(spec.key, Number(v))}
+        />
+      </Field>
+    )
+  }
+  if (spec.type === 'bool') {
+    return (
+      <label className="flex items-center gap-2 text-[11px] text-[var(--pf-text-dim)] cursor-default col-span-2">
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => setMaterialUniform(spec.key, e.target.checked)}
+        />
+        {spec.label}
+      </label>
+    )
+  }
+  if (spec.type === 'vec2') {
+    const v = value as { x: number; y: number }
+    return (
+      <Field label={spec.label}>
+        <div className="flex gap-1">
+          <NumberInput label="X" title={`${spec.label} X`} value={round(v.x, 2)} onCommit={(x) => setMaterialUniform(spec.key, { x, y: v.y })} />
+          <NumberInput label="Y" title={`${spec.label} Y`} value={round(v.y, 2)} onCommit={(y) => setMaterialUniform(spec.key, { x: v.x, y })} />
+        </div>
+      </Field>
+    )
+  }
+  const c = value as RGBA
+  return (
+    <Field label={spec.label}>
+      <div className="flex items-center gap-1">
+        <span
+          className="w-4 h-4 rounded border border-[var(--pf-border)] shrink-0"
+          style={{ background: `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${c.a})` }}
+        />
+        <HexField color={c} onCommit={(next) => setMaterialUniform(spec.key, { ...next, a: c.a })} />
+        <NumberInput
+          label="A"
+          title={`${spec.label} opacity`}
+          value={round(c.a * 100)}
+          min={0}
+          max={100}
+          suffix="%"
+          onCommit={(v) => setMaterialUniform(spec.key, { ...c, a: v / 100 })}
+        />
+      </div>
+    </Field>
+  )
+}
+
+/** Shared material-style chip — the FillStyleChip pattern for materials. */
+function MaterialStyleChip({ node }: { node: SceneNode }) {
+  const styles = documentStore.scene.doc.styles.materials ?? []
+  const ref = node.styleRefs?.material
+  const applied = ref ? styles.find((s) => s.id === ref) : null
+  if (applied) {
+    return (
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <EditableStyleName name={applied.name} onRename={(name) => renameSharedStyle('materials', applied.id, name)} />
+        <button className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)]" onClick={() => detachStyle('material')}>
+          Detach
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5">
+      {styles.length > 0 && (
+        <Select
+          value=""
+          placeholder="Apply style…"
+          options={styles.map((s) => ({ value: s.id, label: s.name }))}
+          onChange={(id) => applyMaterialStyle(id)}
+          className="flex-1"
+        />
+      )}
+      {node.material && (
+        <button
+          className="pf-btn !py-0.5 text-[10px] bg-[var(--pf-bg-3)] whitespace-nowrap"
+          title="Create a shared material style (double-click its name to rename)"
+          onClick={() => {
+            const mat = node.material as MaterialRef
+            const shaderName = getShader(mat.shaderId)?.manifest.name ?? mat.shaderId
+            const name = uniqueStyleName(shaderName, styles.map((s) => s.name))
+            applyMaterialStyle(createMaterialStyle(name, mat))
+          }}
+        >
+          + Style
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** Shared text-style chip for the Text section. */
 function TextStyleChip({ node }: { node: TextNode }) {
   const styles = documentStore.scene.doc.styles.texts
@@ -2032,7 +2225,7 @@ function StylesPanel() {
   const [picker, setPicker] = useState<{ styleId: string; anchor: { x: number; y: number } } | null>(null)
   const styles = documentStore.scene.doc.styles
   const liveColor = useRef<RGBA | null>(null)
-  if (styles.colors.length === 0 && styles.texts.length === 0) return null
+  if (styles.colors.length === 0 && styles.texts.length === 0 && (styles.materials ?? []).length === 0) return null
 
   const editing = picker ? styles.colors.find((s) => s.id === picker.styleId) : null
   const editingColor: RGBA =
@@ -2068,6 +2261,25 @@ function StylesPanel() {
                 className="hidden group-hover:block pf-icon-btn !w-5 !h-5"
                 title="Delete style"
                 onClick={() => deleteSharedStyle('colors', s.id)}
+              >
+                <MinusIcon width={11} height={11} />
+              </button>
+            </div>
+          ))}
+        </Section>
+      )}
+      {(styles.materials ?? []).length > 0 && (
+        <Section title="Material styles">
+          {(styles.materials ?? []).map((s) => (
+            <div key={s.id} className="group flex items-center gap-2 h-7">
+              <span className="text-[10px] text-[var(--pf-text-dim)] w-16 truncate" title={s.shaderId}>
+                {getShader(s.shaderId)?.manifest.name ?? s.shaderId}
+              </span>
+              <EditableStyleName name={s.name} onRename={(name) => renameSharedStyle('materials', s.id, name)} />
+              <button
+                className="hidden group-hover:block pf-icon-btn !w-5 !h-5"
+                title="Delete style"
+                onClick={() => deleteSharedStyle('materials', s.id)}
               >
                 <MinusIcon width={11} height={11} />
               </button>

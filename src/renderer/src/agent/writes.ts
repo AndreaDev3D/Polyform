@@ -16,11 +16,13 @@ import { documentStore } from '../state/document'
 import { isInsideInstance } from '../engine/hit-test'
 import { hexToRgba, rgbaToHex } from '../engine/color'
 import { importSvgDocument } from '../engine/import/svg-import'
+import { getShader, listShaders, resolveUniforms, type UniformSpec } from '../engine/materials/registry'
 import {
   createNode,
   isContainer,
   uniformRadius,
   type GradientPaint,
+  type MaterialUniformValue,
   type NodeId,
   type Paint,
   type SceneNode,
@@ -227,6 +229,46 @@ function sanitize(props: Record<string, unknown>, where: string): Record<string,
       case 'innerRatio':
         out.innerRatio = Math.max(0.05, Math.min(1, num(value, `${where}.innerRatio`)))
         break
+      // Materials (ADR-030): {shader: "stripes", uniforms?: {...}} or null to
+      // clear. Validated against the live registry so an agent cannot store a
+      // shader the app cannot name — a typo is an error here, not a silently
+      // missing material later.
+      case 'material': {
+        if (value === null) {
+          out.material = undefined
+          break
+        }
+        if (typeof value !== 'object' || Array.isArray(value)) {
+          throw new Error(`${where}.material: expected {shader, uniforms?} or null`)
+        }
+        const m = value as { shader?: unknown; uniforms?: unknown }
+        if (typeof m.shader !== 'string') throw new Error(`${where}.material.shader: expected a shader id`)
+        const shader = getShader(m.shader)
+        if (!shader) {
+          const known = listShaders().map((sh) => sh.manifest.id).join(', ')
+          throw new Error(`${where}.material.shader: "${m.shader}" is not a known shader (known: ${known})`)
+        }
+        const uniforms: Record<string, MaterialUniformValue> = {}
+        if (m.uniforms !== undefined) {
+          if (typeof m.uniforms !== 'object' || m.uniforms === null || Array.isArray(m.uniforms)) {
+            throw new Error(`${where}.material.uniforms: expected an object`)
+          }
+          const specs = new Map(shader.manifest.uniforms.map((u) => [u.key, u]))
+          for (const [uKey, uVal] of Object.entries(m.uniforms as Record<string, unknown>)) {
+            const spec = specs.get(uKey)
+            if (!spec) {
+              throw new Error(
+                `${where}.material.uniforms.${uKey}: "${m.shader}" has no such uniform (has: ${[...specs.keys()].join(', ')})`,
+              )
+            }
+            uniforms[uKey] = sanitizeUniform(uVal, spec, `${where}.material.uniforms.${uKey}`)
+          }
+        }
+        // Store resolved-and-clamped values so what the agent reads back is
+        // what will render, never raw out-of-range input.
+        out.material = { shaderId: m.shader, uniforms: resolveUniforms(shader.manifest, { shaderId: m.shader, uniforms }) }
+        break
+      }
       default:
         throw new Error(`${where}: "${key}" is not a writable property`)
     }
@@ -235,6 +277,35 @@ function sanitize(props: Record<string, unknown>, where: string): Record<string,
 }
 
 /** Where agents may create/move nodes: the page root or a frame-like. */
+
+/** One uniform value, typed per its manifest spec. */
+function sanitizeUniform(value: unknown, spec: UniformSpec, where: string): MaterialUniformValue {
+  switch (spec.type) {
+    case 'float':
+    case 'enum':
+      return num(value, where)
+    case 'bool':
+      if (typeof value !== 'boolean') throw new Error(`${where}: expected true/false`)
+      return value
+    case 'vec2': {
+      const v = value as { x?: unknown; y?: unknown }
+      if (typeof value !== 'object' || value === null) throw new Error(`${where}: expected {x, y}`)
+      return { x: num(v.x, `${where}.x`), y: num(v.y, `${where}.y`) }
+    }
+    case 'color': {
+      if (typeof value === 'string') {
+        const paint = parseColor(value, where)
+        if (paint.type !== 'SOLID') throw new Error(`${where}: expected a solid colour`)
+        return paint.color
+      }
+      const c = value as { r?: unknown; g?: unknown; b?: unknown; a?: unknown }
+      if (typeof value !== 'object' || value === null) throw new Error(`${where}: expected "#RRGGBB[AA]" or {r,g,b,a}`)
+      const chan = (v: unknown, k: string) => Math.max(0, Math.min(1, num(v, `${where}.${k}`)))
+      return { r: chan(c.r, 'r'), g: chan(c.g, 'g'), b: chan(c.b, 'b'), a: c.a === undefined ? 1 : chan(c.a, 'a') }
+    }
+  }
+}
+
 function checkParent(scene: typeof documentStore.scene, parentId: NodeId | null, where: string): void {
   if (parentId === null) return
   const parent = scene.getNode(parentId)
