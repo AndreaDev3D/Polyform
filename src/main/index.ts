@@ -686,6 +686,16 @@ function registerIpc(): void {
     }
   })
 
+  // The open project's shaders/ directory, raw. Scoped to the current bundle
+  // by construction — no path argument to escape with.
+  ipcMain.handle('shaders:list', async () => {
+    try {
+      return await projects.readProjectShaders()
+    } catch {
+      return []
+    }
+  })
+
   ipcMain.handle('plugins:openDialog', async () => {
     if (!mainWindow) return null
     const result = await dialog.showOpenDialog(mainWindow, {

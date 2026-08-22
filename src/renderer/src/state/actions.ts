@@ -27,6 +27,7 @@ import type { PatchOp, NodeBundle } from '../engine/commands'
 import { applyOp, extractBundle, makeUpdateOp, reIdBundle, removeSubtreeOps, undoOps } from '../engine/commands'
 import { constrainFrameChildren, type ChildRect } from '../engine/constraints'
 import { applyMat, matInvert, matMultiply, aabbIsEmpty, aabbUnion, emptyAABB, type AABB } from '../engine/geometry'
+import { refreshProjectShaders } from '../engine/materials/load'
 import { MIN_ZOOM, clampZoom } from '../engine/zoom'
 import { documentStore } from './document'
 import { editor } from './editor'
@@ -2601,6 +2602,12 @@ export function dispatchMenuAction(id: string): void {
       break
     case 'plugins.run':
       void runPluginFlow()
+      break
+    case 'plugins.reloadShaders':
+      void refreshProjectShaders().then(() => {
+        documentStore.transient() // repaint: materials may resolve differently now
+        setStatus('Project shaders reloaded')
+      })
       break
     case 'agent.connection':
       editor.set({ showAgent: !editor.get().showAgent })

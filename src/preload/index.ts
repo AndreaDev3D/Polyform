@@ -48,6 +48,7 @@ const api: PolyformApi = {
   figImportDialog: (paths) => ipcRenderer.invoke('import:figDialog', paths),
   libraryPick: () => ipcRenderer.invoke('library:pick'),
   libraryRead: (path) => ipcRenderer.invoke('library:read', path),
+  shadersList: () => ipcRenderer.invoke('shaders:list'),
   pluginOpenDialog: () => ipcRenderer.invoke('plugins:openDialog'),
   exportSave: (defaultName, kind, data) => ipcRenderer.invoke('export:save', defaultName, kind, data),
   exportSaveAll: (files) => ipcRenderer.invoke('export:saveAll', files),

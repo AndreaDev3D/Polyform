@@ -28,6 +28,7 @@ import type {
   JournalState,
   ProjectInfo,
   ProjectManifest,
+  ProjectShaderFile,
   SaveProjectPayload,
   ViewportState,
 } from '../shared/types'
@@ -222,6 +223,66 @@ export class ProjectManager {
     await this.history.open(normalized)
     await this.save(payload)
     return this.current
+  }
+
+  /**
+   * Read the bundle's shaders/ directory: one subdirectory per shader,
+   * carrying shader.json (the manifest) and shader.wgsl (the body).
+   *
+   * Returns RAW TEXT. Validation — manifest schema, uniform caps, WGSL
+   * compilation — belongs to the renderer, which owns the shader registry
+   * and can attach an error to the exact shader it names; this side only
+   * enforces what a directory listing can lie about: names, sizes, counts.
+   * The caps are refusals, not truncations — half a shader is worse than a
+   * named error.
+   *
+   * Reading is on-demand (project open, and the explicit Reload menu
+   * action). No watching: ADR-013's import-on-use rule, same as libraries.
+   */
+  async readProjectShaders(): Promise<ProjectShaderFile[]> {
+    if (!this.current) return []
+    const root = path.join(this.current.path, 'shaders')
+    let entries: string[]
+    try {
+      entries = (await fs.readdir(root, { withFileTypes: true }))
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+    } catch {
+      return [] // no shaders/ directory — the common case, not an error
+    }
+    const out: ProjectShaderFile[] = []
+    for (const name of entries.slice(0, 32).sort()) {
+      // The name becomes part of a shader id ("project:<name>") that lands in
+      // documents — hold it to the same discipline as asset extensions.
+      if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(name)) {
+        out.push({ name, error: 'shader folder names may only use letters, digits, - and _' })
+        continue
+      }
+      try {
+        const manifestPath = path.join(root, name, 'shader.json')
+        const wgslPath = path.join(root, name, 'shader.wgsl')
+        const [manifestStat, wgslStat] = await Promise.all([fs.stat(manifestPath), fs.stat(wgslPath)])
+        if (manifestStat.size > 8 * 1024) {
+          out.push({ name, error: 'shader.json is larger than 8 KiB' })
+          continue
+        }
+        if (wgslStat.size > 64 * 1024) {
+          out.push({ name, error: 'shader.wgsl is larger than 64 KiB' })
+          continue
+        }
+        const [manifestText, wgsl] = await Promise.all([
+          fs.readFile(manifestPath, 'utf-8'),
+          fs.readFile(wgslPath, 'utf-8'),
+        ])
+        out.push({ name, manifestText, wgsl })
+      } catch (err) {
+        out.push({
+          name,
+          error: `missing or unreadable shader.json/shader.wgsl (${err instanceof Error ? err.message : String(err)})`,
+        })
+      }
+    }
+    return out
   }
 
   async importAssetFile(filePath: string): Promise<ImportedAsset | null> {

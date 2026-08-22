@@ -11,6 +11,7 @@ import { ROOT_INHERITED_KEYS, sanitizeOverride } from '../engine/components'
 import type { NodeId, SceneNode } from '../engine/types'
 import { decodeScene, encodeScene } from '../engine/serialization'
 import { assetCache } from '../engine/assets'
+import { refreshProjectShaders } from '../engine/materials/load'
 import { renderThumbnail } from '../engine/export/png'
 import type { OpenProjectResult, ProjectInfo, ViewportState } from '../../../shared/types'
 
@@ -266,6 +267,10 @@ class DocumentStore {
     const result = await window.polyform.projectNew()
     if (!result) return null
     this.loadFromResult(result)
+    // Import-on-use, like libraries: the bundle's shaders/ is read at open
+    // and on the explicit Reload action, never watched (ADR-013). Fire and
+    // forget — a shader arriving late repaints via the material cache.
+    void refreshProjectShaders()
     return result.info.manifest.viewport_state
   }
 
@@ -273,6 +278,7 @@ class DocumentStore {
     const result = await window.polyform.projectOpen(path)
     if (!result) return null
     this.loadFromResult(result)
+    void refreshProjectShaders()
     return result.info.manifest.viewport_state
   }
 

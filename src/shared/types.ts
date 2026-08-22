@@ -76,6 +76,19 @@ export interface AssetData {
 }
 
 /**
+ * One entry of the bundle's shaders/ directory, as raw text. Main enforces
+ * only what a listing can lie about (names, sizes, counts) and reports
+ * per-shader errors instead of failing the batch — the .fig import rule.
+ * The renderer's shader registry owns validation and compilation.
+ */
+export interface ProjectShaderFile {
+  name: string
+  manifestText?: string
+  wgsl?: string
+  error?: string
+}
+
+/**
  * What an agent may do. Each is granted separately and revocable live.
  * Read capabilities default on when the user starts the endpoint; `edit`
  * — the one that CHANGES the document — defaults off (ADR-022).
@@ -215,6 +228,7 @@ export type MenuActionId =
   | 'object.detachInstance'
   | 'view.history'
   | 'plugins.run'
+  | 'plugins.reloadShaders'
   | 'agent.connection'
   | 'help.about'
   | 'help.licenses'
@@ -273,6 +287,12 @@ export interface PolyformApi {
   libraryPick: () => Promise<{ path: string; title: string } | null>
   /** Read a library bundle's manifest + scene bytes. */
   libraryRead: (path: string) => Promise<{ title: string; sceneBytes: Uint8Array; updatedAt: string } | null>
+  /**
+   * List the open project's shaders/ directory as raw text, per-entry errors
+   * included. Called at project open and from the explicit Reload menu action
+   * — never watched (ADR-013). Validation lives renderer-side, in the registry.
+   */
+  shadersList: () => Promise<ProjectShaderFile[]>
   /** Pick and read a plugin script (.js). */
   pluginOpenDialog: () => Promise<{ fileName: string; text: string } | null>
   exportSave: (defaultName: string, kind: 'png' | 'svg', data: Uint8Array) => Promise<string | null>

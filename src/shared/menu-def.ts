@@ -141,7 +141,12 @@ export const MENU: MenuDef[] = [
   },
   {
     label: 'Plugins',
-    items: [{ id: 'plugins.run', label: 'Run Plugin Script…', action: 'plugins.run' }],
+    items: [
+      { id: 'plugins.run', label: 'Run Plugin Script…', action: 'plugins.run' },
+      // Shaders reload on demand, like libraries pull on demand — the bundle
+      // is never watched (ADR-013).
+      { id: 'plugins.reloadShaders', label: 'Reload Project Shaders', action: 'plugins.reloadShaders' },
+    ],
   },
   {
     label: 'Agent',

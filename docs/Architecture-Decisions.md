@@ -643,6 +643,22 @@ Masks are also read now (`mask: true` → `isMask`).
 
 ---
 
+## ADR-030: Materials rasterize on an island; user shaders are data, not plugins (v0.8)
+
+**Context.** A material system (a shape carries a shader + uniform values, Unity's model) collides with three standing promises the moment it exists: the two renderers are held pixel-identical by fixture (ADR-016/017); every export, thumbnail, agent snapshot and CLI render goes through the Canvas2D path, so anything GPU-only silently vanishes from what users actually ship; and panning must keep touching nothing but a 32-byte camera uniform. It also lets user-authored files into the renderer for the first time — the territory ADR-014 fenced off for plugins.
+
+**Decision.** **One producer, two consumers.** Every non-backdrop material rasterizes on a *material island* — a second, dedicated `GPUDevice` (the ADR-020 shape: the document sees only textures) — into a content-addressed bitmap cache that BOTH backends composite: Canvas2D as `clip(outline)` + `drawImage`, the GPU as an ordinary image-fill segment on the node's own mesh. Parity between backends is by construction (same bitmap; only edge AA differs); exports and the CLI show materials whenever a GPU exists anywhere in the app. Built-ins additionally ship hand-written per-pixel TS twins that fill the same cache when no GPU exists at all, held to the island's output by a harness diff — so built-ins are honoured *everywhere*, unconditionally. Cache keys are content (shader id + source hash + quantized uniforms + size bucket + class inputs), so rasters survive re-bakes — the fx-layer caching ADR-017 deferred, delivered for materials. The `backdrop` class (glass) is the exception: it needs the live pixels behind the shape and rides the ONE existing pass split, inheriting background blur's limits and costs exactly.
+
+**User shaders are WGSL + a JSON manifest in the bundle's `shaders/` directory — data, not code, and that distinction is the security model.** WGSL cannot read the document, touch the filesystem, or make a request; it computes pixels on a device the scene renderer never shares, compiled inside `pushErrorScope('validation')` so a broken shader is a named per-shader failure, never the renderer-restart path. This is why loading them at project open does not violate ADR-014's no-directory-scanning rule: what that rule guards is *ambient authority*, and a fragment shader has none. Everything around the files keeps the bundle's discipline: read through the one resolver, per-entry errors instead of batch failures (ADR-029), loud caps (≤32 shaders, ≤64 KiB WGSL, ≤12 uniforms — refusals naming the shader, never truncation), ids namespaced `project:`, reload on demand only (ADR-013 — no watching). Backdrop and SDF classes are reserved to built-ins in v1: user content does not get to impose pass splits or distance-field computation on the frame.
+
+**Every degraded state has a name the UI repeats (F-30).** Missing shader → fills only + the id verbatim; failed compile → fills only + the compiler's message; project shader with no GPU anywhere → the manifest's declared fallback colour, labelled. A material never silently reads as applied.
+
+**Consequences.** A material costs what an image fill costs (one texture segment; batching untouched, plain scenes pay zero). Uniform scrubs re-raster only the touched material, async, stale-until-swap. The document model is additive with no schema bump — older builds render shapes without their materials and preserve the field, which is "merely not using" it (the schema.fbs doctrine). SVG export rasterizes material nodes into embedded images rather than dropping them the way BACKGROUND_BLUR is dropped today.
+
+**Revisit when.** Animated (time-uniform) materials need a render-loop design of their own; user backdrop/SDF classes wait for the island to prove itself; a WGSL-subset CPU evaluator would lift the built-ins-only twin rule if GPU-less machines turn out to matter; per-fill materials (a material per paint slot) are additive later.
+
+---
+
 ## Cross-cutting summary
 
 | ADR | Decision | Transitional? | Replacement trigger |
@@ -676,5 +692,6 @@ Masks are also read now (`mask: true` → `isMask`).
 | 027 | Bundle = folder + `<Name>.poly` manifest as the double-clickable entry point; one resolver, legacy shape still opens | No (stable) | Two documents open at once; a single-file (zip) bundle |
 | 028 | Updates check and notify, never install unsigned bytes; launch check opt-in; Sigstore provenance instead of a certificate | Yes | A code-signing certificate exists (Windows via SignPath Foundation first) |
 | 029 | `.fig` import: self-describing schema, shape from THEIR flattened geometry, native types where exact, every loss reported | Partially | Gradient transform decomposition; auto layout recreated; components imported as components |
+| 030 | Materials: island-rasterized bitmaps both backends composite; built-ins carry CPU twins; user WGSL = data with per-shader failure, loud caps, no watching | Partially | Time-uniform animation; user backdrop/SDF classes; WGSL-subset CPU evaluator; per-fill materials |
 
 The transitional decisions (001–004, 007) share one design rule: **each hides its temporary implementation behind an interface that its replacement can also implement** — the shell behind a thin IPC adapter, the engine behind SceneGraph/PatchOp/hit-test APIs, the renderer behind `IRenderer`, the file payload behind the `PFRM1` envelope, and the boolean evaluator behind non-destructive group evaluation. Replacing any of them is planned work, not archaeology.

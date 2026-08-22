@@ -2,7 +2,12 @@ import { createRoot } from 'react-dom/client'
 import { App } from './ui/App'
 import { initWasmEngine } from './engine/backend'
 import { installFontLoader } from './ui/fontloader'
+import { registerBuiltins } from './engine/materials/builtins'
 import './styles.css'
+
+// The shaders the app ships. Registered before anything can render or the
+// Inspector can list them; project shaders join at project open.
+registerBuiltins()
 
 // Load the Rust/WASM engine core in the background; engine modules stay on
 // their TS implementations until it resolves (and forever if it fails).
