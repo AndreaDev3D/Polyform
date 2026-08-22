@@ -47,6 +47,7 @@ import { SceneGraph } from './scene'
 import { booleanRings, clearBooleanCache } from './booleans'
 import { getEngineBackends, initWasmEngine, setEngineBackend, wasmHandle } from './backend'
 import { decodeRings, decodeSubPaths, encodeNetwork, encodeSubPaths } from './wasm/codec'
+import { signedDistanceField } from './materials/edt'
 import RBush from 'rbush'
 
 const N = Number(process.env.FUZZ_N ?? 1000)
@@ -717,6 +718,56 @@ describe('shapes module behind the wasm flag', () => {
       }
     } finally {
       setEngineBackend('shapes', 'ts')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Signed distance field parity (materials/edt.ts <-> distance.rs)
+// ---------------------------------------------------------------------------
+
+describe('signed distance field parity (TS <-> WASM)', () => {
+  it('is bit-identical on random masks, and signs follow the mask', () => {
+    const rand = mulberry32(0x5d15743e)
+    const rounds = Math.max(24, Math.floor(N / 40))
+    for (let round = 0; round < rounds; round++) {
+      const width = 1 + Math.floor(rand() * 48)
+      const height = 1 + Math.floor(rand() * 48)
+      const mask = new Uint8Array(width * height)
+      // Splat a few solid rectangles and ellipses so masks have real shape —
+      // pure per-pixel noise never exercises the parabola envelope deeply.
+      const splats = 1 + Math.floor(rand() * 4)
+      for (let s = 0; s < splats; s++) {
+        const cx = rand() * width
+        const cy = rand() * height
+        const rx = 1 + rand() * (width / 2)
+        const ry = 1 + rand() * (height / 2)
+        const ellipse = rand() < 0.5
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const inside = ellipse
+              ? ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1
+              : Math.abs(x - cx) <= rx && Math.abs(y - cy) <= ry
+            if (inside) mask[y * width + x] = 255
+          }
+        }
+      }
+      if (rand() < 0.2) mask.fill(0)
+      if (rand() < 0.1) mask.fill(255)
+
+      const ts = signedDistanceField(mask, width, height)
+      const rust = wasmHandle().signedDistanceField(mask, width, height) as Float32Array
+      expect(rust.length).toBe(ts.length)
+      for (let i = 0; i < ts.length; i++) {
+        if (!Object.is(ts[i], rust[i])) {
+          expect.fail(
+            `sdf[${i}] differs at ${width}x${height} round ${round}: ts=${ts[i]} rust=${rust[i]}`,
+          )
+        }
+        const solid = mask[i] > 127
+        if (solid && ts[i] > 0) expect.fail(`inside pixel ${i} has positive distance ${ts[i]}`)
+        if (!solid && ts[i] < 0) expect.fail(`outside pixel ${i} has negative distance ${ts[i]}`)
+      }
     }
   })
 })

@@ -140,6 +140,8 @@ export function polygonPath(w: number, h: number, points: number): Float64Array;
 
 export function roundedRectPath(w: number, h: number, tl: number, tr: number, br: number, bl: number): Float64Array;
 
+export function signedDistanceField(mask: Uint8Array, width: number, height: number): Float32Array;
+
 export function starPath(w: number, h: number, points: number, inner_ratio: number): Float64Array;
 
 export function subPathsToSvg(blob: Float64Array, precision: number): string;
@@ -209,6 +211,7 @@ export interface InitOutput {
     readonly scenehandle_version: (a: number) => number;
     readonly scenehandle_worldAabb: (a: number, b: number, c: number) => [number, number];
     readonly scenehandle_worldMatrix: (a: number, b: number, c: number) => [number, number];
+    readonly signedDistanceField: (a: number, b: number, c: number, d: number) => [number, number];
     readonly spatialindex_load: (a: number, b: number, c: number) => void;
     readonly spatialindex_new: () => number;
     readonly spatialindex_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];

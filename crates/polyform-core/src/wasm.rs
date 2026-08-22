@@ -558,6 +558,15 @@ pub fn tessellate_node(
 }
 
 // ---------------------------------------------------------------------------
+// Distance fields (materials/edt.ts twin)
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = signedDistanceField)]
+pub fn signed_distance_field_wasm(mask: &[u8], width: u32, height: u32) -> Vec<f32> {
+    crate::distance::signed_distance_field(mask, width as usize, height as usize)
+}
+
+// ---------------------------------------------------------------------------
 // Serialization (serialization.ts twin)
 // ---------------------------------------------------------------------------
 

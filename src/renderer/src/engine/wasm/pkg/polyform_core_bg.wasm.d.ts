@@ -52,6 +52,7 @@ export const scenehandle_undoOps: (a: number, b: number, c: number) => void;
 export const scenehandle_version: (a: number) => number;
 export const scenehandle_worldAabb: (a: number, b: number, c: number) => [number, number];
 export const scenehandle_worldMatrix: (a: number, b: number, c: number) => [number, number];
+export const signedDistanceField: (a: number, b: number, c: number, d: number) => [number, number];
 export const spatialindex_load: (a: number, b: number, c: number) => void;
 export const spatialindex_new: () => number;
 export const spatialindex_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];

@@ -9,6 +9,7 @@ pub mod booleans;
 pub mod color;
 pub mod components;
 pub mod constraints;
+pub mod distance;
 pub mod geometry;
 pub mod hit_test;
 pub mod layout;

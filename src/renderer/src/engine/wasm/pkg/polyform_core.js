@@ -853,6 +853,21 @@ export function roundedRectPath(w, h, tl, tr, br, bl) {
 }
 
 /**
+ * @param {Uint8Array} mask
+ * @param {number} width
+ * @param {number} height
+ * @returns {Float32Array}
+ */
+export function signedDistanceField(mask, width, height) {
+    const ptr0 = passArray8ToWasm0(mask, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.signedDistanceField(ptr0, len0, width, height);
+    var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
  * @param {number} w
  * @param {number} h
  * @param {number} points
