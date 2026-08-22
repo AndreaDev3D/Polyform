@@ -195,6 +195,20 @@ function randomNode(): SceneNode {
   if (rand() < 0.3) node.flipH = true
   if (rand() < 0.3) node.flipV = true
   if (rand() < 0.3 && !isNaN(0)) node.visible = rand() < 0.85
+  // Materials ride the same encode/journal paths as any node field; every
+  // uniform value kind appears so the byte-parity encode covers them all.
+  if (rand() < 0.2) {
+    node.material = {
+      shaderId: pick(['stripes', 'bevel3d', 'glass', 'project:custom']),
+      uniforms: {
+        amount: range(0, 1),
+        angle: range(-180, 180),
+        inset: rand() < 0.5,
+        tint: { r: rand(), g: rand(), b: rand(), a: rand() },
+        offset: { x: range(-10, 10), y: range(-10, 10) },
+      },
+    }
+  }
   return node
 }
 
@@ -227,6 +241,7 @@ function randomOps(scene: SceneGraph): PatchOp[] {
       { opacity: range(0, 1) },
       { name: `Renamed ${Math.floor(rand() * 1000)}` },
       { strokeWeight: range(0, 20), strokeAlign: pick(['CENTER', 'INSIDE', 'OUTSIDE']) },
+      { material: { shaderId: pick(['stripes', 'foil']), uniforms: { amount: range(0, 1) } } },
     ]
     return [makeUpdateOp(node, pick(patchPalette))]
   }

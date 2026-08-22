@@ -140,15 +140,21 @@ pub fn migrate_document(mut doc: Value) -> Value {
             .to_string();
         obj.insert("activePageId".into(), Value::String(first));
     }
+    // Key order must match the TS migrator exactly: msgpack encodes maps in
+    // insertion order and the parity gate compares the bytes. "materials" is
+    // seeded after "effects" on both sides (types.ts emptyStyles / the repair
+    // loop below), so a document migrated here and one migrated in TS encode
+    // identically.
     let styles_is_obj = obj.get("styles").map(Value::is_object).unwrap_or(false);
     if !styles_is_obj {
         let mut styles = Map::new();
         styles.insert("colors".into(), Value::Array(Vec::new()));
         styles.insert("texts".into(), Value::Array(Vec::new()));
         styles.insert("effects".into(), Value::Array(Vec::new()));
+        styles.insert("materials".into(), Value::Array(Vec::new()));
         obj.insert("styles".into(), Value::Object(styles));
     } else if let Some(styles) = obj.get_mut("styles").and_then(Value::as_object_mut) {
-        for key in ["colors", "texts", "effects"] {
+        for key in ["colors", "texts", "effects", "materials"] {
             if !styles.get(key).map(Value::is_array).unwrap_or(false) {
                 styles.insert(key.into(), Value::Array(Vec::new()));
             }
@@ -175,7 +181,7 @@ mod tests {
             "nodes": { "r1": { "id": "r1", "type": "RECTANGLE", "x": 0.5, "width": 100 } },
             "pages": [{ "id": "p1", "name": "Page 1", "rootIds": ["r1"], "guides": [], "viewport": null }],
             "activePageId": "p1",
-            "styles": { "colors": [], "texts": [], "effects": [] },
+            "styles": { "colors": [], "texts": [], "effects": [], "materials": [] },
             "libraries": []
         });
         let bytes = encode_scene(&doc, "2026-08-01T00:00:00.000Z");
@@ -198,6 +204,7 @@ mod tests {
         assert_eq!(migrated["activePageId"], migrated["pages"][0]["id"]);
         assert!(migrated.get("rootIds").is_none());
         assert_eq!(migrated["styles"]["colors"], json!([]));
+        assert_eq!(migrated["styles"]["materials"], json!([]));
         assert_eq!(migrated["libraries"], json!([]));
     }
 

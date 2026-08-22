@@ -33,6 +33,7 @@ export const ROOT_INHERITED_KEYS: (keyof ComponentNode)[] = [
   'strokeSides',
   'clipsContent',
   'layout',
+  'material',
 ]
 
 export function sanitizeOverride(props: Record<string, unknown>): Record<string, unknown> {

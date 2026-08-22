@@ -82,7 +82,13 @@
       "strokeWeight": 1,
       "strokeAlign": "INSIDE",
       "strokeDash": [],
-      "effects": []
+      "effects": [],
+      "material": {
+        "shaderId": "foil",
+        "uniforms": {
+          "angle": 35
+        }
+      }
     }
   },
   "pages": [
@@ -117,6 +123,25 @@
       }
     ],
     "texts": [],
-    "effects": []
+    "effects": [],
+    "materials": [
+      {
+        "id": "mt1",
+        "name": "Brushed Foil",
+        "shaderId": "foil",
+        "uniforms": {
+          "angle": 35,
+          "bands": 6,
+          "roughness": 0.25,
+          "inset": false,
+          "tint": {
+            "r": 1,
+            "g": 0.85,
+            "b": 0.4,
+            "a": 1
+          }
+        }
+      }
+    ]
   }
 }

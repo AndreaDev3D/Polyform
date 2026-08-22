@@ -8,6 +8,8 @@ import type {
   DocumentStyles,
   Effect,
   FrameNode,
+  MaterialRef,
+  MaterialUniformValue,
   Model3dFormat,
   Model3dNode,
   NodeId,
@@ -1384,7 +1386,7 @@ export function applyColorStyle(styleId: string): void {
   rec.commit('Apply Color Style')
 }
 
-export function detachStyle(kind: 'fill' | 'text' | 'effect'): void {
+export function detachStyle(kind: 'fill' | 'text' | 'effect' | 'material'): void {
   const scene = documentStore.scene
   const rec = new OpRecorder()
   for (const id of selectedIds()) {
@@ -1468,29 +1470,133 @@ export function applyEffectStyle(styleId: string): void {
   rec.commit('Apply Effect Style')
 }
 
-export function renameSharedStyle(kind: 'colors' | 'texts' | 'effects', styleId: string, name: string): void {
+export type SharedStyleKind = 'colors' | 'texts' | 'effects' | 'materials'
+const STYLE_REF_KEY: Record<SharedStyleKind, 'fill' | 'text' | 'effect' | 'material'> = {
+  colors: 'fill',
+  texts: 'text',
+  effects: 'effect',
+  materials: 'material',
+}
+
+export function renameSharedStyle(kind: SharedStyleKind, styleId: string, name: string): void {
   const { op } = stylesOp((s) => {
-    const style = (s[kind] as { id: string; name: string }[]).find((x) => x.id === styleId)
+    const style = ((s[kind] ?? []) as { id: string; name: string }[]).find((x) => x.id === styleId)
     if (style) style.name = name
   })
   documentStore.commit([op], 'Rename Style')
 }
 
-export function deleteSharedStyle(kind: 'colors' | 'texts' | 'effects', styleId: string): void {
+export function deleteSharedStyle(kind: SharedStyleKind, styleId: string): void {
   const scene = documentStore.scene
-  const refKey = kind === 'colors' ? 'fill' : kind === 'texts' ? 'text' : 'effect'
+  const refKey = STYLE_REF_KEY[kind]
   const { op } = stylesOp((s) => {
-    const list = s[kind] as { id: string }[]
+    const list = (s[kind] ?? []) as { id: string }[]
     const idx = list.findIndex((x) => x.id === styleId)
     if (idx >= 0) list.splice(idx, 1)
   })
   const ops: PatchOp[] = [op]
   for (const node of Object.values(scene.doc.nodes)) {
-    if (node.styleRefs?.[refKey as 'fill' | 'text' | 'effect'] === styleId) {
+    if (node.styleRefs?.[refKey] === styleId) {
       ops.push(makeUpdateOp(node, { styleRefs: { ...node.styleRefs, [refKey]: null } }))
     }
   }
   documentStore.commit(ops, 'Delete Style')
+}
+
+// ---------------------------------------------------------------------------
+// Materials (a shader + uniform values on a node; shareable like any style)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set or clear the selection's material. Setting replaces the whole MaterialRef
+ * (picking a shader starts from that shader's defaults); clearing also nulls
+ * the style ref, because a node with no material referencing a material style
+ * would be the stored-shown-ignored lie F-30 warns about.
+ */
+export function setMaterial(material: MaterialRef | null): void {
+  const scene = documentStore.scene
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node) continue
+    if (material) {
+      rec.update(id, { material: structuredClone(material) })
+    } else {
+      const patch: Record<string, unknown> = { material: undefined }
+      if (node.styleRefs?.material) patch.styleRefs = { ...node.styleRefs, material: null }
+      rec.update(id, patch)
+    }
+  }
+  rec.commit(material ? 'Set Material' : 'Remove Material')
+}
+
+/**
+ * Patch one uniform on every selected node that carries a material. Rides the
+ * normal update-op path, so a NumberInput drag coalesces to one undo entry at
+ * the commit sink like every other scrubbed property.
+ */
+export function setMaterialUniform(key: string, value: MaterialUniformValue): void {
+  const scene = documentStore.scene
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node?.material) continue
+    rec.update(id, {
+      material: {
+        shaderId: node.material.shaderId,
+        uniforms: { ...node.material.uniforms, [key]: structuredClone(value) },
+      },
+    })
+  }
+  rec.commit('Edit Material')
+}
+
+export function createMaterialStyle(name: string, material: MaterialRef): string {
+  const id = newId()
+  const { op } = stylesOp((s) => {
+    if (!Array.isArray(s.materials)) s.materials = []
+    s.materials.push({ id, name, shaderId: material.shaderId, uniforms: structuredClone(material.uniforms) })
+  })
+  documentStore.commit([op], 'Create Material Style')
+  return id
+}
+
+export function applyMaterialStyle(styleId: string): void {
+  const scene = documentStore.scene
+  const style = (scene.doc.styles.materials ?? []).find((s) => s.id === styleId)
+  if (!style) return
+  const rec = new OpRecorder()
+  for (const id of selectedIds()) {
+    const node = scene.getNode(id)
+    if (!node) continue
+    rec.update(id, {
+      material: { shaderId: style.shaderId, uniforms: structuredClone(style.uniforms) },
+      styleRefs: { ...(node.styleRefs ?? {}), material: styleId },
+    })
+  }
+  rec.commit('Apply Material Style')
+}
+
+export function updateMaterialStyle(styleId: string, material: MaterialRef): void {
+  const scene = documentStore.scene
+  const { op } = stylesOp((s) => {
+    const style = (s.materials ?? []).find((m) => m.id === styleId)
+    if (style) {
+      style.shaderId = material.shaderId
+      style.uniforms = structuredClone(material.uniforms)
+    }
+  })
+  const ops: PatchOp[] = [op]
+  for (const node of Object.values(scene.doc.nodes)) {
+    if (node.styleRefs?.material === styleId) {
+      ops.push(
+        makeUpdateOp(node, {
+          material: { shaderId: material.shaderId, uniforms: structuredClone(material.uniforms) },
+        }),
+      )
+    }
+  }
+  documentStore.commit(ops, 'Edit Material Style')
 }
 
 /** Guides are view furniture: persisted but not journaled. */

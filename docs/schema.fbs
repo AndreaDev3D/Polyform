@@ -192,6 +192,7 @@ table StyleRefs {
   fill: string;
   text: string;
   effect: string;
+  material: string;     // materials: id of a MaterialStyle
 }
 
 // v3: one overridden-property set of an instance, keyed by the component
@@ -247,6 +248,11 @@ table Node {
   constraints_v: Constraint = Min;
   is_mask: bool = false;           // clips siblings above it in its container
   style_refs: StyleRefs;
+
+  // Materials (additive, NO schema_version bump — the doctrine above: an older
+  // build renders the shape without its material and preserves the field, which
+  // is "merely not using" it, not getting it wrong).
+  material: MaterialRef;
 
   // Type-specific fields
   corner_radius: CornerRadius;      // Frame-likes / Rectangle
@@ -334,10 +340,37 @@ table EffectStyle {
   effects: [Effect];
 }
 
+// A shader instantiated with concrete uniform values (Unity's vocabulary).
+// shader_id names a built-in ("stripes", "glass", ...) or a project shader
+// ("project:<name>" from the bundle's shaders/ directory). Uniform values are
+// float | bool | color | vec2, with enums stored as option indexes; in the
+// MessagePack envelope they ride as a nested map keyed by the manifest's
+// uniform keys (same escape hatch as InstanceOverride.props_msgpack).
+table MaterialUniform {
+  key: string (key);
+  kind: byte;           // 0 float (also bool 0/1 and enum index), 1 color, 2 vec2
+  f: float;
+  color: Color;
+  vec: Vec2;
+}
+
+table MaterialRef {
+  shader_id: string;
+  uniforms: [MaterialUniform];
+}
+
+table MaterialStyle {
+  id: string (key);
+  name: string;
+  shader_id: string;
+  uniforms: [MaterialUniform];
+}
+
 table DocumentStyles {
   colors: [ColorStyle];
   texts: [TextStyle];
   effects: [EffectStyle];
+  materials: [MaterialStyle];   // seeded by the migrators like the other three
 }
 
 table AttachedLibrary {

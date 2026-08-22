@@ -89,7 +89,9 @@ export function buildJournal(scene: SceneGraph): PatchOp[][] {
   s1.height = 64
   commit([{ kind: 'add', parentId: 'p2', index: 0, node: s1 }])
 
-  // 6. register a shared color style
+  // 6. register a shared color style and a shared material style — the same
+  // styles-set op carries both collections, so one entry covers the wholesale
+  // before/after copy for each.
   const before = structuredClone(scene.doc.styles)
   const after = structuredClone(scene.doc.styles)
   after.colors.push({
@@ -97,7 +99,23 @@ export function buildJournal(scene: SceneGraph): PatchOp[][] {
     name: 'Brand/Primary',
     paint: { type: 'SOLID', color: { r: 0.4, g: 0.2, b: 0.9, a: 1 }, visible: true, opacity: 1 },
   })
+  after.materials.push({
+    id: 'mt1',
+    name: 'Brushed Foil',
+    shaderId: 'foil',
+    uniforms: { angle: 35, bands: 6, roughness: 0.25, inset: false, tint: { r: 1, g: 0.85, b: 0.4, a: 1 } },
+  })
   commit([{ kind: 'styles-set', before, after }])
+
+  // 6b. give the ellipse a material (update-op shape for the node field)
+  commit([
+    {
+      kind: 'update',
+      id: 'e1',
+      before: { material: undefined },
+      after: { material: { shaderId: 'foil', uniforms: { angle: 35 } } },
+    },
+  ])
 
   // 7. delete the rectangle (subtree removal op shape)
   commit(removeSubtreeOps(scene, 'r1'))

@@ -237,6 +237,28 @@ export interface StyleRefs {
   fill?: string | null
   text?: string | null
   effect?: string | null
+  material?: string | null
+}
+
+/**
+ * A uniform value a material can carry. Enums are number indexes into the
+ * shader manifest's options list — not strings, so the document never stores
+ * a label that a renamed manifest option would orphan.
+ */
+export type MaterialUniformValue = number | boolean | RGBA | Vec2
+
+/**
+ * A shader instantiated with concrete values — what "material" means here,
+ * and in every engine this vocabulary is borrowed from.
+ *
+ * `shaderId` names either a built-in (`stripes`, `glass`, …) or a shader from
+ * the project bundle's shaders/ directory (`project:<name>`). Uniforms hold
+ * only the keys the user has touched; the shader's manifest supplies defaults
+ * for the rest, so adding a uniform to a shader does not rewrite documents.
+ */
+export interface MaterialRef {
+  shaderId: string
+  uniforms: Record<string, MaterialUniformValue>
 }
 
 export interface BaseNode {
@@ -292,6 +314,17 @@ export interface BaseNode {
   /** Mask: clips the siblings above it within the same container. */
   isMask?: boolean
   styleRefs?: StyleRefs
+  /**
+   * The node's material — a shader plus uniform values, drawn per the
+   * shader's class (procedural/sdf after fills, base instead of them,
+   * backdrop before them). Absent means none; readers must treat null the
+   * same way, because clearing writes `undefined` through an update op (the
+   * strokeSides precedent) and the encoder stores that as null. Additive
+   * with no schema bump: an untouched node serializes byte-identically to
+   * before, and older builds open the document and simply render the shape
+   * without its material.
+   */
+  material?: MaterialRef | null
   // --- v3 fields ---
   /**
    * Inside a materialized INSTANCE subtree: the id of the component
@@ -578,10 +611,20 @@ export interface EffectStyle {
   effects: Effect[]
 }
 
+/** A named, shared material — apply-by-reference like the other style kinds. */
+export interface MaterialStyle {
+  id: string
+  name: string
+  shaderId: string
+  uniforms: Record<string, MaterialUniformValue>
+}
+
 export interface DocumentStyles {
   colors: ColorStyle[]
   texts: TextStyle[]
   effects: EffectStyle[]
+  /** Seeded by the migrators like the other three — see migrateDocument. */
+  materials: MaterialStyle[]
 }
 
 export interface AttachedLibrary {
@@ -606,7 +649,7 @@ export function createPage(name: string): Page {
 }
 
 export function emptyStyles(): DocumentStyles {
-  return { colors: [], texts: [], effects: [] }
+  return { colors: [], texts: [], effects: [], materials: [] }
 }
 
 // ---------------------------------------------------------------------------

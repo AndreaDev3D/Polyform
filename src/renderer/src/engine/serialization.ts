@@ -75,6 +75,11 @@ export function migrateDocument(doc: PolyformDocument & { rootIds?: NodeId[] }):
   if (!Array.isArray(doc.styles.colors)) doc.styles.colors = []
   if (!Array.isArray(doc.styles.texts)) doc.styles.texts = []
   if (!Array.isArray(doc.styles.effects)) doc.styles.effects = []
+  // Materials (shader + uniforms). Additive like the arc fields — no version
+  // bump, per the doctrine in schema.fbs: an older build opening a materials
+  // document renders the shapes without their materials and preserves the
+  // data, which is "merely not using" it, not getting it wrong.
+  if (!Array.isArray(doc.styles.materials)) doc.styles.materials = []
   // v3: attached libraries (optional) + component/instance node types (new
   // fields are optional, so v2 documents need no per-node rewriting).
   if (!Array.isArray(doc.libraries)) doc.libraries = []
