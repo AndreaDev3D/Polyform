@@ -1790,6 +1790,7 @@ try {
     const matBox = JSON.parse(await evaluate(`(() => {
       const boxes = [...document.querySelectorAll('button[role="combobox"]')].filter(b => b.textContent.trim() === 'None')
       if (boxes.length !== 1) return JSON.stringify({ err: 'expected one None combobox, found ' + boxes.length })
+      boxes[0].scrollIntoView({ block: 'center' })
       const r = boxes[0].getBoundingClientRect()
       return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
     })()`))
@@ -1825,6 +1826,7 @@ try {
         const angle = JSON.parse(await evaluate(`(() => {
           const sp = [...document.querySelectorAll('[data-scrub]')].find(e => (e.getAttribute('title') || '').startsWith('Angle'))
           if (!sp) return JSON.stringify({ err: 'no Angle scrub handle' })
+          sp.scrollIntoView({ block: 'center' })
           const r = sp.getBoundingClientRect()
           return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
         })()`))
@@ -1858,6 +1860,7 @@ try {
             // Exact name: the shader's own Pattern enum also reads "Stripes".
             const boxes = [...document.querySelectorAll('button[role="combobox"]')].filter(b => b.textContent.trim() === 'Stripes & Checker')
             if (boxes.length !== 1) return JSON.stringify({ err: 'expected the shader combobox, found ' + boxes.length })
+            boxes[0].scrollIntoView({ block: 'center' })
             const r = boxes[0].getBoundingClientRect()
             return JSON.stringify({ x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) })
           })()`))
