@@ -39,6 +39,16 @@ export interface ShaderManifest {
   fallback: RGBA
 }
 
+/** Class inputs a twin may read — the same data the island binds as textures. */
+export interface TwinInputs {
+  /** sdf class: signed distances, raster px, negative inside (edt.ts). */
+  sdf?: Float32Array
+  /** base class: the node's own fills, straight RGBA bytes. */
+  src?: Uint8ClampedArray
+  /** Device pixels per document unit at this raster (uniform block info.z). */
+  pxScale: number
+}
+
 /** The per-pixel CPU twin every BUILT-IN shader ships. x/y in raster pixels. */
 export type ShaderTwin = (
   x: number,
@@ -46,6 +56,7 @@ export type ShaderTwin = (
   width: number,
   height: number,
   uniforms: Record<string, MaterialUniformValue>,
+  inputs: TwinInputs,
 ) => RGBA
 
 export interface RegisteredShader {

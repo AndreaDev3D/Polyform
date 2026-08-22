@@ -20,6 +20,7 @@ import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
 import type { AssetCache } from '../assets'
+import { planMaterial, type MaterialHelpers } from '../materials/plan'
 import {
   getSnapshot,
   getStaleSnapshot,
@@ -743,6 +744,116 @@ function drawNode(
   ctx.restore()
 }
 
+// ---------------------------------------------------------------------------
+// Materials (ADR-030): the reference-side helpers and the composite step.
+//
+// Both class-input rasterizers live HERE because Canvas2D is the reference
+// renderer: the GPU backend imports these same functions, so a material's
+// mask and its base fills are computed once, one way, for both producers —
+// the "a shape computed twice comes out different" rule.
+// ---------------------------------------------------------------------------
+
+let materialScratch: OffscreenCanvas | null = null
+
+function materialScratchCtx(width: number, height: number): OffscreenCanvasRenderingContext2D | null {
+  if (typeof OffscreenCanvas !== 'function') return null
+  if (!materialScratch || materialScratch.width < width || materialScratch.height < height) {
+    materialScratch = new OffscreenCanvas(width, height)
+  }
+  const ctx = materialScratch.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.clearRect(0, 0, width, height)
+  return ctx
+}
+
+/** Coverage of the node's outline at raster size, as alpha bytes. */
+export function rasterizeNodeMask(node: SceneNode, width: number, height: number): Uint8ClampedArray | null {
+  const ctx = materialScratchCtx(width, height)
+  if (!ctx) return null
+  const outline = node.type === 'BOOLEAN' ? null : nodeOutline(node)
+  if (!outline || outline.length === 0) return null
+  ctx.setTransform(width / Math.max(1, node.width), 0, 0, height / Math.max(1, node.height), 0, 0)
+  ctx.fillStyle = '#fff'
+  const rule: CanvasFillRule = node.type === 'VECTOR' && node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
+  ctx.fill(subPathsToPath2D(outline), rule)
+  const data = ctx.getImageData(0, 0, width, height).data
+  const mask = new Uint8ClampedArray(width * height)
+  for (let i = 0; i < mask.length; i++) mask[i] = data[i * 4 + 3]
+  return mask
+}
+
+/** The node's own fills at raster size — the 'base' class input. */
+export function rasterizeNodeFills(
+  node: SceneNode,
+  width: number,
+  height: number,
+  assets: AssetCache,
+): Uint8ClampedArray | null {
+  const ctx = materialScratchCtx(width, height)
+  if (!ctx) return null
+  const outline = nodeOutline(node)
+  if (outline.length === 0) return null
+  ctx.setTransform(width / Math.max(1, node.width), 0, 0, height / Math.max(1, node.height), 0, 0)
+  const rule: CanvasFillRule = node.type === 'VECTOR' && node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
+  fillPath(ctx as unknown as CanvasRenderingContext2D, node, subPathsToPath2D(outline), rule, assets)
+  return ctx.getImageData(0, 0, width, height).data
+}
+
+function materialHelpers(assets: AssetCache): MaterialHelpers {
+  return {
+    rasterizeMask: (node, w, h) => rasterizeNodeMask(node, w, h),
+    rasterizeFills: (node, w, h) => rasterizeNodeFills(node, w, h, assets),
+  }
+}
+
+/**
+ * The material's composite step. Returns true when the material REPLACES the
+ * fill pass (the 'base' class with a raster in hand); the caller then skips
+ * fillPath. Every other outcome leaves fills to paint as usual.
+ */
+function drawMaterial(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  path: Path2D,
+  rule: CanvasFillRule,
+  deviceScale: number,
+  assets: AssetCache,
+  phase: 'replace' | 'over',
+): boolean {
+  if (!node.material) return false
+  const plan = planMaterial(node, deviceScale, materialHelpers(assets))
+  if (plan.kind === 'none' || plan.mode !== phase) return false
+  ctx.save()
+  ctx.clip(path, rule)
+  if (plan.kind === 'raster') {
+    const image = plan.raster.bitmap ?? rasterToCanvas(plan.raster)
+    if (image) ctx.drawImage(image, 0, 0, Math.max(1, node.width), Math.max(1, node.height))
+    ctx.restore()
+    return phase === 'replace'
+  }
+  if (plan.kind === 'fallback') {
+    ctx.fillStyle = rgbaToCss(plan.color, 1)
+    ctx.fill(path, rule)
+    ctx.restore()
+    return phase === 'replace'
+  }
+  ctx.restore()
+  // Pending: fills keep painting (better a flat shape for a frame or two
+  // than a blank one); the cache's onMaterialChange repaint swaps it in.
+  return false
+}
+
+/** Exports run where ImageBitmap may be missing; pixels always exist. */
+function rasterToCanvas(raster: { width: number; height: number; pixels: Uint8ClampedArray }): OffscreenCanvas | null {
+  if (typeof OffscreenCanvas !== 'function' || typeof ImageData !== 'function') return null
+  const canvas = new OffscreenCanvas(raster.width, raster.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.putImageData(new ImageData(raster.pixels as Uint8ClampedArray<ArrayBuffer>, raster.width, raster.height), 0, 0)
+  return canvas
+}
+
 /** The node's own painting, with no effect state of its own applied. */
 function drawNodeContent(
   ctx: CanvasRenderingContext2D,
@@ -758,7 +869,10 @@ function drawNodeContent(
     case 'INSTANCE': {
       const path = subPathsToPath2D(nodeOutline(node))
       applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
-      fillPath(ctx, node, path, 'nonzero', opts.assets)
+      if (!drawMaterial(ctx, node, path, 'nonzero', deviceScale, opts.assets, 'replace')) {
+        fillPath(ctx, node, path, 'nonzero', opts.assets)
+      }
+      drawMaterial(ctx, node, path, 'nonzero', deviceScale, opts.assets, 'over')
       drawInnerShadows(ctx, node, path, 'nonzero', deviceScale)
       clearShadow(ctx)
       ctx.save()
@@ -777,7 +891,10 @@ function drawNodeContent(
       if (rings.length > 0) {
         const path = ringsToPath2D(rings)
         applyBackgroundBlur(ctx, node, path, 'evenodd', deviceScale)
-        fillPath(ctx, node, path, 'evenodd', opts.assets)
+        if (!drawMaterial(ctx, node, path, 'evenodd', deviceScale, opts.assets, 'replace')) {
+          fillPath(ctx, node, path, 'evenodd', opts.assets)
+        }
+        drawMaterial(ctx, node, path, 'evenodd', deviceScale, opts.assets, 'over')
         drawInnerShadows(ctx, node, path, 'evenodd', deviceScale)
         strokePath(ctx, node, path, true)
       }
@@ -807,14 +924,17 @@ function drawNodeContent(
         // Painted parts fill one at a time; everything else is one pass over the
         // whole outline, which is both cheaper and the only way an even-odd
         // shape's holes come out as holes.
-        const groups = vectorPaintGroups(node)
-        if (groups) {
-          for (const group of groups) {
-            fillPath(ctx, node, subPathsToPath2D(group.subpaths), rule, opts.assets, group.fills)
+        if (!drawMaterial(ctx, node, path, rule, deviceScale, opts.assets, 'replace')) {
+          const groups = vectorPaintGroups(node)
+          if (groups) {
+            for (const group of groups) {
+              fillPath(ctx, node, subPathsToPath2D(group.subpaths), rule, opts.assets, group.fills)
+            }
+          } else {
+            fillPath(ctx, node, path, rule, opts.assets)
           }
-        } else {
-          fillPath(ctx, node, path, rule, opts.assets)
         }
+        drawMaterial(ctx, node, path, rule, deviceScale, opts.assets, 'over')
         drawInnerShadows(ctx, node, path, rule, deviceScale)
       }
       strokePath(ctx, node, path, hasClosed)
@@ -825,7 +945,10 @@ function drawNodeContent(
       // RECTANGLE / ELLIPSE / POLYGON / STAR
       const path = subPathsToPath2D(nodeOutline(node))
       applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
-      fillPath(ctx, node, path, 'nonzero', opts.assets)
+      if (!drawMaterial(ctx, node, path, 'nonzero', deviceScale, opts.assets, 'replace')) {
+        fillPath(ctx, node, path, 'nonzero', opts.assets)
+      }
+      drawMaterial(ctx, node, path, 'nonzero', deviceScale, opts.assets, 'over')
       drawInnerShadows(ctx, node, path, 'nonzero', deviceScale)
       strokePath(ctx, node, path, true)
       break

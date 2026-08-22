@@ -21,6 +21,8 @@ import { hitTestAll, resolveClickTarget } from '../engine/hit-test'
 import { setSelection, setStatus } from '../state/actions'
 import { setPointerScreen } from '../state/pointer'
 import { TextEditOverlay } from './TextEditOverlay'
+import { onMaterialChange } from '../engine/materials/raster-cache'
+import { installMaterialIsland } from '../engine/materials/island'
 
 /** Windows/macOS double-click windows are ~500ms; 400ms with a small slop
  *  is the usual editor compromise between responsive and accidental. */
@@ -112,6 +114,9 @@ export function CanvasView() {
     if (useGpu) {
       void WebGPURenderer.create(sceneCanvas).then((renderer) => attachGpu(renderer, false))
     }
+    // The material island is independent of the scene backend on purpose:
+    // Canvas2D mode still produces shader rasters through it (ADR-030).
+    installMaterialIsland()
 
     assetCache.onLoad = () => {
       gpu?.invalidate()
@@ -119,6 +124,12 @@ export function CanvasView() {
     }
     // 3D snapshots land asynchronously like image decodes (ADR-020).
     const unsubModels = onSnapshotChange(() => {
+      gpu?.invalidate()
+      markDirty()
+    })
+    // Material rasters land the same way (ADR-030): the island fills a miss,
+    // the cache announces it, the next frame draws the real thing.
+    const unsubMaterials = onMaterialChange(() => {
       gpu?.invalidate()
       markDirty()
     })
@@ -237,6 +248,7 @@ export function CanvasView() {
       ro.disconnect()
       unsubFonts()
       unsubModels()
+      unsubMaterials()
       unsubDoc()
       unsubEditor()
       container.removeEventListener('wheel', onWheel)

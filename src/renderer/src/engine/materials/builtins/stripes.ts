@@ -59,7 +59,7 @@ fn material(p: vec2f, size: vec2f) -> vec4f {
 }
 `,
 
-  twin: (x, y, _width, _height, uniforms) => {
+  twin: (x, y, _width, _height, uniforms, _inputs) => {
     const mode = num(uniforms.mode, 0)
     const colorA = col(uniforms.colorA, { r: 0.09, g: 0.09, b: 0.11, a: 1 })
     const colorB = col(uniforms.colorB, { r: 0.92, g: 0.92, b: 0.94, a: 1 })

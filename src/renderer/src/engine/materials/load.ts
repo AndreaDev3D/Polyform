@@ -6,6 +6,7 @@
 // registry without a window.
 
 import { loadProjectShaders } from './registry'
+import { invalidateMaterialRasters } from './raster-cache'
 
 export async function refreshProjectShaders(): Promise<void> {
   const api = (globalThis as { polyform?: { shadersList?: () => Promise<unknown> } }).polyform
@@ -16,4 +17,6 @@ export async function refreshProjectShaders(): Promise<void> {
   } catch {
     loadProjectShaders([])
   }
+  // The generation in every cache key just changed; free the memory too.
+  invalidateMaterialRasters()
 }

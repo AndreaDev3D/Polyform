@@ -102,6 +102,16 @@ export function setMaterialProducer(producer: MaterialProducer | null): void {
   islandProducer = producer
 }
 
+/**
+ * Can this shader be produced AT ALL right now? False only for a WGSL-only
+ * project shader on a machine with no island — the case that draws the
+ * manifest's declared fallback and says so (F-30), instead of pending forever.
+ */
+export function materialProductionPossible(shader: { twin?: unknown } | null): boolean {
+  if (!shader) return false
+  return islandProducer !== null || Boolean(shader.twin)
+}
+
 /** Scrubs pin the cache: evicting a slider's own working set mid-drag would
  *  make the drag re-produce what it just threw away. */
 export function holdMaterialEvictions(): () => void {
@@ -172,9 +182,10 @@ export function produceWithTwin(
 ): Uint8ClampedArray {
   const { width, height } = spec
   const out = new Uint8ClampedArray(width * height * 4)
+  const inputs = { sdf: spec.sdf, src: spec.srcPixels, pxScale: spec.pxScale }
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const c = twin!(x, y, width, height, spec.uniforms)
+      const c = twin!(x, y, width, height, spec.uniforms, inputs)
       const i = (y * width + x) * 4
       out[i] = Math.round(Math.min(1, Math.max(0, c.r)) * 255)
       out[i + 1] = Math.round(Math.min(1, Math.max(0, c.g)) * 255)

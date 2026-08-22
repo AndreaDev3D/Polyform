@@ -141,22 +141,23 @@ describe('resolveUniforms', () => {
 
 describe('the stripes twin', () => {
   const uniforms = Object.fromEntries(stripes.manifest.uniforms.map((u) => [u.key, u.default]))
+  const inputs = { pxScale: 1 }
 
   it('is deterministic and varies along exactly one axis in stripe mode', () => {
     const flat = { ...uniforms, angle: 0, softness: 0, width: 10 }
-    const a = stripes.twin!(3, 0, 100, 100, flat)
-    const b = stripes.twin!(3, 57, 100, 100, flat)
+    const a = stripes.twin!(3, 0, 100, 100, flat, inputs)
+    const b = stripes.twin!(3, 57, 100, 100, flat, inputs)
     expect(a).toEqual(b) // angle 0 stripes run vertically: y must not matter
     // sin(t·π) flips sign when t crosses 1, i.e. one full width later — the
     // opposite band at width 10 lives at x∈(10,20), not at x=8.
-    const c = stripes.twin!(13, 0, 100, 100, flat)
+    const c = stripes.twin!(13, 0, 100, 100, flat, inputs)
     expect(Math.abs(c.r - a.r)).toBeGreaterThan(0.5)
   })
 
   it('checker mode varies along both axes', () => {
     const flat = { ...uniforms, mode: 1, angle: 0, softness: 0, width: 10 }
-    const a = stripes.twin!(3, 3, 100, 100, flat)
-    const d = stripes.twin!(3, 13, 100, 100, flat)
+    const a = stripes.twin!(3, 3, 100, 100, flat, inputs)
+    const d = stripes.twin!(3, 13, 100, 100, flat, inputs)
     expect(Math.abs(d.r - a.r)).toBeGreaterThan(0.5)
   })
 })

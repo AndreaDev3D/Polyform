@@ -46,7 +46,8 @@ import { IDENTITY, matMultiply } from '../../geometry'
 import { layoutText } from '../../text'
 import { rgbaToCss } from '../../color'
 import type { RenderOptions } from '../canvas2d'
-import { drawTextInto } from '../canvas2d'
+import { drawTextInto, rasterizeNodeFills, rasterizeNodeMask } from '../canvas2d'
+import { planMaterial } from '../../materials/plan'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
 import { GlyphAtlas } from './glyphatlas'
 import { effectiveStrokeWeight, strokeSideRuns, usesSideRegion } from '../../strokesides'
@@ -351,6 +352,8 @@ export class WebGPURenderer {
 
   /** Textures by segment key ('img:<hash>' / 'txt:<key>'). */
   private textures = new Map<string, GPUTexture>()
+  /** mat: texture keys referenced by the current bake — the rest are pruned. */
+  private matKeysThisBake = new Set<string>()
   /** Bind groups resolved lazily at execute time against the CURRENT uniform buffer. */
   private textureBindGroups = new Map<string, GPUBindGroup>()
   /** Last snapshot uploaded per MODEL3D node, to detect pose changes. */
@@ -737,6 +740,7 @@ export class WebGPURenderer {
     this.bakeScene = scene
     this.bakeOpts = opts
     this.meshCache.prune(scene)
+    this.matKeysThisBake.clear()
 
     // An atlas overflow mid-bake invalidates uv refs baked before the clear
     // — rebuild once against the freshly cleared atlas; if even that
@@ -771,9 +775,67 @@ export class WebGPURenderer {
       if (attempt === 1) this.glyphFallback = true
     }
     this.hasBackdropFx = this.segments.some((s) => s.kind === 'fxQuad' && s.needsBackdrop)
+    // Material textures mirror a cache that evicts and re-keys on every
+    // uniform step; unlike image fills (keyed by immutable content hash,
+    // kept for the session) a mat: texture not referenced by THIS bake is
+    // garbage now and will never be asked for again under that key.
+    for (const [key, texture] of [...this.textures]) {
+      if (!key.startsWith('mat:') || this.matKeysThisBake.has(key)) continue
+      texture.destroy()
+      this.textures.delete(key)
+      this.textureBindGroups.delete(key)
+    }
     this.uploadArenas()
     this.uploadAtlas()
     this.preRenderFxLayers()
+  }
+
+  /**
+   * Materials (ADR-030), mirroring canvas2d's drawMaterial phase for phase:
+   * 'replace' before fills (true = skip them), 'over' after them. The plan —
+   * sizing, cache keys, class inputs — is shared with the Canvas2D backend;
+   * this side only turns the SAME bitmap into an ordinary texture segment on
+   * the node's own fill mesh, so the geometry supplies antialiasing and the
+   * batching cost is exactly an image fill's.
+   */
+  private bakeMaterialPhase(
+    node: SceneNode,
+    mesh: { positions: Float32Array; indices: Uint32Array },
+    m: Mat,
+    opacity: number,
+    blend: number,
+    phase: 'replace' | 'over',
+  ): boolean {
+    if (!node.material || mesh.indices.length === 0) return false
+    const deviceScale = zoomBucket(this.bakeOpts.camera.zoom) * this.bakeOpts.dpr
+    const plan = planMaterial(node, deviceScale, {
+      rasterizeMask: (n, w, h) => rasterizeNodeMask(n, w, h),
+      rasterizeFills: (n, w, h) => rasterizeNodeFills(n, w, h, this.bakeOpts.assets),
+    })
+    if (plan.kind === 'none' || plan.mode !== phase) return false
+    if (plan.kind === 'fallback') {
+      const c = plan.color
+      this.appendSolid(mesh.positions, mesh.indices, m, [c.r, c.g, c.b, c.a * opacity], blend)
+      return phase === 'replace'
+    }
+    if (plan.kind !== 'raster' || !plan.raster.bitmap) {
+      // Pending (or a bitmap-less environment): fills keep painting; the
+      // cache's onMaterialChange invalidates and the next bake swaps it in.
+      return false
+    }
+    this.endBatch()
+    const texKey = `mat:${plan.key}`
+    this.matKeysThisBake.add(texKey)
+    this.ensureTexture(texKey, plan.raster.bitmap)
+    const loc = this.appendLocalMesh(mesh.positions, mesh.indices)
+    const offset = this.allocUniform(TEXTURE_UNIFORM_SIZE)
+    const f = new Float32Array(this.uniformData.buffer, offset, TEXTURE_UNIFORM_SIZE / 4)
+    // The raster maps 1:1 onto the node's local box: uv = local / size.
+    f.set([m.a, m.b, m.c, m.d, m.e, m.f, opacity, 0], 0)
+    f.set([1 / Math.max(1e-6, node.width), 1 / Math.max(1e-6, node.height), 0, 0], 8)
+    f.set([1, 1, 1, 0], 12)
+    this.segments.push({ kind: 'texture', blend, uniformOffset: offset, texKey, ...loc })
+    return phase === 'replace'
   }
 
   private endSolidBatch(): void {
@@ -1293,6 +1355,11 @@ export class WebGPURenderer {
   }
 
   private bakeFills(node: SceneNode, mesh: NodeMesh, m: Mat, opacity: number, blend: number): void {
+    const fillMesh = { positions: mesh.fillPositions, indices: mesh.fillIndices }
+    if (this.bakeMaterialPhase(node, fillMesh, m, opacity, blend, 'replace')) {
+      this.bakeMaterialPhase(node, fillMesh, m, opacity, blend, 'over')
+      return
+    }
     // A vector whose parts are painted separately: one mesh and one paint pass
     // per group, in the same order Canvas2D fills them, so the two agree where
     // painted parts overlap.
@@ -1312,12 +1379,14 @@ export class WebGPURenderer {
           this.bakeFillPaint(node, paint, partMesh, m, opacity, blend)
         }
       }
+      this.bakeMaterialPhase(node, fillMesh, m, opacity, blend, 'over')
       return
     }
     for (const paint of node.fills) {
       if (!paint.visible) continue
       this.bakeFillPaint(node, paint, mesh, m, opacity, blend)
     }
+    this.bakeMaterialPhase(node, fillMesh, m, opacity, blend, 'over')
   }
 
   /**

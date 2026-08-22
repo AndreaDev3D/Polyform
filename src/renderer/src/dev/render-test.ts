@@ -19,6 +19,18 @@ import { WebGPURenderer } from '../engine/render/webgpu/renderer'
 import { assetCache } from '../engine/assets'
 import { initWasmEngine, setEngineBackend, type BackendKind } from '../engine/backend'
 import { preloadFont } from '../ui/fontloader'
+import { registerBuiltins } from '../engine/materials/builtins'
+import { installMaterialIsland } from '../engine/materials/island'
+import { getShader, resolveUniforms } from '../engine/materials/registry'
+import {
+  getMaterialRaster,
+  produceWithTwin,
+  requestMaterialRaster,
+  resetMaterialCacheForTests,
+  settleMaterials,
+  type MaterialRasterSpec,
+} from '../engine/materials/raster-cache'
+import { signedDistanceField } from '../engine/materials/edt'
 
 const W = 640
 const H = 480
@@ -888,6 +900,99 @@ const FIXTURES: Fixture[] = [
       })
     },
   },
+  // -------------------------------------------------------------------------
+  // Materials (ADR-030). Both backends composite the SAME cached bitmap, so
+  // the honest divergence left is edge AA: mesh coverage (GPU) vs Path2D clip
+  // (2D). Limits sit just above the plain-shape fixtures for that reason —
+  // 0.02 would pass today, but a threshold with no headroom fails on the next
+  // tessellation-tolerance tweak instead of on a real regression (F-35).
+  {
+    name: 'material-stripes',
+    badLimit: 0.025,
+    build: (s) => {
+      make(s, 'RECTANGLE', null, {
+        x: 40, y: 40, width: 240, height: 160,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.2, g: 0.2, b: 0.25, a: 1 } }],
+        material: { shaderId: 'stripes', uniforms: { angle: 30, width: 18 } },
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 330, y: 60, width: 200, height: 200,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 1 } }],
+        material: {
+          shaderId: 'stripes',
+          uniforms: {
+            mode: 1, width: 26, angle: 0, softness: 0.3,
+            colorA: { r: 0.9, g: 0.35, b: 0.2, a: 1 }, colorB: { r: 0.15, g: 0.2, b: 0.6, a: 0.85 },
+          },
+        },
+      })
+      // Rotated + translucent stripes over a visible fill: the 'over' phase
+      // has to composite against the node's own paint, not replace it.
+      make(s, 'RECTANGLE', null, {
+        x: 120, y: 260, width: 300, height: 150, rotation: 20,
+        cornerRadius: { tl: 24, tr: 24, br: 24, bl: 24 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.1, g: 0.5, b: 0.4, a: 1 } }],
+        material: {
+          shaderId: 'stripes',
+          uniforms: { width: 12, angle: 90, colorB: { r: 1, g: 1, b: 1, a: 0.5 }, colorA: { r: 0, g: 0, b: 0, a: 0 } },
+        },
+      })
+    },
+  },
+  {
+    name: 'material-bevel',
+    badLimit: 0.03,
+    build: (s) => {
+      make(s, 'RECTANGLE', null, {
+        x: 60, y: 60, width: 220, height: 160,
+        cornerRadius: { tl: 30, tr: 30, br: 30, bl: 30 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.25, g: 0.45, b: 0.85, a: 1 } }],
+        material: { shaderId: 'bevel3d', uniforms: { depth: 18, lightAngle: -45 } },
+      })
+      make(s, 'STAR', null, {
+        x: 330, y: 50, width: 220, height: 220,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.9, g: 0.7, b: 0.2, a: 1 } }],
+        material: { shaderId: 'bevel3d', uniforms: { depth: 10, lightAngle: 120, profile: 1 } },
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 120, y: 280, width: 180, height: 140,
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 0.5, g: 0.3, b: 0.6, a: 1 } }],
+        material: { shaderId: 'bevel3d', uniforms: { depth: 30, profile: 2, intensity: 1 } },
+      })
+    },
+  },
+  {
+    name: 'material-pixelate',
+    badLimit: 0.03,
+    build: (s) => {
+      // 'base' replaces the fills with a transform OF them — a gradient
+      // underneath proves the src raster really carried the node's paint.
+      make(s, 'RECTANGLE', null, {
+        x: 50, y: 50, width: 260, height: 180,
+        fills: [{
+          type: 'GRADIENT_LINEAR', visible: true, opacity: 1,
+          start: { x: 0, y: 0 }, end: { x: 1, y: 1 },
+          stops: [
+            { position: 0, color: { r: 1, g: 0.2, b: 0.2, a: 1 } },
+            { position: 1, color: { r: 0.1, g: 0.3, b: 1, a: 1 } },
+          ],
+        }],
+        material: { shaderId: 'pixelate', uniforms: { cell: 16 } },
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 360, y: 80, width: 200, height: 200,
+        fills: [{
+          type: 'GRADIENT_RADIAL', visible: true, opacity: 1,
+          start: { x: 0.5, y: 0.5 }, end: { x: 1, y: 0.5 },
+          stops: [
+            { position: 0, color: { r: 1, g: 1, b: 0.4, a: 1 } },
+            { position: 1, color: { r: 0.6, g: 0.1, b: 0.5, a: 1 } },
+          ],
+        }],
+        material: { shaderId: 'pixelate', uniforms: { cell: 9 } },
+      })
+    },
+  },
 ]
 
 function renderCanvas2d(scene: SceneGraph, opts: RenderOptions): Uint8ClampedArray {
@@ -929,6 +1034,11 @@ async function runParity(gpu: WebGPURenderer): Promise<boolean> {
       assets: assetCache,
       background: '#1e1e1e',
     }
+    // Materials produce asynchronously (island or twin). The first render
+    // fires the requests; settle, then render the frames that are compared.
+    // Fixtures without materials settle instantly, so everyone pays nothing.
+    renderCanvas2d(scene, opts)
+    await settleMaterials()
     const reference = renderCanvas2d(scene, opts)
     gpu.invalidate()
     gpu.render(scene, opts)
@@ -1004,10 +1114,94 @@ async function runPerf(gpu: WebGPURenderer): Promise<void> {
   )
 }
 
+
+/**
+ * The producer gate: for every built-in with a twin, rasterize once through
+ * the ISLAND (real WGSL on the real GPU) and once through the TS twin, and
+ * hold them to a far tighter budget than the scene fixtures — same pixels in,
+ * same arithmetic, so only float rounding may differ. This is what "the twin
+ * is the same shader in another language" means when it is machine-checked.
+ */
+async function runProducerDiff(): Promise<boolean> {
+  let allPass = true
+  const size = 128
+
+  // Shared class inputs: a rounded-square mask for sdf, a two-tone diagonal
+  // for base. Synthetic, deterministic, edge-rich.
+  const mask = new Uint8ClampedArray(size * size)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const inX = x >= 16 && x < size - 16
+      const inY = y >= 24 && y < size - 24
+      mask[y * size + x] = inX && inY ? 255 : 0
+    }
+  }
+  const sdf = signedDistanceField(mask, size, size)
+  const src = new Uint8ClampedArray(size * size * 4)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const t = (x + y) / (2 * size)
+      src[i] = Math.round(255 * t)
+      src[i + 1] = 64
+      src[i + 2] = Math.round(255 * (1 - t))
+      src[i + 3] = 255
+    }
+  }
+
+  for (const shaderId of ['stripes', 'bevel3d', 'pixelate']) {
+    const shader = getShader(shaderId)
+    if (!shader?.twin) continue
+    const manifest = shader.manifest
+    const spec: MaterialRasterSpec = {
+      shaderId,
+      uniforms: resolveUniforms(manifest, { shaderId, uniforms: {} }),
+      width: size,
+      height: size,
+      pxScale: 1,
+      classKey: 'producer-diff',
+      sdf: manifest.class === 'sdf' ? sdf : undefined,
+      srcPixels: manifest.class === 'base' ? src : undefined,
+    }
+    const twinPixels = produceWithTwin(manifest, spec, shader.twin)
+
+    resetMaterialCacheForTests()
+    installMaterialIsland()
+    const key = requestMaterialRaster(spec)
+    await settleMaterials()
+    const islandRaster = key ? getMaterialRaster(key) : null
+    if (!islandRaster) {
+      log(`producer ${shaderId}: island produced nothing — FAIL`)
+      allPass = false
+      continue
+    }
+    let bad = 0
+    for (let i = 0; i < size * size; i++) {
+      const o = i * 4
+      const d = Math.max(
+        Math.abs(twinPixels[o] - islandRaster.pixels[o]),
+        Math.abs(twinPixels[o + 1] - islandRaster.pixels[o + 1]),
+        Math.abs(twinPixels[o + 2] - islandRaster.pixels[o + 2]),
+        Math.abs(twinPixels[o + 3] - islandRaster.pixels[o + 3]),
+      )
+      if (d > 24) bad++
+    }
+    const frac = bad / (size * size)
+    const pass = frac <= 0.015
+    allPass = allPass && pass
+    log(`producer ${shaderId}: twin-vs-island badPixels=${(frac * 100).toFixed(2)}% limit=1.5% ${pass ? 'PASS' : 'FAIL'}`)
+  }
+  resetMaterialCacheForTests()
+  installMaterialIsland()
+  return allPass
+}
+
 export async function runRenderTest(): Promise<void> {
   try {
     log('starting')
     await initWasmEngine()
+    registerBuiltins()
+    installMaterialIsland()
     // Shaped-text fixtures need Arial's bytes in the engine before baking.
     await preloadFont('Arial')
     if (!WebGPURenderer.isSupported()) {
@@ -1028,9 +1222,10 @@ export async function runRenderTest(): Promise<void> {
       return
     }
     log(`adapter: ${gpu.adapterInfo || 'unknown'}`)
+    const producerOk = await runProducerDiff()
     const parityOk = await runParity(gpu)
     await runPerf(gpu)
-    log(`RENDER_TEST_DONE result=${parityOk ? 'PASS' : 'FAIL'}`)
+    log(`RENDER_TEST_DONE result=${producerOk && parityOk ? 'PASS' : 'FAIL'}`)
   } catch (err) {
     log(`FATAL ${String(err)} ${(err as Error).stack?.split('\n')[1] ?? ''}`)
     log('RENDER_TEST_DONE result=FAIL')
