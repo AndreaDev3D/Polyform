@@ -343,8 +343,10 @@ jobs:
       TAG: v${{ needs.decide.outputs.version }}
       CHANNEL: ${{ needs.decide.outputs.channel }}
     permissions:
-      # The only write in either workflow, and only for a release.
+      # The only writes in either workflow, and only for a release. `actions`
+      # is for the one dispatch below — poking the Pages build after a beta.
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # ONLY this workflow's artifacts. Without the pattern it also downloads the
@@ -464,6 +466,18 @@ jobs:
       - name: Update feed answers the way the app will ask
         if: needs.decide.outputs.channel == 'beta'
         run: npm run test:feed -- --repo "$GITHUB_REPOSITORY" --expect-version "${{ needs.decide.outputs.version }}"
+      # The website's download buttons follow releases via pages.yml's
+      # `release: published` trigger — which never fires for THIS publish,
+      # because events created with a workflow's own GITHUB_TOKEN do not
+      # trigger workflows (the same recursion guard the tag note at the top
+      # explains). A human publishing the stable draft fires it; the betas
+      # this job publishes do not, so poke the build explicitly. Dispatch is
+      # exempt from the guard. --ref production: the site deploys from there.
+      - name: Refresh the website's download buttons
+        if: needs.decide.outputs.channel == 'beta'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --ref production || echo "pages dispatch failed — the site stays on the previous beta until the next push"
       - name: Prune old betas
         if: needs.decide.outputs.channel == 'beta'
         env:
