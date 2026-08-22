@@ -20,7 +20,7 @@ import { layoutText } from '../text'
 import { glyphOutline } from '../glyphs'
 import { rgbaToCss } from '../color'
 import type { AssetCache } from '../assets'
-import { planMaterial, type MaterialHelpers } from '../materials/plan'
+import { glassParamsFor, planMaterial, type MaterialHelpers } from '../materials/plan'
 import {
   getSnapshot,
   getStaleSnapshot,
@@ -422,6 +422,56 @@ function applyBackgroundBlur(
     /* zero-sized canvas edge cases */
   }
   ctx.restore()
+}
+
+
+/**
+ * Glassmorphism (backdrop-class material, ADR-030) — the Canvas2D twin of
+ * FX mode 15, in the applyBackgroundBlur position and idiom: device-space
+ * self-draw through ctx.filter (blur + saturate), then the tint, then the
+ * edge highlight as a clipped double-width stroke (= an inside band of
+ * edgeWidth). Noise is deliberately GPU-only: its amplitude is capped at
+ * 0.08 in the manifest, at most ±10/255 per channel — under the parity
+ * threshold — and a fake matching noise field would be a lie with extra
+ * steps. Cost is the F-16 class: one full-canvas self-draw per glass node.
+ */
+function applyGlassMaterial(
+  ctx: CanvasRenderingContext2D,
+  node: SceneNode,
+  path: Path2D,
+  fillRule: CanvasFillRule,
+  deviceScale: number,
+): void {
+  const glass = glassParamsFor(node)
+  if (!glass) return
+  ctx.save()
+  const devicePath = new Path2D()
+  devicePath.addPath(path, ctx.getTransform())
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  clearShadow(ctx)
+  ctx.globalAlpha = 1
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.clip(devicePath, fillRule)
+  ctx.filter = `blur(${glass.blur * deviceScale}px) saturate(${glass.saturation})`
+  try {
+    ctx.drawImage(ctx.canvas, 0, 0)
+  } catch {
+    /* zero-sized canvas edge cases */
+  }
+  ctx.filter = 'none'
+  if (glass.tint.a > 0) {
+    ctx.fillStyle = rgbaToCss(glass.tint, 1)
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  }
+  ctx.restore()
+  if (glass.edgeWidth > 0 && glass.edgeIntensity > 0) {
+    ctx.save()
+    ctx.clip(path, fillRule)
+    ctx.strokeStyle = rgbaToCss(glass.edgeColor, glass.edgeIntensity)
+    ctx.lineWidth = glass.edgeWidth * 2
+    ctx.stroke(path)
+    ctx.restore()
+  }
 }
 
 function drawText(ctx: CanvasRenderingContext2D, node: Extract<SceneNode, { type: 'TEXT' }>): void {
@@ -869,6 +919,7 @@ function drawNodeContent(
     case 'INSTANCE': {
       const path = subPathsToPath2D(nodeOutline(node))
       applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
+      applyGlassMaterial(ctx, node, path, 'nonzero', deviceScale)
       if (!drawMaterial(ctx, node, path, 'nonzero', deviceScale, opts.assets, 'replace')) {
         fillPath(ctx, node, path, 'nonzero', opts.assets)
       }
@@ -891,6 +942,7 @@ function drawNodeContent(
       if (rings.length > 0) {
         const path = ringsToPath2D(rings)
         applyBackgroundBlur(ctx, node, path, 'evenodd', deviceScale)
+        applyGlassMaterial(ctx, node, path, 'evenodd', deviceScale)
         if (!drawMaterial(ctx, node, path, 'evenodd', deviceScale, opts.assets, 'replace')) {
           fillPath(ctx, node, path, 'evenodd', opts.assets)
         }
@@ -921,6 +973,7 @@ function drawNodeContent(
       const rule: CanvasFillRule = node.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
       if (hasClosed) {
         applyBackgroundBlur(ctx, node, path, rule, deviceScale)
+        applyGlassMaterial(ctx, node, path, rule, deviceScale)
         // Painted parts fill one at a time; everything else is one pass over the
         // whole outline, which is both cheaper and the only way an even-odd
         // shape's holes come out as holes.
@@ -945,6 +998,7 @@ function drawNodeContent(
       // RECTANGLE / ELLIPSE / POLYGON / STAR
       const path = subPathsToPath2D(nodeOutline(node))
       applyBackgroundBlur(ctx, node, path, 'nonzero', deviceScale)
+      applyGlassMaterial(ctx, node, path, 'nonzero', deviceScale)
       if (!drawMaterial(ctx, node, path, 'nonzero', deviceScale, opts.assets, 'replace')) {
         fillPath(ctx, node, path, 'nonzero', opts.assets)
       }

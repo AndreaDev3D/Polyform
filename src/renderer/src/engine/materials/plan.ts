@@ -132,6 +132,44 @@ export function planMaterial(node: SceneNode, deviceScale: number, helpers: Mate
   return { kind: 'pending', mode }
 }
 
+export interface GlassParams {
+  blur: number
+  tint: RGBA
+  saturation: number
+  edgeWidth: number
+  edgeColor: RGBA
+  edgeIntensity: number
+  noise: number
+  /** Stable per node, so the grain does not crawl between frames. */
+  seed: number
+}
+
+/**
+ * The backdrop class resolves HERE, once, for both renderers — the GPU's
+ * mode-15 pass and Canvas2D's self-draw read the same numbers or they read
+ * nothing. Returns null unless the node wears a ready backdrop shader.
+ */
+export function glassParamsFor(node: SceneNode): GlassParams | null {
+  const material = node.material
+  if (!material) return null
+  const shader = getShader(material.shaderId)
+  if (!shader || shader.manifest.class !== 'backdrop') return null
+  if (shaderStatus(material.shaderId).kind !== 'ready') return null
+  const u = resolveUniforms(shader.manifest, material)
+  let seed = 5381
+  for (let i = 0; i < node.id.length; i++) seed = ((seed << 5) + seed + node.id.charCodeAt(i)) | 0
+  return {
+    blur: u.blur as number,
+    tint: u.tint as RGBA,
+    saturation: u.saturation as number,
+    edgeWidth: u.edgeWidth as number,
+    edgeColor: u.edgeColor as RGBA,
+    edgeIntensity: u.edgeIntensity as number,
+    noise: u.noise as number,
+    seed: (seed >>> 0) % 4096,
+  }
+}
+
 /** Key preview for cache-coherence tests. */
 export function planKeyFor(node: SceneNode, deviceScale: number): string | null {
   const material = node.material

@@ -372,7 +372,10 @@ struct FxUniform {
   mat1: vec4<f32>,   // e, f, opacity, mode
   // layer-texture mapping: uv = (world - origin) * uv_scale
   origin_scale: vec4<f32>,
-  _pad: vec4<f32>,
+  // glass (mode 15): tint rgb + tint strength
+  glass0: vec4<f32>,
+  // glass (mode 15): saturation, noise amplitude, seed, unused
+  glass1: vec4<f32>,
 }
 @group(1) @binding(0) var<uniform> fx_u: FxUniform;
 @group(1) @binding(1) var samp: sampler;
@@ -480,6 +483,18 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
   if (mode == 1u) {
     // Blurred backdrop, opaque inside the mask geometry.
     return vec4<f32>(bd.rgb, 1.0);
+  }
+  if (mode == 15u) {
+    // Glassmorphism (ADR-030): the blurred backdrop, saturated around luma,
+    // tinted, plus mean-zero hash grain. Opaque inside the mask geometry,
+    // like mode 1 — the node's own fills then paint above.
+    var rgb = bd.rgb;
+    let l = dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    rgb = clamp(vec3<f32>(l) + (rgb - vec3<f32>(l)) * fx_u.glass1.x, vec3<f32>(0.0), vec3<f32>(1.0));
+    rgb = mix(rgb, fx_u.glass0.rgb, fx_u.glass0.a);
+    let n = fract(sin(dot(floor(in.pos.xy) + vec2<f32>(fx_u.glass1.z), vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
+    rgb = clamp(rgb + vec3<f32>(n * fx_u.glass1.y), vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(rgb, 1.0);
   }
   let as_ = lc.a * edge * opacity;
   let cs = lc.rgb / max(lc.a, 1e-5);

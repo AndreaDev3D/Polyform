@@ -47,7 +47,7 @@ import { layoutText } from '../../text'
 import { rgbaToCss } from '../../color'
 import type { RenderOptions } from '../canvas2d'
 import { drawTextInto, rasterizeNodeFills, rasterizeNodeMask } from '../canvas2d'
-import { planMaterial } from '../../materials/plan'
+import { glassParamsFor, planMaterial } from '../../materials/plan'
 import { MeshCache, zoomBucket, type NodeMesh } from './meshcache'
 import { GlyphAtlas } from './glyphatlas'
 import { effectiveStrokeWeight, strokeSideRuns, usesSideRegion } from '../../strokesides'
@@ -68,7 +68,7 @@ import {
 const UNIFORM_ALIGN = 256
 const GRADIENT_UNIFORM_SIZE = 224 // 6 vec4 + 8 color vec4 = 14 * 16
 const TEXTURE_UNIFORM_SIZE = 64
-const FX_UNIFORM_SIZE = 64
+const FX_UNIFORM_SIZE = 96
 const BLUR_UNIFORM_SIZE = 48
 const MAX_LAYER_TEX = 2048
 
@@ -1575,6 +1575,8 @@ export class WebGPURenderer {
     radiusWorld?: number
     needsBackdrop: boolean
     fallback?: boolean
+    /** mode 15: tint rgba (a = strength), saturation, noise amplitude, seed. */
+    glass?: { tint: [number, number, number, number]; saturation: number; noise: number; seed: number }
   }): void {
     this.endBatch()
     let loc: { firstVertex: number; firstIndex: number; indexCount: number }
@@ -1594,6 +1596,10 @@ export class WebGPURenderer {
       const f = new Float32Array(this.uniformData.buffer, offset, FX_UNIFORM_SIZE / 4)
       f.set([m.a, m.b, m.c, m.d, m.e, m.f, args.opacity, mode], 0)
       f.set([args.origin[0], args.origin[1], args.uvScale[0], args.uvScale[1]], 8)
+      if (args.glass) {
+        f.set(args.glass.tint, 12)
+        f.set([args.glass.saturation, args.glass.noise, args.glass.seed, 0], 16)
+      }
       return offset
     }
     const uniformOffset = writeUniform(args.mode)
@@ -1671,7 +1677,12 @@ export class WebGPURenderer {
     }
     const isolate = layerBlurRadius > 0 || fxBlendMode >= 0
 
-    if (!shadowCaster && inners.length === 0 && !isolate && (!bgBlur || !geometric || inLayer)) {
+    // Glass (backdrop-class material, ADR-030) rides the same pass split as
+    // background blur, so a node wearing it takes the effect path even with
+    // no effects of its own.
+    const glassParams = !inLayer && geometric ? glassParamsFor(node) : null
+
+    if (!shadowCaster && inners.length === 0 && !isolate && !glassParams && (!bgBlur || !geometric || inLayer)) {
       this.bakeNodePlain(node, m, opacity, blend, inLayer)
       return
     }
@@ -1697,6 +1708,46 @@ export class WebGPURenderer {
         radiusWorld: bgBlur.type === 'BACKGROUND_BLUR' ? bgBlur.radius : 0,
         needsBackdrop: true,
       })
+    }
+
+    // 1b. Glass, in the same below-everything slot (reference order: the
+    // Canvas2D twin runs beside applyBackgroundBlur). Blurred+saturated+
+    // tinted backdrop through FX mode 15 on the node's own fill mesh, then
+    // the edge highlight as an INSIDE stroke band — offset geometry rather
+    // than a stencil clip: for a 1-2px translucent rim the corner error is
+    // sub-threshold, and it keeps the rim off the stencil stack.
+    if (glassParams && mesh && mesh.fillIndices.length > 0) {
+      const t = glassParams.tint
+      this.emitFxQuad({
+        mode: 15,
+        layerKey: null,
+        geom: { kind: 'mesh', positions: mesh.fillPositions, indices: mesh.fillIndices, m },
+        opacity: 1,
+        origin: [0, 0],
+        uvScale: [0, 0],
+        radiusWorld: glassParams.blur,
+        needsBackdrop: true,
+        glass: {
+          tint: [t.r, t.g, t.b, t.a],
+          saturation: glassParams.saturation,
+          noise: glassParams.noise,
+          seed: glassParams.seed,
+        },
+      })
+      if (glassParams.edgeWidth > 0 && glassParams.edgeIntensity > 0) {
+        const proxy = { ...node, strokeAlign: 'INSIDE', strokeDash: [] } as SceneNode
+        const band = this.meshCache.getStrokeAt(scene, proxy, zoom, glassParams.edgeWidth)
+        if (band.strokeIndices.length > 0) {
+          const ec = glassParams.edgeColor
+          this.appendSolid(
+            band.strokePositions,
+            band.strokeIndices,
+            m,
+            [ec.r, ec.g, ec.b, ec.a * glassParams.edgeIntensity * opacity],
+            blend,
+          )
+        }
+      }
     }
 
     // 2. Drop shadow composite (layer range patched after the caster bakes).
@@ -2142,7 +2193,7 @@ export class WebGPURenderer {
     // the live zoom, so they are written every frame).
     for (let i = 0; i < this.segments.length; i++) {
       const seg = this.segments[i]
-      if (seg.kind === 'fxQuad' && seg.mode === 1) {
+      if (seg.kind === 'fxQuad' && (seg.mode === 1 || seg.mode === 15)) {
         const mk = () =>
           device.createBuffer({
             size: BLUR_UNIFORM_SIZE,
@@ -2355,7 +2406,7 @@ export class WebGPURenderer {
     const layerTex = seg.layerKey ? this.fxTextures.get(seg.layerKey) : null
     if (seg.layerKey && !layerTex) return null
     const backdrop =
-      seg.mode === 1 ? this.pingB : seg.mode >= 2 ? this.backdropTex : this.dummyTex
+      seg.mode === 1 || seg.mode === 15 ? this.pingB : seg.mode >= 2 ? this.backdropTex : this.dummyTex
     const bg = this.device.createBindGroup({
       layout: this.fxLayout,
       entries: [
@@ -2446,7 +2497,7 @@ export class WebGPURenderer {
       case 'fxQuad': {
         // Backdrop-dependent draws cannot run inside a replay: background
         // blur is skipped; exotic blends composite via their mode-0 twin.
-        if (ctx.replay && seg.mode === 1) break
+        if (ctx.replay && (seg.mode === 1 || seg.mode === 15)) break
         const useFallback = ctx.replay && seg.needsBackdrop && seg.fallbackUniformOffset >= 0
         const bg = this.fxQuadBindGroup(seg)
         if (!bg) break
@@ -2581,7 +2632,7 @@ export class WebGPURenderer {
           { texture: this.backdropTex! },
           [dw, dh],
         )
-        if (seg.mode === 1) {
+        if (seg.mode === 1 || seg.mode === 15) {
           const f = this.frameFx.get(i)
           if (f) {
             let bgs = this.frameFxBindGroups.get(i)

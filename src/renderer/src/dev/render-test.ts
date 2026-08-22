@@ -993,6 +993,48 @@ const FIXTURES: Fixture[] = [
       })
     },
   },
+  {
+    name: 'material-glass',
+    // The blur-approximation class (Chromium's triple-box-blur vs the GPU's
+    // direct gaussian), deliberately stressed with hard-edged backdrop
+    // content — measured 5.9% on the day it landed, so 6.0 would be a
+    // threshold with no room to drift (F-35). A real glass regression reads
+    // 30%+; 7.5 catches that while surviving a Chromium blur-kernel tweak.
+    badLimit: 0.075,
+    build: (s) => {
+      // A busy backdrop, so the blur has real content to smear.
+      for (let i = 0; i < 12; i++) {
+        make(s, 'RECTANGLE', null, {
+          x: (i % 4) * 160, y: Math.floor(i / 4) * 160, width: 150, height: 150,
+          rotation: (i * 37) % 90,
+          fills: [{
+            type: 'SOLID', visible: true, opacity: 1,
+            color: { r: (i * 0.23) % 1, g: (i * 0.53) % 1, b: (i * 0.83) % 1, a: 1 },
+          }],
+        })
+      }
+      make(s, 'RECTANGLE', null, {
+        x: 80, y: 90, width: 300, height: 200,
+        cornerRadius: { tl: 28, tr: 28, br: 28, bl: 28 },
+        fills: [{ type: 'SOLID', visible: true, opacity: 1, color: { r: 1, g: 1, b: 1, a: 0.08 } }],
+        material: {
+          shaderId: 'glass',
+          uniforms: { blur: 12, noise: 0, tint: { r: 1, g: 1, b: 1, a: 0.15 } },
+        },
+      })
+      make(s, 'ELLIPSE', null, {
+        x: 340, y: 200, width: 220, height: 220,
+        fills: [],
+        material: {
+          shaderId: 'glass',
+          uniforms: {
+            blur: 24, saturation: 1.5, edgeWidth: 3, edgeIntensity: 0.8, noise: 0,
+            tint: { r: 0.4, g: 0.7, b: 1, a: 0.2 },
+          },
+        },
+      })
+    },
+  },
 ]
 
 function renderCanvas2d(scene: SceneGraph, opts: RenderOptions): Uint8ClampedArray {

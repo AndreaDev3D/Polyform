@@ -7,6 +7,7 @@ import { registerBuiltin } from '../registry'
 import { stripes } from './stripes'
 import { bevel3d } from './bevel3d'
 import { pixelate } from './pixelate'
+import { glass } from './glass'
 
 let registered = false
 
@@ -16,4 +17,5 @@ export function registerBuiltins(): void {
   registerBuiltin(stripes)
   registerBuiltin(bevel3d)
   registerBuiltin(pixelate)
+  registerBuiltin(glass)
 }
